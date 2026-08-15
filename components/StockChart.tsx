@@ -13,10 +13,12 @@ import {
   type CandlestickData,
   type LineData,
   type Time,
+  type UTCTimestamp,
 } from "lightweight-charts";
 
-interface DailyPrice {
-  date: string;
+interface RawBar {
+  date?: string;
+  time?: number;
   open: number;
   high: number;
   low: number;
@@ -24,18 +26,41 @@ interface DailyPrice {
   volume: number;
 }
 
-type Period = "D" | "W" | "M";
+interface Bar {
+  time: Time;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+type Period = "min" | "D" | "W" | "M" | "Y";
 
 const PERIOD_LABELS: Record<Period, string> = {
+  min: "분봉",
   D: "일봉",
   W: "주봉",
   M: "월봉",
+  Y: "년봉",
 };
 
-const MA_SHORT = 5;
-const MA_LONG = 20;
+const MINUTE_INTERVALS = [1, 3, 5, 10, 15, 30, 60] as const;
+const DEFAULT_MINUTE_INTERVAL = 10;
+
+// 상장 후 전체를 한 번에 보여주면 처음엔 너무 눌려 보이므로, 봉 종류별로
+// 보기 편한 최근 구간만 먼저 보여준다. (스크롤/확대로 전체 기록은 그대로 볼 수 있음)
+const INITIAL_VISIBLE_BARS: Partial<Record<Period, number>> = {
+  D: 42, // 약 2개월(거래일 기준)
+  W: 52, // 약 1년
+  M: 36, // 약 3년
+};
+
+const MA_PERIODS = [5, 20, 60, 112, 224, 448] as const;
 
 // 앱 전체에서 이미 쓰고 있는 카드 배경/텍스트/테두리 색과 상승(빨강)/하락(파랑) 관례를 그대로 맞춘다.
+// 이평선 6개는 dataviz 팔레트의 categorical 슬롯 2~7(orange/aqua/yellow/magenta/green/violet)을
+// 순서대로 사용한다 — slot 1(blue)/8(red)은 캔들 상승/하락 색과 겹치지 않도록 비워둔다.
 const THEME = {
   light: {
     surface: "#ffffff",
@@ -44,8 +69,14 @@ const THEME = {
     grid: "rgba(0,0,0,0.08)",
     up: "#dc2626",
     down: "#2563eb",
-    ma5: "#eb6834",
-    ma20: "#4a3aa7",
+    ma: {
+      5: "#eb6834",
+      20: "#1baf7a",
+      60: "#eda100",
+      112: "#e87ba4",
+      224: "#008300",
+      448: "#4a3aa7",
+    },
   },
   dark: {
     surface: "#09090b",
@@ -54,8 +85,14 @@ const THEME = {
     grid: "rgba(255,255,255,0.145)",
     up: "#f87171",
     down: "#60a5fa",
-    ma5: "#d95926",
-    ma20: "#9085e9",
+    ma: {
+      5: "#d95926",
+      20: "#199e70",
+      60: "#c98500",
+      112: "#d55181",
+      224: "#008300",
+      448: "#9085e9",
+    },
   },
 } as const;
 
@@ -66,7 +103,8 @@ function getTheme() {
   return isDark ? THEME.dark : THEME.light;
 }
 
-function timeToDateString(time: Time): string {
+// 데이터 조회/조인용 내부 키. 일/주/월/년봉은 "YYYY-MM-DD" 그대로, 분봉은 유닉스 초를 문자열화한다.
+function timeToKey(time: Time): string {
   if (typeof time === "string") return time;
   if (typeof time === "object" && "year" in time) {
     const { year, month, day } = time;
@@ -75,20 +113,29 @@ function timeToDateString(time: Time): string {
   return String(time);
 }
 
-function computeMovingAverage(
-  prices: DailyPrice[],
-  length: number
-): LineData[] {
+// 툴팁에 보여줄 한국식 날짜/시각 표기 ("2026.08.14" / "15:30").
+function formatDisplayTime(time: Time, intraday: boolean): string {
+  if (intraday && typeof time === "number") {
+    // 서버에서 KST 벽시계 시각을 그대로 UTC 초로 인코딩했으므로 UTC 메서드로 되돌린다.
+    const d = new Date(time * 1000);
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+  return timeToKey(time).replaceAll("-", ".");
+}
+
+function computeMovingAverage(bars: Bar[], length: number): LineData[] {
   const result: LineData[] = [];
-  for (let i = length - 1; i < prices.length; i++) {
+  for (let i = length - 1; i < bars.length; i++) {
     let sum = 0;
-    for (let j = i - length + 1; j <= i; j++) sum += prices[j].close;
-    result.push({ time: prices[i].date, value: sum / length });
+    for (let j = i - length + 1; j <= i; j++) sum += bars[j].close;
+    result.push({ time: bars[i].time, value: sum / length });
   }
   return result;
 }
 
-const fetcher = async (url: string): Promise<DailyPrice[]> => {
+const fetcher = async (url: string): Promise<RawBar[]> => {
   const res = await fetch(url);
   const data = await res.json();
   if (!res.ok) {
@@ -98,34 +145,43 @@ const fetcher = async (url: string): Promise<DailyPrice[]> => {
 };
 
 interface Tooltip {
-  date: string;
+  label: string;
   open: number;
   high: number;
   low: number;
   close: number;
   volume: number;
-  ma5?: number;
-  ma20?: number;
+  ma: Partial<Record<(typeof MA_PERIODS)[number], number>>;
 }
 
 export default function StockChart({ code }: { code: string }) {
   const [period, setPeriod] = useState<Period>("D");
+  const [minuteInterval, setMinuteInterval] = useState<number>(
+    DEFAULT_MINUTE_INTERVAL
+  );
+  const periodRef = useRef(period);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const ma5SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const ma20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const volumeByDateRef = useRef<Map<string, number>>(new Map());
-  const lastFitPeriodRef = useRef<Period | null>(null);
+  const maSeriesRefs = useRef<
+    Partial<Record<(typeof MA_PERIODS)[number], ISeriesApi<"Line">>>
+  >({});
+  const volumeByKeyRef = useRef<Map<string, number>>(new Map());
+  const lastFitKeyRef = useRef<string | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
-  const {
-    data: prices,
-    error,
-    isLoading,
-  } = useSWR(`/api/stock/${code}/history?period=${period}`, fetcher);
+  useEffect(() => {
+    periodRef.current = period;
+  }, [period]);
 
-  // 차트는 한 번만 만들고, 이후에는 데이터/테마 변경 시 옵션과 데이터만 갱신한다.
+  const isIntraday = period === "min";
+  const fetchKey = isIntraday
+    ? `/api/stock/${code}/history?period=min&interval=${minuteInterval}`
+    : `/api/stock/${code}/history?period=${period}`;
+
+  const { data: rawBars, error, isLoading } = useSWR(fetchKey, fetcher);
+
+  // 차트는 한 번만 만들고, 이후에는 데이터/테마/기간 변경 시 옵션과 데이터만 갱신한다.
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -143,6 +199,7 @@ export default function StockChart({ code }: { code: string }) {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { borderColor: theme.grid },
       rightPriceScale: { borderColor: theme.grid },
+      localization: { locale: "ko-KR" },
       autoSize: true,
     });
 
@@ -155,19 +212,17 @@ export default function StockChart({ code }: { code: string }) {
       wickDownColor: theme.down,
     });
 
-    const ma5Series = chart.addSeries(LineSeries, {
-      color: theme.ma5,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-
-    const ma20Series = chart.addSeries(LineSeries, {
-      color: theme.ma20,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
+    const maSeries: Partial<
+      Record<(typeof MA_PERIODS)[number], ISeriesApi<"Line">>
+    > = {};
+    for (const ma of MA_PERIODS) {
+      maSeries[ma] = chart.addSeries(LineSeries, {
+        color: theme.ma[ma],
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+    }
 
     chart.subscribeCrosshairMove((param) => {
       if (!param.time) {
@@ -183,33 +238,35 @@ export default function StockChart({ code }: { code: string }) {
         return;
       }
 
-      const ma5 = param.seriesData.get(ma5Series) as LineData | undefined;
-      const ma20 = param.seriesData.get(ma20Series) as LineData | undefined;
-      const dateKey = timeToDateString(param.time);
+      const ma: Tooltip["ma"] = {};
+      for (const maPeriod of MA_PERIODS) {
+        const series = maSeries[maPeriod];
+        const point = series && (param.seriesData.get(series) as LineData | undefined);
+        if (point) ma[maPeriod] = point.value;
+      }
+
+      const key = timeToKey(param.time);
 
       setTooltip({
-        date: dateKey,
+        label: formatDisplayTime(param.time, periodRef.current === "min"),
         open: candle.open,
         high: candle.high,
         low: candle.low,
         close: candle.close,
-        volume: volumeByDateRef.current.get(dateKey) ?? 0,
-        ma5: ma5?.value,
-        ma20: ma20?.value,
+        volume: volumeByKeyRef.current.get(key) ?? 0,
+        ma,
       });
     });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
-    ma5SeriesRef.current = ma5Series;
-    ma20SeriesRef.current = ma20Series;
+    maSeriesRefs.current = maSeries;
 
     return () => {
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
-      ma5SeriesRef.current = null;
-      ma20SeriesRef.current = null;
+      maSeriesRefs.current = {};
     };
   }, []);
 
@@ -238,44 +295,75 @@ export default function StockChart({ code }: { code: string }) {
         wickUpColor: theme.up,
         wickDownColor: theme.down,
       });
-      ma5SeriesRef.current?.applyOptions({ color: theme.ma5 });
-      ma20SeriesRef.current?.applyOptions({ color: theme.ma20 });
+      for (const ma of MA_PERIODS) {
+        maSeriesRefs.current[ma]?.applyOptions({ color: theme.ma[ma] });
+      }
     };
 
     mql.addEventListener("change", applyTheme);
     return () => mql.removeEventListener("change", applyTheme);
   }, []);
 
+  // 봉 종류가 바뀌면 시간축 표시 형식(날짜 vs 시:분)을 맞춘다.
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      timeScale: { timeVisible: isIntraday, secondsVisible: false },
+    });
+  }, [isIntraday]);
+
   // 새 데이터가 오면 캔들/이평선 시리즈를 갱신한다.
   useEffect(() => {
-    if (!prices || !candleSeriesRef.current) return;
+    if (!rawBars || !candleSeriesRef.current) return;
+
+    const bars: Bar[] = rawBars.map((b) => ({
+      time: (isIntraday ? (b.time as number as UTCTimestamp) : (b.date as string)) as Time,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+    }));
 
     candleSeriesRef.current.setData(
-      prices.map((p) => ({
-        time: p.date,
-        open: p.open,
-        high: p.high,
-        low: p.low,
-        close: p.close,
+      bars.map(({ time, open, high, low, close }) => ({
+        time,
+        open,
+        high,
+        low,
+        close,
       }))
     );
-    ma5SeriesRef.current?.setData(computeMovingAverage(prices, MA_SHORT));
-    ma20SeriesRef.current?.setData(computeMovingAverage(prices, MA_LONG));
 
-    volumeByDateRef.current = new Map(prices.map((p) => [p.date, p.volume]));
-
-    // 같은 봉 종류로 백그라운드 재검증이 일어난 것뿐이면 사용자가 확대/이동한
-    // 뷰나 호버 중인 툴팁을 건드리지 않는다. 봉 종류가 바뀌었을 때만 새로 맞춘다.
-    if (lastFitPeriodRef.current !== period) {
-      chartRef.current?.timeScale().fitContent();
-      lastFitPeriodRef.current = period;
+    for (const ma of MA_PERIODS) {
+      const series = maSeriesRefs.current[ma];
+      if (!series) continue;
+      series.applyOptions({ visible: true });
+      series.setData(computeMovingAverage(bars, ma));
     }
-  }, [prices, period]);
+
+    volumeByKeyRef.current = new Map(bars.map((b) => [timeToKey(b.time), b.volume]));
+
+    // 같은 조합(봉 종류 + 분봉 간격)으로 백그라운드 재검증이 일어난 것뿐이면
+    // 사용자가 확대/이동한 뷰나 호버 중인 툴팁을 건드리지 않는다.
+    const fitKey = isIntraday ? `min:${minuteInterval}` : period;
+    if (lastFitKeyRef.current !== fitKey) {
+      const visibleBars = INITIAL_VISIBLE_BARS[period];
+      if (visibleBars && bars.length > visibleBars) {
+        chartRef.current?.timeScale().setVisibleRange({
+          from: bars[bars.length - visibleBars].time,
+          to: bars[bars.length - 1].time,
+        });
+      } else {
+        chartRef.current?.timeScale().fitContent();
+      }
+      lastFitKeyRef.current = fitKey;
+    }
+  }, [rawBars, period, isIntraday, minuteInterval]);
 
   return (
     <div className="w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
             <button
               key={p}
@@ -289,17 +377,32 @@ export default function StockChart({ code }: { code: string }) {
               {PERIOD_LABELS[p]}
             </button>
           ))}
+
+          {isIntraday && (
+            <select
+              value={minuteInterval}
+              onChange={(e) => setMinuteInterval(Number(e.target.value))}
+              className="h-8 rounded-full border border-black/[.08] bg-transparent px-2 text-sm text-zinc-600 outline-none dark:border-white/[.145] dark:text-zinc-400"
+            >
+              {MINUTE_INTERVALS.map((m) => (
+                <option key={m} value={m}>
+                  {m}분
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-3 bg-[#eb6834] dark:bg-[#d95926]" />
-            {MA_SHORT}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-3 bg-[#4a3aa7] dark:bg-[#9085e9]" />
-            {MA_LONG}
-          </span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+          {MA_PERIODS.map((ma) => (
+            <span key={ma} className="flex items-center gap-1">
+              <span
+                className="h-0.5 w-3"
+                style={{ backgroundColor: THEME.light.ma[ma] }}
+              />
+              {ma}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -321,7 +424,7 @@ export default function StockChart({ code }: { code: string }) {
         {tooltip && (
           <div className="pointer-events-none absolute top-2 left-2 z-10 rounded-lg border border-black/[.08] bg-white/95 px-3 py-2 text-xs shadow-sm dark:border-white/[.145] dark:bg-zinc-900/95">
             <p className="mb-1 font-medium text-black dark:text-zinc-50">
-              {tooltip.date}
+              {tooltip.label}
             </p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400">
               <span>
@@ -339,15 +442,13 @@ export default function StockChart({ code }: { code: string }) {
               <span className="col-span-2">
                 거래량 <span className="text-black dark:text-zinc-50">{tooltip.volume.toLocaleString("ko-KR")}</span>
               </span>
-              {tooltip.ma5 !== undefined && (
-                <span className="col-span-2" style={{ color: "#eb6834" }}>
-                  MA{MA_SHORT} {tooltip.ma5.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
-                </span>
-              )}
-              {tooltip.ma20 !== undefined && (
-                <span className="col-span-2" style={{ color: "#4a3aa7" }}>
-                  MA{MA_LONG} {tooltip.ma20.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
-                </span>
+              {MA_PERIODS.map(
+                (ma) =>
+                  tooltip.ma[ma] !== undefined && (
+                    <span key={ma} style={{ color: THEME.light.ma[ma] }}>
+                      MA{ma} {tooltip.ma[ma]!.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
+                    </span>
+                  )
               )}
             </div>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 
 interface StockPrice {
@@ -34,6 +34,7 @@ interface StockCardProps {
 }
 
 export default function StockCard({ code, name: nameProp, onRemove }: StockCardProps) {
+  const router = useRouter();
   const {
     data: price,
     error,
@@ -42,9 +43,31 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
 
   const name = nameProp ?? STOCK_NAMES[code] ?? code;
 
+  const cardClassName =
+    "w-full max-w-sm cursor-pointer rounded-xl border border-black/[.08] bg-white p-6 transition-colors hover:border-black/20 dark:border-white/[.145] dark:bg-zinc-950 dark:hover:border-white/30";
+
+  const goToChart = () => {
+    router.push(`/stock/${code}?name=${encodeURIComponent(name)}`);
+  };
+
+  const cardInteractionProps = {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: goToChart,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        goToChart();
+      }
+    },
+  };
+
   const removeButton = onRemove && (
     <button
-      onClick={onRemove}
+      onClick={(e) => {
+        e.stopPropagation();
+        onRemove();
+      }}
       aria-label={`${name} 관심종목에서 삭제`}
       className="text-zinc-400 transition-colors hover:text-blue-600 dark:text-zinc-500 dark:hover:text-blue-400"
     >
@@ -54,7 +77,7 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
 
   if (isLoading) {
     return (
-      <div className="w-full max-w-sm animate-pulse rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
+      <div {...cardInteractionProps} className={`${cardClassName} animate-pulse`}>
         <div className="h-4 w-20 rounded bg-black/[.06] dark:bg-white/[.08]" />
         <div className="mt-4 h-9 w-36 rounded bg-black/[.06] dark:bg-white/[.08]" />
         <div className="mt-2 h-4 w-28 rounded bg-black/[.06] dark:bg-white/[.08]" />
@@ -64,9 +87,14 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
 
   if (error || !price) {
     return (
-      <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
+      <div {...cardInteractionProps} className={cardClassName}>
         <div className="flex items-baseline justify-between">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">{name}</p>
+          <p
+            className="text-sm text-zinc-600 dark:text-zinc-400"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {name}
+          </p>
           {removeButton}
         </div>
         <p className="mt-2 text-sm text-blue-600 dark:text-blue-400">
@@ -86,14 +114,14 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
   const sign = isUp ? "+" : "";
 
   return (
-    <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
+    <div {...cardInteractionProps} className={cardClassName}>
       <div className="flex items-baseline justify-between">
-        <Link
-          href={`/stock/${code}?name=${encodeURIComponent(name)}`}
-          className="text-sm font-medium text-zinc-600 hover:underline dark:text-zinc-400"
+        <p
+          className="text-sm font-medium text-zinc-600 dark:text-zinc-400"
+          onClick={(e) => e.stopPropagation()}
         >
           {name}
-        </Link>
+        </p>
         <div className="flex items-center gap-2">
           <p className="text-xs text-zinc-400 dark:text-zinc-500">{code}</p>
           {removeButton}

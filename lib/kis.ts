@@ -5,6 +5,7 @@ const KIS_BASE_URL =
   process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
 
 const TR_ID_INQUIRE_PRICE = "FHKST01010100";
+const TR_ID_INQUIRE_DAILY_CHART_PRICE = "FHKST03010100";
 
 // 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
 const TOKEN_ROW_ID = "kis";
@@ -184,4 +185,100 @@ export async function getStockPrice(stockCode: string): Promise<StockPrice> {
     lowPrice: Number(output.stck_lwpr),
     volume: Number(output.acml_vol),
   };
+}
+
+export type ChartPeriod = "D" | "W" | "M";
+
+export interface DailyPrice {
+  date: string; // YYYY-MM-DD
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface InquireDailyChartPriceResponse {
+  rt_cd: string;
+  msg1: string;
+  output2: {
+    stck_bsop_date: string;
+    stck_oprc: string;
+    stck_hgpr: string;
+    stck_lwpr: string;
+    stck_clpr: string;
+    acml_vol: string;
+  }[];
+}
+
+const PERIOD_LOOKBACK_YEARS: Record<ChartPeriod, number> = {
+  D: 1,
+  W: 3,
+  M: 10,
+};
+
+function formatDate(d: Date): string {
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+/**
+ * 국내 주식 기간별(일/주/월봉) 시세를 조회한다. KIS가 응답을 최대 100건으로
+ * 제한하므로 조회 시작일은 봉 종류에 따라 넉넉히 과거로 잡는다.
+ */
+export async function getDailyPrices(
+  stockCode: string,
+  period: ChartPeriod
+): Promise<DailyPrice[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setFullYear(start.getFullYear() - PERIOD_LOOKBACK_YEARS[period]);
+
+  const url = new URL(
+    "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
+  url.searchParams.set("FID_INPUT_ISCD", stockCode);
+  url.searchParams.set("FID_INPUT_DATE_1", formatDate(start));
+  url.searchParams.set("FID_INPUT_DATE_2", formatDate(today));
+  url.searchParams.set("FID_PERIOD_DIV_CODE", period);
+  url.searchParams.set("FID_ORG_ADJ_PRC", "0");
+
+  const res = await fetch(url, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      authorization: `Bearer ${accessToken}`,
+      appkey: appKey,
+      appsecret: appSecret,
+      tr_id: TR_ID_INQUIRE_DAILY_CHART_PRICE,
+      custtype: "P",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`차트 데이터 조회 실패 (${res.status}): ${await res.text()}`);
+  }
+
+  const data: InquireDailyChartPriceResponse = await res.json();
+
+  if (data.rt_cd !== "0") {
+    throw new Error(`차트 데이터 조회 실패: ${data.msg1}`);
+  }
+
+  // KIS는 최신 순으로 내려주므로 차트에 쓰기 좋게 과거→최신 순으로 뒤집는다.
+  return data.output2
+    .filter((row) => row.stck_bsop_date)
+    .map((row) => ({
+      date: `${row.stck_bsop_date.slice(0, 4)}-${row.stck_bsop_date.slice(4, 6)}-${row.stck_bsop_date.slice(6, 8)}`,
+      open: Number(row.stck_oprc),
+      high: Number(row.stck_hgpr),
+      low: Number(row.stck_lwpr),
+      close: Number(row.stck_clpr),
+      volume: Number(row.acml_vol),
+    }))
+    .reverse();
 }

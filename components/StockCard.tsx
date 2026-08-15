@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import useSWR from "swr";
 
 interface StockPrice {
@@ -87,9 +88,12 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
   return (
     <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
       <div className="flex items-baseline justify-between">
-        <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+        <Link
+          href={`/stock/${code}?name=${encodeURIComponent(name)}`}
+          className="text-sm font-medium text-zinc-600 hover:underline dark:text-zinc-400"
+        >
           {name}
-        </p>
+        </Link>
         <div className="flex items-center gap-2">
           <p className="text-xs text-zinc-400 dark:text-zinc-500">{code}</p>
           {removeButton}

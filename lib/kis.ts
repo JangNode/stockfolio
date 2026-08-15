@@ -1,18 +1,23 @@
 import "server-only";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const KIS_BASE_URL =
   process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
 
 const TR_ID_INQUIRE_PRICE = "FHKST01010100";
 
-interface AccessToken {
-  token: string;
-  expiresAt: number;
-}
+// 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
+const TOKEN_ROW_ID = "kis";
+// 만료 임박 시 여유를 두고 미리 갱신한다.
+const EXPIRY_BUFFER_MS = 60 * 1000;
+// 동시에 여러 인스턴스가 토큰을 재발급하려다 KIS의 1분당 1회 제한에 걸렸을 때,
+// 먼저 성공한 인스턴스가 DB에 쓴 토큰을 재조회하기 전에 기다리는 시간.
+const RETRY_DELAY_MS = 1500;
 
-// 프로세스 메모리에 캐시. KIS는 앱키당 토큰 발급 요청 빈도를 제한하고
-// 토큰은 발급 후 24시간 동안 유효하므로 만료 전까지 재사용한다.
-let cachedToken: AccessToken | null = null;
+interface TokenRow {
+  access_token: string;
+  expires_at: string;
+}
 
 function getCredentials() {
   const appKey = process.env.KIS_APP_KEY;
@@ -27,7 +32,39 @@ function getCredentials() {
   return { appKey, appSecret };
 }
 
-async function issueAccessToken(): Promise<AccessToken> {
+function isValid(row: TokenRow | null): row is TokenRow {
+  if (!row) return false;
+  return new Date(row.expires_at).getTime() - EXPIRY_BUFFER_MS > Date.now();
+}
+
+async function readTokenFromDb(): Promise<TokenRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("kis_tokens")
+    .select("access_token, expires_at")
+    .eq("id", TOKEN_ROW_ID)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`토큰 조회 실패: ${error.message}`);
+  }
+
+  return data;
+}
+
+async function writeTokenToDb(token: string, expiresAt: Date): Promise<void> {
+  const { error } = await supabaseAdmin.from("kis_tokens").upsert({
+    id: TOKEN_ROW_ID,
+    access_token: token,
+    expires_at: expiresAt.toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    throw new Error(`토큰 저장 실패: ${error.message}`);
+  }
+}
+
+async function issueAccessToken(): Promise<{ token: string; expiresAt: Date }> {
   const { appKey, appSecret } = getCredentials();
 
   const res = await fetch(`${KIS_BASE_URL}/oauth2/tokenP`, {
@@ -48,18 +85,32 @@ async function issueAccessToken(): Promise<AccessToken> {
 
   return {
     token: data.access_token,
-    // 만료 1분 전에 미리 갱신되도록 여유를 둔다.
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+    expiresAt: new Date(Date.now() + data.expires_in * 1000),
   };
 }
 
 async function getAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.token;
+  const existing = await readTokenFromDb();
+  if (isValid(existing)) {
+    return existing.access_token;
   }
 
-  cachedToken = await issueAccessToken();
-  return cachedToken.token;
+  try {
+    const { token, expiresAt } = await issueAccessToken();
+    await writeTokenToDb(token, expiresAt);
+    return token;
+  } catch (issueError) {
+    // 다른 서버리스 인스턴스가 동시에 먼저 토큰을 발급했을 수 있다.
+    // (KIS는 앱키당 토큰 발급을 1분당 1회로 제한하므로, 뒤늦게 시도한
+    // 이 인스턴스는 여기서 거부당했을 가능성이 크다.) 잠시 기다렸다가
+    // DB에 저장된 최신 토큰을 다시 확인해본다.
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    const retried = await readTokenFromDb();
+    if (isValid(retried)) {
+      return retried.access_token;
+    }
+    throw issueError;
+  }
 }
 
 export interface StockPrice {

@@ -38,15 +38,12 @@ interface Bar {
 type Period = "min" | "D" | "W" | "M" | "Y";
 
 const PERIOD_LABELS: Record<Period, string> = {
-  min: "분봉",
+  min: "10분봉",
   D: "일봉",
   W: "주봉",
   M: "월봉",
   Y: "년봉",
 };
-
-const MINUTE_INTERVALS = [1, 3, 5, 10, 15, 30, 60] as const;
-const DEFAULT_MINUTE_INTERVAL = 10;
 
 // 상장 후 전체를 한 번에 보여주면 처음엔 너무 눌려 보이므로, 봉 종류별로
 // 보기 편한 최근 구간만 먼저 보여준다. (스크롤/확대로 전체 기록은 그대로 볼 수 있음)
@@ -156,9 +153,6 @@ interface Tooltip {
 
 export default function StockChart({ code }: { code: string }) {
   const [period, setPeriod] = useState<Period>("D");
-  const [minuteInterval, setMinuteInterval] = useState<number>(
-    DEFAULT_MINUTE_INTERVAL
-  );
   const periodRef = useRef(period);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -175,9 +169,7 @@ export default function StockChart({ code }: { code: string }) {
   }, [period]);
 
   const isIntraday = period === "min";
-  const fetchKey = isIntraday
-    ? `/api/stock/${code}/history?period=min&interval=${minuteInterval}`
-    : `/api/stock/${code}/history?period=${period}`;
+  const fetchKey = `/api/stock/${code}/history?period=${period}`;
 
   const { data: rawBars, error, isLoading } = useSWR(fetchKey, fetcher);
 
@@ -343,10 +335,9 @@ export default function StockChart({ code }: { code: string }) {
 
     volumeByKeyRef.current = new Map(bars.map((b) => [timeToKey(b.time), b.volume]));
 
-    // 같은 조합(봉 종류 + 분봉 간격)으로 백그라운드 재검증이 일어난 것뿐이면
-    // 사용자가 확대/이동한 뷰나 호버 중인 툴팁을 건드리지 않는다.
-    const fitKey = isIntraday ? `min:${minuteInterval}` : period;
-    if (lastFitKeyRef.current !== fitKey) {
+    // 같은 봉 종류로 백그라운드 재검증이 일어난 것뿐이면 사용자가 확대/이동한
+    // 뷰나 호버 중인 툴팁을 건드리지 않는다. 봉 종류가 바뀌었을 때만 새로 맞춘다.
+    if (lastFitKeyRef.current !== period) {
       const visibleBars = INITIAL_VISIBLE_BARS[period];
       if (visibleBars && bars.length > visibleBars) {
         chartRef.current?.timeScale().setVisibleRange({
@@ -356,9 +347,9 @@ export default function StockChart({ code }: { code: string }) {
       } else {
         chartRef.current?.timeScale().fitContent();
       }
-      lastFitKeyRef.current = fitKey;
+      lastFitKeyRef.current = period;
     }
-  }, [rawBars, period, isIntraday, minuteInterval]);
+  }, [rawBars, period, isIntraday]);
 
   return (
     <div className="w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
@@ -377,20 +368,6 @@ export default function StockChart({ code }: { code: string }) {
               {PERIOD_LABELS[p]}
             </button>
           ))}
-
-          {isIntraday && (
-            <select
-              value={minuteInterval}
-              onChange={(e) => setMinuteInterval(Number(e.target.value))}
-              className="h-8 rounded-full border border-black/[.08] bg-transparent px-2 text-sm text-zinc-600 outline-none dark:border-white/[.145] dark:text-zinc-400"
-            >
-              {MINUTE_INTERVALS.map((m) => (
-                <option key={m} value={m}>
-                  {m}분
-                </option>
-              ))}
-            </select>
-          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -446,7 +423,7 @@ export default function StockChart({ code }: { code: string }) {
                 (ma) =>
                   tooltip.ma[ma] !== undefined && (
                     <span key={ma} style={{ color: THEME.light.ma[ma] }}>
-                      MA{ma} {tooltip.ma[ma]!.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
+                      {ma} {tooltip.ma[ma]!.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
                     </span>
                   )
               )}

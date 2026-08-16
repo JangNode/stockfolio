@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import Watchlist from "@/components/Watchlist";
+import MarketSummary from "@/components/MarketSummary";
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -73,7 +74,9 @@ export default function Home() {
         )}
       </header>
 
-      <main className="flex flex-1 items-center justify-center p-6">
+      <main className="flex flex-1 flex-col items-center gap-6 p-6">
+        <MarketSummary />
+
         {user ? (
           <Watchlist user={user} />
         ) : (

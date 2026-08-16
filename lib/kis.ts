@@ -7,6 +7,8 @@ const KIS_BASE_URL =
 const TR_ID_INQUIRE_PRICE = "FHKST01010100";
 const TR_ID_INQUIRE_DAILY_CHART_PRICE = "FHKST03010100";
 const TR_ID_INQUIRE_TIME_CHART_PRICE = "FHKST03010200";
+const TR_ID_INQUIRE_INDEX_PRICE = "FHPUP02100000";
+const TR_ID_INQUIRE_OVERSEAS_INDEX = "FHKST03030100";
 
 // 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
 const TOKEN_ROW_ID = "kis";
@@ -555,4 +557,142 @@ function aggregateMinuteBars(
   }
 
   return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+}
+
+export interface IndexQuote {
+  category: "국내" | "해외";
+  name: string;
+  price: number;
+  change: number;
+  changeRate: number;
+}
+
+interface InquireIndexPriceResponse extends KisResponse {
+  output: {
+    bstp_nmix_prpr: string;
+    bstp_nmix_prdy_vrss: string;
+    bstp_nmix_prdy_ctrt: string;
+  };
+}
+
+/** 코스피(0001)/코스닥(1001) 등 국내 업종지수 현재가를 조회한다. */
+async function getDomesticIndex(code: string, name: string): Promise<IndexQuote> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL(
+    "/uapi/domestic-stock/v1/quotations/inquire-index-price",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "U");
+  url.searchParams.set("FID_INPUT_ISCD", code);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_INQUIRE_INDEX_PRICE,
+    accessToken,
+    appKey,
+    appSecret
+  )) as InquireIndexPriceResponse;
+  const { output } = data;
+
+  return {
+    category: "국내",
+    name,
+    price: Number(output.bstp_nmix_prpr),
+    change: Number(output.bstp_nmix_prdy_vrss),
+    changeRate: Number(output.bstp_nmix_prdy_ctrt),
+  };
+}
+
+interface InquireOverseasIndexResponse extends KisResponse {
+  output1: {
+    ovrs_nmix_prpr: string;
+    ovrs_nmix_prdy_vrss: string;
+    prdy_ctrt: string;
+  };
+}
+
+/**
+ * 해외지수(나스닥 종합 "COMP", S&P500 "SPX" 등, market="N") 또는 환율
+ * (원/달러 "FX@KRW", market="X") 현재가를 조회한다. 전용 "현재가" 엔드포인트가
+ * 따로 없어 일별 차트 조회의 output1(요약)을 사용한다.
+ */
+async function getOverseasIndex(
+  marketDiv: "N" | "X",
+  code: string,
+  name: string
+): Promise<IndexQuote> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 7);
+
+  const url = new URL(
+    "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", marketDiv);
+  url.searchParams.set("FID_INPUT_ISCD", code);
+  url.searchParams.set("FID_INPUT_DATE_1", formatDate(start));
+  url.searchParams.set("FID_INPUT_DATE_2", formatDate(today));
+  url.searchParams.set("FID_PERIOD_DIV_CODE", "D");
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_INQUIRE_OVERSEAS_INDEX,
+    accessToken,
+    appKey,
+    appSecret
+  )) as InquireOverseasIndexResponse;
+  const { output1 } = data;
+
+  return {
+    category: "해외",
+    name,
+    price: Number(output1.ovrs_nmix_prpr),
+    change: Number(output1.ovrs_nmix_prdy_vrss),
+    changeRate: Number(output1.prdy_ctrt),
+  };
+}
+
+export interface MarketSummary {
+  domestic: IndexQuote[];
+  overseas: IndexQuote[];
+}
+
+const MARKET_SUMMARY_CACHE_TTL_MS = 60 * 1000;
+let marketSummaryCache: { data: MarketSummary; fetchedAt: number } | null = null;
+
+/** 국내(코스피/코스닥) + 해외(나스닥/S&P500/다우존스 등) 주요 지수를 모아 조회한다 (60초 캐시). */
+export async function getMarketSummary(): Promise<MarketSummary> {
+  if (
+    marketSummaryCache &&
+    Date.now() - marketSummaryCache.fetchedAt < MARKET_SUMMARY_CACHE_TTL_MS
+  ) {
+    return marketSummaryCache.data;
+  }
+
+  const [kospi, kosdaq, usdKrw, nasdaqComposite, nasdaq100, sp500, dowJones, philSemi, vix] =
+    await Promise.all([
+      getDomesticIndex("0001", "코스피"),
+      getDomesticIndex("1001", "코스닥"),
+      getOverseasIndex("X", "FX@KRW", "원/달러 환율"),
+      getOverseasIndex("N", "COMP", "나스닥 종합"),
+      getOverseasIndex("N", "NDX", "나스닥 100"),
+      getOverseasIndex("N", "SPX", "S&P500"),
+      getOverseasIndex("N", ".DJI", "다우존스"),
+      getOverseasIndex("N", "SOX", "필라델피아 반도체"),
+      getOverseasIndex("N", "VIX", "VIX"),
+    ]);
+
+  const data: MarketSummary = {
+    domestic: [kospi, kosdaq],
+    overseas: [usdKrw, nasdaqComposite, nasdaq100, sp500, dowJones, philSemi, vix],
+  };
+  marketSummaryCache = { data, fetchedAt: Date.now() };
+
+  return data;
 }

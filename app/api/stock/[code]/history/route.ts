@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDailyPrices, getIntradayBars, type ChartPeriod } from "@/lib/kis";
 
 const DAILY_PERIODS: ChartPeriod[] = ["D", "W", "M", "Y"];
-const VALID_MINUTE_INTERVALS = [1, 3, 5, 10, 15, 30, 60];
-const DEFAULT_MINUTE_INTERVAL = 10;
+const MINUTE_INTERVAL = 10;
 
 export async function GET(
   request: NextRequest,
@@ -21,14 +20,7 @@ export async function GET(
 
   try {
     if (periodParam === "min") {
-      const intervalParam = Number(
-        request.nextUrl.searchParams.get("interval") ?? DEFAULT_MINUTE_INTERVAL
-      );
-      const interval = VALID_MINUTE_INTERVALS.includes(intervalParam)
-        ? intervalParam
-        : DEFAULT_MINUTE_INTERVAL;
-
-      const bars = await getIntradayBars(code, interval);
+      const bars = await getIntradayBars(code, MINUTE_INTERVAL);
       return NextResponse.json(bars);
     }
 

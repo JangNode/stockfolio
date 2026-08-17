@@ -1,29 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useUser } from "@/lib/useUser";
 import Watchlist from "@/components/Watchlist";
 import MarketSummary from "@/components/MarketSummary";
+import NavBar from "@/components/NavBar";
 
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [user, setUser] = useState<User | null>(null);
+  const { user } = useUser();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-
-    const { data: subscription } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.subscription.unsubscribe();
-  }, []);
 
   const handleSignUp = async () => {
     setLoading(true);
@@ -55,9 +44,12 @@ export default function Home() {
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
       <header className="flex items-center justify-between border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
-        <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
-          Stockfolio
-        </h1>
+        <div className="flex items-center gap-6">
+          <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
+            Stockfolio
+          </h1>
+          <NavBar />
+        </div>
         {user && (
           <div className="flex items-center gap-3">
             <span className="text-sm text-zinc-600 dark:text-zinc-400">

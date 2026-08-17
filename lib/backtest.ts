@@ -146,11 +146,32 @@ function computeMinerviniStates(
   });
 }
 
+/**
+ * 전략의 판정 방식.
+ * - "event": 교차처럼 순간적으로 발생하는 신호. 오늘 막 발생했는지(직전엔 거짓 → 오늘 참)만 인정.
+ * - "state": 미너비니처럼 매일 다시 평가되는 조건. 오늘 조건을 만족하는지만 확인.
+ * 새 전략을 추가할 때 여기에 한 줄만 추가하면 matchesToday가 자동으로 맞게 판정한다.
+ */
+const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
+  ma_cross: "event",
+  minervini_trend_template: "state",
+};
+
+/**
+ * 전략별 판정 함수 디스패치. 새 전략을 추가하려면:
+ * 1) computeXStates(prices, params) 작성 — 봉마다 조건을 만족하는지 true/false/undefined(데이터 부족)로.
+ * 2) computeXEntryPrice(prices, ...) 작성 — 신호 발생 시 추천 진입가 (params가 필요 없으면 생략 가능).
+ * 3) 위 STRATEGY_KIND에 "event" 또는 "state"로 등록.
+ * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
+ * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
+ */
 function computeStates(prices: DailyPrice[], rule: StrategyRule): (boolean | undefined)[] {
-  if (rule.rule_type === "minervini_trend_template") {
-    return computeMinerviniStates(prices, rule.rule_params);
+  switch (rule.rule_type) {
+    case "minervini_trend_template":
+      return computeMinerviniStates(prices, rule.rule_params);
+    case "ma_cross":
+      return computeMaCrossStates(prices, rule.rule_params);
   }
-  return computeMaCrossStates(prices, rule.rule_params);
 }
 
 export interface BacktestTrade {
@@ -228,7 +249,7 @@ export function matchesToday(prices: DailyPrice[], rule: StrategyRule): boolean 
   const lastState = states[states.length - 1];
   if (lastState === undefined || !lastState) return false;
 
-  if (rule.rule_type === "minervini_trend_template") {
+  if (STRATEGY_KIND[rule.rule_type] === "state") {
     return true;
   }
 
@@ -248,15 +269,42 @@ export interface EntryPlan {
 }
 
 /**
- * 신호가 발생한 시점의 진입/손절/익절가를 계산한다.
- * 진입 추천가는 최근 4주(≈20거래일)간 고점(돌파가, 미너비니 VCP 피봇 근사)이며, 손절가/익절가는
- * rule_params의 stop_loss_pct/take_profit_pct(기본 7%/20%)를 그 위에 적용한다.
+ * ma_cross: 교차 자체가 매수 신호인 이벤트라 "돌파를 기다릴 별도 고점"이 없다. 신호가
+ * 발생한 당일 종가(=신호가)를 그대로 진입가로 쓴다. 최근 고점을 쓰면 눌림목 회복 중
+ * 교차가 발생했을 때 진입가가 신호가보다 높게 잡혀 "신호는 떴는데 아직 진입가엔
+ * 도달 못했다"는 모순이 생긴다.
+ */
+function computeMaCrossEntryPrice(prices: DailyPrice[]): number {
+  return prices[prices.length - 1].close;
+}
+
+/**
+ * minervini_trend_template: 상태 조건(매일 재평가됨)이라 이미 조건을 만족한 채로 매칭될
+ * 수 있다. 최근 20거래일(≈4주) 고점을 VCP 피봇 돌파가로 근사해 그 이상에서 매수하도록 권고한다.
+ */
+function computeMinerviniEntryPrice(prices: DailyPrice[]): number {
+  return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
+}
+
+/**
+ * 신호가 발생한 시점의 진입/손절/익절가를 계산한다. 손절가/익절가는 rule_params의
+ * stop_loss_pct/take_profit_pct(기본 7%/20%)를 진입가 위에 적용한다. 진입가 자체는
+ * 전략마다 성격이 달라 computeXEntryPrice로 분리돼 있다 (위 computeStates 디스패치와
+ * 동일한 방식 — 새 전략을 추가하면 여기 switch에도 case를 추가한다).
  */
 export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): EntryPlan {
-  const lookback = prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS);
-  const entryPrice = Math.max(...lookback.map((p) => p.high));
   const stopLossPct = rule.rule_params.stop_loss_pct ?? DEFAULT_STOP_LOSS_PCT;
   const takeProfitPct = rule.rule_params.take_profit_pct ?? DEFAULT_TAKE_PROFIT_PCT;
+
+  let entryPrice: number;
+  switch (rule.rule_type) {
+    case "minervini_trend_template":
+      entryPrice = computeMinerviniEntryPrice(prices);
+      break;
+    case "ma_cross":
+      entryPrice = computeMaCrossEntryPrice(prices);
+      break;
+  }
 
   return {
     entryPrice,

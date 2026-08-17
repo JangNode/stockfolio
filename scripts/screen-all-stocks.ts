@@ -183,12 +183,117 @@ async function updateActiveTracking(): Promise<{
   return { updated, stopped, profited };
 }
 
+interface StockPriceEntry {
+  name: string;
+  prices: DailyPrice[];
+}
+
+/**
+ * 전종목의 일봉 데이터를 종목당 정확히 한 번씩만 조회해 메모리에 모은다. 이렇게 모아둔
+ * 데이터를 이후 전략별 판정 단계에서 재사용하므로, 등록된 전략이 몇 개든 종목당 조회
+ * 횟수는 늘지 않는다.
+ */
+async function collectDailyPrices(
+  allStocks: { code: string; name: string }[],
+  dailyTargetRows: number
+): Promise<{ priceByCode: Map<string, StockPriceEntry>; fetchErrors: number }> {
+  console.log(`=== 2단계: 전종목 일봉 데이터 수집 (종목당 ${dailyTargetRows}건) ===`);
+
+  const priceByCode = new Map<string, StockPriceEntry>();
+  let fetchErrors = 0;
+
+  for (let i = 0; i < allStocks.length; i++) {
+    const stock = allStocks[i];
+
+    if (i === 0 || (i + 1) % PROGRESS_LOG_INTERVAL === 0 || i === allStocks.length - 1) {
+      console.log(`  [${i + 1}/${allStocks.length}] 데이터 수집 중... (조회 실패 ${fetchErrors}건)`);
+    }
+
+    try {
+      const prices = await withRetry(
+        () => getDailyPrices(stock.code, "D", dailyTargetRows),
+        `${stock.code}(${stock.name}) 일봉 조회`
+      );
+      if (prices.length > 0) {
+        priceByCode.set(stock.code, { name: stock.name, prices });
+      }
+    } catch (error) {
+      fetchErrors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`    ${stock.code}(${stock.name}) 일봉 조회 실패, 건너뜁니다: ${message}`);
+    }
+  }
+
+  console.log(`데이터 수집 완료: ${priceByCode.size}개 종목 확보, 조회 실패 ${fetchErrors}건`);
+  return { priceByCode, fetchErrors };
+}
+
+/**
+ * 전략 하나를 이미 수집된 전종목 데이터에 대해 판정한다. 이 전략에서 발생하는 오류(판정
+ * 함수 버그, 저장 실패 등)는 여기서만 처리되어 다른 전략의 판정에 영향을 주지 않는다.
+ */
+async function runStrategyScan(
+  strategy: StrategyRow,
+  priceByCode: Map<string, StockPriceEntry>,
+  activeKeys: Set<string>
+): Promise<{ matched: number; errors: number }> {
+  const label = `${strategy.name}(${strategy.rule_type})`;
+  console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
+
+  let matched = 0;
+  let errors = 0;
+
+  for (const [stockCode, { name: stockName, prices }] of priceByCode) {
+    try {
+      if (!matchesToday(prices, strategy)) continue;
+
+      const key = `${strategy.id}:${stockCode}`;
+      if (activeKeys.has(key)) continue; // 이미 추적 중
+
+      const signalPrice = prices[prices.length - 1].close;
+      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
+
+      const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
+        strategy_id: strategy.id,
+        stock_code: stockCode,
+        stock_name: stockName,
+        signal_price: signalPrice,
+        entry_price: entryPrice,
+        stop_loss_price: stopLossPrice,
+        take_profit_price: takeProfitPrice,
+        current_price: signalPrice,
+        return_pct: 0,
+        status: "active",
+      });
+
+      if (insertError) {
+        errors++;
+        console.error(`    [${label}] ${stockCode} 저장 실패: ${insertError.message}`);
+        continue;
+      }
+
+      activeKeys.add(key); // 같은 실행 내 중복 방지(다른 전략 판정과도 공유되는 집합)
+      matched++;
+      console.log(
+        `    [${label}] ✓ 신규 매칭: ${stockName}(${stockCode}) (진입가 ${entryPrice.toLocaleString("ko-KR")})`
+      );
+    } catch (error) {
+      // 판정 함수 자체가 예외를 던지는 경우(버그, 예상 밖의 rule_params 등)까지 종목
+      // 단위로 흡수해 이 전략의 나머지 종목 판정과 다른 전략에 영향이 가지 않게 한다.
+      errors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`    [${label}] ${stockCode} 판정 중 오류, 건너뜁니다: ${message}`);
+    }
+  }
+
+  console.log(`  --- [${label}] 판정 완료: 신규 매칭 ${matched}건, 오류 ${errors}건 ---`);
+  return { matched, errors };
+}
+
 /** 전종목을 스캔해 저장된 전략 조건을 새로 만족하는 종목을 screening_results에 추가한다. */
 async function scanAllStocks(
   strategies: StrategyRow[]
 ): Promise<{ scanned: number; matched: number; errors: number }> {
-  console.log("=== 2단계: 전종목 스캔 ===");
-
   if (strategies.length === 0) {
     console.log("등록된 전략이 없어 스캔을 건너뜁니다.");
     return { scanned: 0, matched: 0, errors: 0 };
@@ -198,10 +303,16 @@ async function scanAllStocks(
   const dailyTargetRows = computeDailyTargetRows(strategies);
   const callsPerStock = Math.ceil(dailyTargetRows / 100);
   console.log(
-    `전략 ${strategies.length}개 × 대상 종목 ${allStocks.length}개, 종목당 일봉 ${dailyTargetRows}건(호출 ${callsPerStock}회) 조회`
+    `대상 종목 ${allStocks.length}개, 등록 전략 ${strategies.length}개(${strategies
+      .map((s) => s.rule_type)
+      .join(", ")}), 종목당 일봉 ${dailyTargetRows}건(호출 ${callsPerStock}회)`
   );
 
-  // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다.
+  const { priceByCode, fetchErrors } = await collectDailyPrices(allStocks, dailyTargetRows);
+
+  // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다. 여러 전략 판정이 공유하는
+  // 집합이라, 한 전략에서 새로 매칭된 것도 곧바로 다른 전략 판정에 반영된다(같은 종목을
+  // 서로 다른 전략이 중복으로 추적하는 건 막지 않는다 — strategy_id가 다르면 별개 추적).
   const { data: existingActive, error: activeError } = await supabaseAdmin
     .from("screening_results")
     .select("strategy_id, stock_code")
@@ -213,70 +324,28 @@ async function scanAllStocks(
     (existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`)
   );
 
-  let matched = 0;
-  let errors = 0;
+  console.log(`=== 3단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
 
-  for (let i = 0; i < allStocks.length; i++) {
-    const stock = allStocks[i];
+  let totalMatched = 0;
+  let totalErrors = fetchErrors;
 
-    if (i === 0 || (i + 1) % PROGRESS_LOG_INTERVAL === 0 || i === allStocks.length - 1) {
-      console.log(
-        `  [${i + 1}/${allStocks.length}] 진행 중... (누적 매칭 ${matched}건, 오류 ${errors}건)`
-      );
-    }
-
-    let prices: DailyPrice[];
+  for (const strategy of strategies) {
     try {
-      prices = await withRetry(
-        () => getDailyPrices(stock.code, "D", dailyTargetRows),
-        `${stock.code}(${stock.name}) 일봉 조회`
-      );
+      const { matched, errors } = await runStrategyScan(strategy, priceByCode, activeKeys);
+      totalMatched += matched;
+      totalErrors += errors;
     } catch (error) {
-      errors++;
+      // runStrategyScan 내부에서 이미 종목 단위로 오류를 흡수하지만, 혹시 그 바깥에서
+      // 예외가 터지더라도(예: 전략 판정 자체가 준비 단계에서 실패) 다른 전략 판정은
+      // 계속 진행되도록 여기서 한 번 더 막는다.
+      totalErrors++;
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`    ${stock.code}(${stock.name}) 일봉 조회 실패, 건너뜁니다: ${message}`);
-      continue;
-    }
-
-    if (prices.length === 0) continue;
-
-    for (const strategy of strategies) {
-      if (!matchesToday(prices, strategy)) continue;
-
-      const key = `${strategy.id}:${stock.code}`;
-      if (activeKeys.has(key)) continue; // 이미 추적 중
-
-      const signalPrice = prices[prices.length - 1].close;
-      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
-
-      const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
-        strategy_id: strategy.id,
-        stock_code: stock.code,
-        stock_name: stock.name,
-        signal_price: signalPrice,
-        entry_price: entryPrice,
-        stop_loss_price: stopLossPrice,
-        take_profit_price: takeProfitPrice,
-        current_price: signalPrice,
-        return_pct: 0,
-        status: "active",
-      });
-
-      if (insertError) {
-        console.error(`    ${stock.code} 저장 실패 (${strategy.name}): ${insertError.message}`);
-        continue;
-      }
-
-      activeKeys.add(key); // 같은 실행 내 중복 방지
-      matched++;
-      console.log(
-        `    ✓ 신규 매칭: ${stock.name}(${stock.code}) — ${strategy.name} (진입가 ${entryPrice.toLocaleString("ko-KR")})`
-      );
+      console.error(`  전략 "${strategy.name}" 판정이 처리되지 않은 오류로 중단됐습니다: ${message}`);
     }
   }
 
-  console.log(`스캔 완료: 신규 매칭 ${matched}건, 조회 실패 ${errors}건`);
-  return { scanned: allStocks.length, matched, errors };
+  console.log(`스캔 완료: 신규 매칭 ${totalMatched}건, 오류 ${totalErrors}건`);
+  return { scanned: allStocks.length, matched: totalMatched, errors: totalErrors };
 }
 
 async function recordRun(

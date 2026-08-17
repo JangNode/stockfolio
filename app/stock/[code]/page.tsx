@@ -13,10 +13,10 @@ export default async function StockPage({
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="flex items-center gap-4 border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-black/[.08] px-4 py-3 sm:px-6 sm:py-4 dark:border-white/[.145]">
         <Link
           href="/"
-          className="text-sm text-zinc-500 hover:underline dark:text-zinc-400"
+          className="whitespace-nowrap text-sm text-zinc-500 hover:underline dark:text-zinc-400"
         >
           ← 관심종목
         </Link>
@@ -28,7 +28,7 @@ export default async function StockPage({
         </h1>
       </header>
 
-      <main className="flex flex-1 justify-center p-6">
+      <main className="flex flex-1 justify-center p-4 sm:p-6">
         <div className="w-full max-w-4xl">
           <StockChart code={code} />
         </div>

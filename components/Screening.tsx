@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { useStrategies } from "@/components/StrategyManager";
+import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 
 interface ScreeningResultRow {
   id: string;
@@ -99,7 +99,7 @@ export default function Screening({ user }: { user: User }) {
             <option value="">전략 선택</option>
             {strategies?.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {describeStrategy(s)}
               </option>
             ))}
           </select>

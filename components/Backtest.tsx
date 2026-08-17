@@ -147,7 +147,7 @@ export default function Backtest({ user }: { user: User }) {
             <option value="">전략 선택</option>
             {strategies?.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} — {describeStrategy(s)}
+                {describeStrategy(s)}
               </option>
             ))}
           </select>
@@ -222,7 +222,7 @@ export default function Backtest({ user }: { user: User }) {
       {result && (
         <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
           <p className="mb-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-            {stockLabel} · {selectedStrategy?.name}
+            {stockLabel} · {selectedStrategy && describeStrategy(selectedStrategy)}
           </p>
 
           {result.insufficientData ? (

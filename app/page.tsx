@@ -43,22 +43,22 @@ export default function Home() {
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="flex items-center justify-between border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
-        <div className="flex items-center gap-6">
-          <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
+      <header className="flex flex-col gap-3 border-b border-black/[.08] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 dark:border-white/[.145]">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 sm:justify-start">
+          <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
             Stockfolio
           </h1>
           <NavBar />
         </div>
         {user && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <span className="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400">
               {user.email}
             </span>
             <button
               onClick={handleSignOut}
               disabled={loading}
-              className="h-9 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              className="h-9 shrink-0 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
             >
               로그아웃
             </button>
@@ -66,7 +66,7 @@ export default function Home() {
         )}
       </header>
 
-      <main className="flex flex-1 flex-col items-center gap-6 p-6">
+      <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
         <MarketSummary />
 
         {user ? (

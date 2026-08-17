@@ -59,7 +59,7 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   throw lastError;
 }
 
-type StrategyRow = StrategyRule & { id: string; name: string };
+type StrategyRow = StrategyRule & { id: string; name: string | null };
 
 async function loadStrategies(): Promise<StrategyRow[]> {
   const { data, error } = await supabaseAdmin
@@ -237,7 +237,7 @@ async function runStrategyScan(
   priceByCode: Map<string, StockPriceEntry>,
   activeKeys: Set<string>
 ): Promise<{ matched: number; errors: number }> {
-  const label = `${strategy.name}(${strategy.rule_type})`;
+  const label = `${strategy.name ?? strategy.rule_type}(${strategy.rule_type})`;
   console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
 
   let matched = 0;
@@ -340,7 +340,9 @@ async function scanAllStocks(
       // 계속 진행되도록 여기서 한 번 더 막는다.
       totalErrors++;
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`  전략 "${strategy.name}" 판정이 처리되지 않은 오류로 중단됐습니다: ${message}`);
+      console.error(
+        `  전략 "${strategy.name ?? strategy.rule_type}" 판정이 처리되지 않은 오류로 중단됐습니다: ${message}`
+      );
     }
   }
 

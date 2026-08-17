@@ -4,13 +4,29 @@ import { useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
 
-export interface StrategyRow {
+export type StrategyRow = StrategyRule & {
   id: string;
   name: string;
-  rule_type: string;
-  rule_params: { short_period: number; long_period: number };
   created_at: string;
+};
+
+const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
+  ma_cross: "이평선 골든/데드크로스",
+  minervini_trend_template: "미너비니 트렌드 템플릿",
+};
+
+// 미너비니 트렌드 템플릿은 원문 표준 정의(50/150/200일)를 그대로 쓰며 사용자가 바꿀 수 없다.
+const MINERVINI_PARAMS = { ma_short: 50, ma_mid: 150, ma_long: 200 } as const;
+
+export function describeStrategy(strategy: StrategyRow): string {
+  if (strategy.rule_type === "minervini_trend_template") {
+    const { ma_short, ma_mid, ma_long } = strategy.rule_params;
+    return `${RULE_TYPE_LABELS[strategy.rule_type]} · ${ma_short}/${ma_mid}/${ma_long}일`;
+  }
+  const { short_period, long_period } = strategy.rule_params;
+  return `${RULE_TYPE_LABELS[strategy.rule_type]} · 단기 ${short_period}일 / 장기 ${long_period}일`;
 }
 
 export function useStrategies(user: User) {
@@ -28,6 +44,7 @@ export function useStrategies(user: User) {
 
 export default function StrategyManager({ user }: { user: User }) {
   const [name, setName] = useState("");
+  const [ruleType, setRuleType] = useState<StrategyRuleType>("ma_cross");
   const [shortPeriod, setShortPeriod] = useState("5");
   const [longPeriod, setLongPeriod] = useState("20");
   const [formError, setFormError] = useState("");
@@ -39,28 +56,40 @@ export default function StrategyManager({ user }: { user: User }) {
     setFormError("");
 
     const trimmedName = name.trim();
-    const short = Number(shortPeriod);
-    const long = Number(longPeriod);
-
     if (!trimmedName) {
       setFormError("전략 이름을 입력해주세요.");
       return;
     }
-    if (!Number.isInteger(short) || short <= 0 || !Number.isInteger(long) || long <= 0) {
-      setFormError("이평선 기간은 양의 정수로 입력해주세요.");
-      return;
-    }
-    if (short >= long) {
-      setFormError("단기 이평선 기간은 장기 이평선 기간보다 짧아야 합니다.");
-      return;
+
+    let insertPayload: { rule_type: StrategyRuleType; rule_params: object };
+
+    if (ruleType === "ma_cross") {
+      const short = Number(shortPeriod);
+      const long = Number(longPeriod);
+      if (!Number.isInteger(short) || short <= 0 || !Number.isInteger(long) || long <= 0) {
+        setFormError("이평선 기간은 양의 정수로 입력해주세요.");
+        return;
+      }
+      if (short >= long) {
+        setFormError("단기 이평선 기간은 장기 이평선 기간보다 짧아야 합니다.");
+        return;
+      }
+      insertPayload = {
+        rule_type: "ma_cross",
+        rule_params: { short_period: short, long_period: long },
+      };
+    } else {
+      insertPayload = {
+        rule_type: "minervini_trend_template",
+        rule_params: { ...MINERVINI_PARAMS },
+      };
     }
 
     setSubmitting(true);
     const { error: insertError } = await supabase.from("strategies").insert({
       user_id: user.id,
       name: trimmedName,
-      rule_type: "ma_cross",
-      rule_params: { short_period: short, long_period: long },
+      ...insertPayload,
     });
     setSubmitting(false);
 
@@ -95,26 +124,53 @@ export default function StrategyManager({ user }: { user: User }) {
             className={inputClassName}
           />
         </div>
-        <div className="flex w-28 flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">단기 이평선</label>
-          <input
-            type="number"
-            min={1}
-            value={shortPeriod}
-            onChange={(e) => setShortPeriod(e.target.value)}
+        <div className="flex flex-1 min-w-[12rem] flex-col gap-1">
+          <label className="text-xs text-zinc-500 dark:text-zinc-400">전략 유형</label>
+          <select
+            value={ruleType}
+            onChange={(e) => setRuleType(e.target.value as StrategyRuleType)}
             className={inputClassName}
-          />
+          >
+            <option value="ma_cross">{RULE_TYPE_LABELS.ma_cross}</option>
+            <option value="minervini_trend_template">
+              {RULE_TYPE_LABELS.minervini_trend_template}
+            </option>
+          </select>
         </div>
-        <div className="flex w-28 flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">장기 이평선</label>
-          <input
-            type="number"
-            min={1}
-            value={longPeriod}
-            onChange={(e) => setLongPeriod(e.target.value)}
-            className={inputClassName}
-          />
-        </div>
+
+        {ruleType === "ma_cross" ? (
+          <>
+            <div className="flex w-28 flex-col gap-1">
+              <label className="text-xs text-zinc-500 dark:text-zinc-400">단기 이평선(일)</label>
+              <input
+                type="number"
+                min={1}
+                value={shortPeriod}
+                onChange={(e) => setShortPeriod(e.target.value)}
+                className={inputClassName}
+              />
+            </div>
+            <div className="flex w-28 flex-col gap-1">
+              <label className="text-xs text-zinc-500 dark:text-zinc-400">장기 이평선(일)</label>
+              <input
+                type="number"
+                min={1}
+                value={longPeriod}
+                onChange={(e) => setLongPeriod(e.target.value)}
+                className={inputClassName}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">이평선 기간(고정)</span>
+            <p className="flex h-10 items-center text-sm text-zinc-600 dark:text-zinc-400">
+              단기 {MINERVINI_PARAMS.ma_short}일 · 중기 {MINERVINI_PARAMS.ma_mid}일 · 장기{" "}
+              {MINERVINI_PARAMS.ma_long}일
+            </p>
+          </div>
+        )}
+
         <button
           onClick={handleAdd}
           disabled={submitting}
@@ -149,8 +205,7 @@ export default function StrategyManager({ user }: { user: User }) {
                 </button>
               </div>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                이평선 골든/데드크로스 · 단기 {strategy.rule_params.short_period}일 / 장기{" "}
-                {strategy.rule_params.long_period}일
+                {describeStrategy(strategy)}
               </p>
             </div>
           ))}

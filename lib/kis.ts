@@ -312,13 +312,15 @@ function addDaysToYyyymmdd(yyyymmdd: string, days: number): string {
 /**
  * 국내 주식 기간별(일/주/월/년봉) 시세를 조회한다. KIS는 호출 한 번에 최대
  * 100건만 주므로, 이전 배치의 가장 오래된 날짜 바로 전날을 다음 조회 종료일로
- * 삼아 여러 번 호출해 MA448까지 계산할 수 있을 만큼(최대 500건) 모은다.
+ * 삼아 여러 번 호출해 targetRows만큼(기본값은 MA448까지 계산 가능한 최대 500건) 모은다.
+ * 스크리닝처럼 조건 판정만 필요할 땐 targetRows를 100 정도로 낮춰 호출 1회로 끝낼 수 있다.
  */
 export async function getDailyPrices(
   stockCode: string,
-  period: ChartPeriod
+  period: ChartPeriod,
+  targetRows: number = TARGET_CHART_ROWS
 ): Promise<DailyPrice[]> {
-  const cacheKey = `${stockCode}:${period}`;
+  const cacheKey = `${stockCode}:${period}:${targetRows}`;
   const cached = chartCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CHART_CACHE_TTL_MS) {
     return cached.prices;
@@ -358,7 +360,7 @@ export async function getDailyPrices(
     collected.push(...rows);
 
     if (rows.length < 100) break; // 100건 미만이면 그보다 과거 데이터가 없는 것
-    if (collected.length >= TARGET_CHART_ROWS) break;
+    if (collected.length >= targetRows) break;
 
     endDate = addDaysToYyyymmdd(rows[rows.length - 1].stck_bsop_date, -1);
   }

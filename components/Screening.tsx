@@ -4,213 +4,215 @@ import { useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { justGoldenCrossed, type DailyPrice } from "@/lib/backtest";
 import { useStrategies } from "@/components/StrategyManager";
 
-interface WatchlistStock {
+interface ScreeningResultRow {
+  id: string;
   stock_code: string;
   stock_name: string;
+  entry_price: number;
+  stop_loss_price: number;
+  take_profit_price: number;
+  current_price: number;
+  return_pct: number;
+  status: "active" | "stopped" | "profited";
+  matched_at: string;
+  closed_at: string | null;
 }
 
-interface ScreeningResult {
-  stockCode: string;
-  stockName: string;
-  strategyName: string;
-  signalPrice: number;
-  currentPrice: number | null;
+type StatusTab = "active" | "closed";
+
+const STATUS_TABS: { value: StatusTab; label: string }[] = [
+  { value: "active", label: "추적 중" },
+  { value: "closed", label: "종료됨" },
+];
+
+const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; className: string }> = {
+  active: { label: "추적 중", className: "text-zinc-500 dark:text-zinc-400" },
+  stopped: { label: "손절", className: "text-blue-600 dark:text-blue-400" },
+  profited: { label: "익절", className: "text-red-600 dark:text-red-400" },
+};
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function Screening({ user }: { user: User }) {
   const { data: strategies, isLoading: strategiesLoading } = useStrategies(user);
-  const { data: watchlist, isLoading: watchlistLoading } = useSWR(
-    ["screening-watchlist", user.id],
-    async ([, userId]: [string, string]) => {
-      const { data, error } = await supabase
-        .from("watchlist")
-        .select("stock_code, stock_name")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: true });
+  const [strategyId, setStrategyId] = useState("");
+  const [statusTab, setStatusTab] = useState<StatusTab>("active");
 
+  const { data: lastRun } = useSWR("screening-last-run", async () => {
+    const { data, error } = await supabase
+      .from("screening_runs")
+      .select("finished_at, scanned_count, matched_count")
+      .order("finished_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data as { finished_at: string; scanned_count: number; matched_count: number } | null;
+  });
+
+  const {
+    data: results,
+    error: resultsError,
+    isLoading: resultsLoading,
+  } = useSWR(
+    strategyId ? ["screening-results", strategyId, statusTab] : null,
+    async ([, sid, tab]: [string, string, StatusTab]) => {
+      let query = supabase
+        .from("screening_results")
+        .select(
+          "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, status, matched_at, closed_at"
+        )
+        .eq("strategy_id", sid)
+        .order("matched_at", { ascending: false });
+
+      query = tab === "active" ? query.eq("status", "active") : query.in("status", ["stopped", "profited"]);
+
+      const { data, error } = await query;
       if (error) throw error;
-      return data as WatchlistStock[];
+      return data as ScreeningResultRow[];
     }
   );
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
-  const [results, setResults] = useState<ScreeningResult[] | null>(null);
-  const [errorMsg, setErrorMsg] = useState("");
-
-  const toggleStrategy = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleRun = async () => {
-    setErrorMsg("");
-    setResults(null);
-
-    const selected = strategies?.filter((s) => selectedIds.has(s.id)) ?? [];
-    if (selected.length === 0) {
-      setErrorMsg("전략을 하나 이상 선택해주세요.");
-      return;
-    }
-    if (!watchlist || watchlist.length === 0) {
-      setErrorMsg("관심종목이 없습니다.");
-      return;
-    }
-
-    setRunning(true);
-    const found: ScreeningResult[] = [];
-
-    for (let i = 0; i < watchlist.length; i++) {
-      const stock = watchlist[i];
-      setProgress({ current: i + 1, total: watchlist.length });
-
-      try {
-        const historyRes = await fetch(`/api/stock/${stock.stock_code}/history?period=D`);
-        if (!historyRes.ok) continue;
-        const prices = (await historyRes.json()) as DailyPrice[];
-        if (prices.length === 0) continue;
-
-        const matched = selected.filter((s) =>
-          justGoldenCrossed(prices, s.rule_params.short_period, s.rule_params.long_period)
-        );
-        if (matched.length === 0) continue;
-
-        const signalPrice = prices[prices.length - 1].close;
-
-        let currentPrice: number | null = null;
-        const priceRes = await fetch(`/api/stock/${stock.stock_code}`);
-        if (priceRes.ok) {
-          const priceData = await priceRes.json();
-          currentPrice = priceData.currentPrice ?? null;
-        }
-
-        for (const strategy of matched) {
-          found.push({
-            stockCode: stock.stock_code,
-            stockName: stock.stock_name,
-            strategyName: strategy.name,
-            signalPrice,
-            currentPrice,
-          });
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    setResults(found);
-    setProgress(null);
-    setRunning(false);
-  };
+  const selectClassName =
+    "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
 
   return (
-    <div className="w-full max-w-3xl">
-      <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-          적용할 전략 (하나 이상 선택)
-        </p>
-
-        {strategiesLoading ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
-        ) : strategies && strategies.length > 0 ? (
-          <div className="flex flex-wrap gap-3">
-            {strategies.map((s) => (
-              <label
-                key={s.id}
-                className="flex items-center gap-2 rounded-lg border border-black/[.08] px-3 py-2 text-sm text-black dark:border-white/[.145] dark:text-zinc-50"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(s.id)}
-                  onChange={() => toggleStrategy(s.id)}
-                />
-                {s.name} ({s.rule_params.short_period}/{s.rule_params.long_period})
-              </label>
+    <div className="w-full max-w-4xl">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
+          <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
+          <select
+            value={strategyId}
+            onChange={(e) => setStrategyId(e.target.value)}
+            className={selectClassName}
+          >
+            <option value="">전략 선택</option>
+            {strategies?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
             ))}
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            등록된 전략이 없습니다. 전략 관리에서 먼저 전략을 추가해주세요.
-          </p>
-        )}
+          </select>
+          {strategiesLoading && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
+          )}
+          {!strategiesLoading && strategies?.length === 0 && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              등록된 전략이 없습니다. 전략 관리에서 먼저 전략을 추가해주세요.
+            </p>
+          )}
+        </div>
 
-        <button
-          onClick={handleRun}
-          disabled={running || strategiesLoading || watchlistLoading}
-          className="mt-4 h-10 rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
-        >
-          {running ? "실행 중..." : "스크리닝 실행"}
-        </button>
-
-        {progress && (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {progress.current} / {progress.total} 종목 확인 중...
-          </p>
-        )}
-
-        {errorMsg && (
-          <p className="mt-2 text-sm text-blue-600 dark:text-blue-400">{errorMsg}</p>
-        )}
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          {lastRun
+            ? `마지막 스캔: ${formatDateTime(lastRun.finished_at)} (전종목 ${lastRun.scanned_count.toLocaleString(
+                "ko-KR"
+              )}개 중 ${lastRun.matched_count.toLocaleString("ko-KR")}건 신규 매칭)`
+            : "아직 실행된 스캔이 없습니다."}
+        </p>
       </div>
 
-      {results && (
+      {!strategyId ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 선택해주세요.</p>
+      ) : (
         <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-          {results.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              오늘 골든크로스가 발생한 종목이 없습니다.
-            </p>
-          ) : (
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-zinc-500 dark:text-zinc-400">
-                  <th className="pb-2 pr-4 font-normal">종목명</th>
-                  <th className="pb-2 pr-4 font-normal">전략</th>
-                  <th className="pb-2 pr-4 font-normal">신호 발생가</th>
-                  <th className="pb-2 font-normal">현재가</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((r, i) => {
-                  const colorClass =
-                    r.currentPrice === null
-                      ? "text-black dark:text-zinc-50"
-                      : r.currentPrice > r.signalPrice
+          <div className="mb-3 flex gap-1">
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setStatusTab(tab.value)}
+                className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
+                  statusTab === tab.value
+                    ? "bg-foreground text-background"
+                    : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {resultsLoading ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">결과를 불러오는 중...</p>
+          ) : resultsError ? (
+            <p className="text-sm text-blue-600 dark:text-blue-400">결과를 불러오지 못했습니다.</p>
+          ) : results && results.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-zinc-500 dark:text-zinc-400">
+                    <th className="pb-2 pr-4 font-normal">종목명</th>
+                    <th className="pb-2 pr-4 font-normal">진입 추천가</th>
+                    <th className="pb-2 pr-4 font-normal">손절가</th>
+                    <th className="pb-2 pr-4 font-normal">익절가</th>
+                    <th className="pb-2 pr-4 font-normal">현재가</th>
+                    <th className="pb-2 pr-4 font-normal">수익률</th>
+                    <th className="pb-2 pr-4 font-normal">매칭 시각</th>
+                    {statusTab === "closed" && <th className="pb-2 font-normal">결과</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((r) => {
+                    const returnColor =
+                      r.return_pct > 0
                         ? "text-red-600 dark:text-red-400"
-                        : r.currentPrice < r.signalPrice
+                        : r.return_pct < 0
                           ? "text-blue-600 dark:text-blue-400"
                           : "text-black dark:text-zinc-50";
+                    const badge = STATUS_BADGE[r.status];
 
-                  return (
-                    <tr
-                      key={`${r.stockCode}-${r.strategyName}-${i}`}
-                      className="border-t border-black/[.08] dark:border-white/[.145]"
-                    >
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                        {r.stockName}{" "}
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                          {r.stockCode}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">{r.strategyName}</td>
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                        {r.signalPrice.toLocaleString("ko-KR")}
-                      </td>
-                      <td className={`py-2 ${colorClass}`}>
-                        {r.currentPrice !== null ? r.currentPrice.toLocaleString("ko-KR") : "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={r.id} className="border-t border-black/[.08] dark:border-white/[.145]">
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {r.stock_name}{" "}
+                          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                            {r.stock_code}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {r.entry_price.toLocaleString("ko-KR")}
+                        </td>
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {r.stop_loss_price.toLocaleString("ko-KR")}
+                        </td>
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {r.take_profit_price.toLocaleString("ko-KR")}
+                        </td>
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {r.current_price.toLocaleString("ko-KR")}
+                        </td>
+                        <td className={`py-2 pr-4 font-medium ${returnColor}`}>
+                          {r.return_pct > 0 ? "+" : ""}
+                          {r.return_pct.toFixed(2)}%
+                        </td>
+                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">
+                          {formatDateTime(r.matched_at)}
+                        </td>
+                        {statusTab === "closed" && (
+                          <td className={`py-2 font-medium ${badge.className}`}>{badge.label}</td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {statusTab === "active"
+                ? "현재 추적 중인 종목이 없습니다."
+                : "종료된 종목이 없습니다."}
+            </p>
           )}
         </div>
       )}

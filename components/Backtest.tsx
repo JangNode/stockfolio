@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
-import { useStrategies } from "@/components/StrategyManager";
+import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 
 const WINDOW_OPTIONS = [
   { months: 3, label: "3개월" },
@@ -11,6 +11,13 @@ const WINDOW_OPTIONS = [
   { months: 12, label: "1년" },
   { months: 24, label: "2년" },
 ] as const;
+
+const SEARCH_DEBOUNCE_MS = 250;
+
+interface StockSuggestion {
+  code: string;
+  name: string;
+}
 
 function windowStartDate(months: number): string {
   const d = new Date();
@@ -23,13 +30,51 @@ export default function Backtest({ user }: { user: User }) {
 
   const [strategyId, setStrategyId] = useState("");
   const [stockQuery, setStockQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
+  const [selectedStock, setSelectedStock] = useState<StockSuggestion | null>(null);
   const [months, setMonths] = useState<(typeof WINDOW_OPTIONS)[number]["months"]>(12);
   const [running, setRunning] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [stockLabel, setStockLabel] = useState("");
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const selectedStrategy = strategies?.find((s) => s.id === strategyId);
+
+  const handleQueryChange = (value: string) => {
+    setStockQuery(value);
+    setSelectedStock(null);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setSuggestions([]);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/stock/search?q=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        setSuggestions(res.ok && Array.isArray(data) ? data : []);
+      } catch {
+        setSuggestions([]);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  };
+
+  const handleSelectSuggestion = (stock: StockSuggestion) => {
+    setStockQuery(stock.name);
+    setSelectedStock(stock);
+    setSuggestions([]);
+  };
 
   const handleRun = async () => {
     setErrorMsg("");
@@ -47,13 +92,21 @@ export default function Backtest({ user }: { user: User }) {
 
     setRunning(true);
     try {
-      const resolveRes = await fetch(`/api/stock/resolve?q=${encodeURIComponent(trimmed)}`);
-      const resolved = await resolveRes.json();
-      if (!resolveRes.ok) {
-        setErrorMsg(resolved.error ?? "종목을 찾을 수 없습니다.");
-        return;
+      let resolved: StockSuggestion;
+
+      if (selectedStock && selectedStock.name === trimmed) {
+        resolved = selectedStock;
+      } else {
+        const resolveRes = await fetch(`/api/stock/resolve?q=${encodeURIComponent(trimmed)}`);
+        const data = await resolveRes.json();
+        if (!resolveRes.ok) {
+          setErrorMsg(data.error ?? "종목을 찾을 수 없습니다.");
+          return;
+        }
+        resolved = data;
       }
 
+      // 모든 전략이 일봉 기준으로 계산되므로 항상 일봉을 가져온다.
       const historyRes = await fetch(`/api/stock/${resolved.code}/history?period=D`);
       const prices: DailyPrice[] | { error: string } = await historyRes.json();
       if (!historyRes.ok) {
@@ -63,11 +116,9 @@ export default function Backtest({ user }: { user: User }) {
         return;
       }
 
-      const { short_period, long_period } = selectedStrategy.rule_params;
       const backtestResult = runBacktest(
         prices as DailyPrice[],
-        short_period,
-        long_period,
+        selectedStrategy,
         windowStartDate(months)
       );
 
@@ -96,19 +147,49 @@ export default function Backtest({ user }: { user: User }) {
             <option value="">전략 선택</option>
             {strategies?.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} ({s.rule_params.short_period}/{s.rule_params.long_period})
+                {s.name} — {describeStrategy(s)}
               </option>
             ))}
           </select>
         </div>
-        <div className="flex flex-1 min-w-[10rem] flex-col gap-1">
+        <div className="relative flex flex-1 min-w-[10rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">종목코드 또는 종목명</label>
           <input
             value={stockQuery}
-            onChange={(e) => setStockQuery(e.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !running) handleRun();
+              if (e.key === "Escape") setSuggestions([]);
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setSuggestions([]), 150);
+            }}
             placeholder="005930 또는 삼성전자"
+            autoComplete="off"
             className={selectClassName}
           />
+
+          {suggestions.length > 0 && (
+            <ul className="absolute top-full left-0 z-10 mt-1 w-full overflow-hidden rounded-lg border border-black/[.08] bg-white shadow-lg dark:border-white/[.145] dark:bg-zinc-900">
+              {suggestions.map((stock) => (
+                <li key={stock.code}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelectSuggestion(stock);
+                    }}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-black hover:bg-black/[.04] dark:text-zinc-50 dark:hover:bg-white/[.08]"
+                  >
+                    <span>{stock.name}</span>
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                      {stock.code}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="flex w-28 flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">기간</label>
@@ -146,7 +227,7 @@ export default function Backtest({ user }: { user: User }) {
 
           {result.insufficientData ? (
             <p className="text-sm text-blue-600 dark:text-blue-400">
-              장기 이평선을 계산하기에 데이터가 부족합니다.
+              조건을 계산하기에 데이터가 부족합니다.
             </p>
           ) : result.tradeCount === 0 ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">

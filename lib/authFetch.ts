@@ -6,12 +6,16 @@ import { supabase } from "@/lib/supabase";
  * 시세 API는 승인된 사용자만 호출할 수 있으므로, 로그인 세션의 액세스 토큰을
  * Authorization 헤더에 실어 보낸다. 서버는 이 토큰으로 승인 상태를 확인한다.
  */
-export async function authFetch(url: string): Promise<Response> {
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
 
   return fetch(url, {
-    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
   });
 }
 

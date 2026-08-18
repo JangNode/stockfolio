@@ -12,7 +12,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDailyPrices, getStockPrice } from "@/lib/kis";
-import { getAllStocks } from "@/lib/stockMaster";
+import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import {
   computeEntryPlan,
   evaluateTrackingStatus,
@@ -20,6 +20,18 @@ import {
   type DailyPrice,
   type StrategyRule,
 } from "@/lib/backtest";
+
+// ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
+// 종목명에 이 문자열이 포함되면 제외한다 (스팩).
+const EXCLUDED_NAME_SUBSTRINGS = ["스팩"];
+// 종목마스터의 종목구분코드 기준 제외 대상: RT=리츠, EF=ETF, EN=ETN.
+const EXCLUDED_PRODUCT_TYPES = new Set(["RT", "EF", "EN"]);
+// 상장 후 이 개월 수 미만인 종목은 제외한다 (신규 상장 변동성 회피).
+const MIN_LISTED_MONTHS = 6;
+// 이 시가총액(억원) 미만인 종목은 제외한다.
+const MIN_MARKET_CAP_EOK = 500;
+// 이 가격(원) 미만인 종목(동전주)은 제외한다.
+const MIN_PRICE_WON = 1000;
 
 // 스크리닝은 조건 판정만 하면 되므로 차트용 최대치(500건)가 아니라 필요 최소한만 가져온다.
 // 미너비니 템플릿은 250거래일 신고/신저가 조건 때문에 250~300건이 필요해 KIS 페이지당
@@ -86,6 +98,112 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
   }
 
   return target;
+}
+
+/** 상장일자(YYYYMMDD) 기준으로 상장 후 지난 개월 수를 계산한다. 파싱 실패 시 null. */
+function monthsSinceListing(listedDate: string | null, now: Date): number | null {
+  if (!listedDate) return null;
+
+  const year = Number(listedDate.slice(0, 4));
+  const month = Number(listedDate.slice(4, 6));
+  const day = Number(listedDate.slice(6, 8));
+  // Date 생성자는 범위를 벗어난 월/일을 예외 없이 다른 날짜로 밀어버리므로(예: 0월 0일 →
+  // 전년도 12월 어느 날), "00000000" 같은 빈 값을 걸러내려면 먼저 범위를 직접 검증해야 한다.
+  if (year < 1950 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const listed = new Date(year, month - 1, day);
+  if (Number.isNaN(listed.getTime())) return null;
+
+  return (
+    (now.getFullYear() - listed.getFullYear()) * 12 +
+    (now.getMonth() - listed.getMonth()) -
+    (now.getDate() < listed.getDate() ? 1 : 0)
+  );
+}
+
+interface MasterFilterCounts {
+  spac: number;
+  reitEtfEtn: number;
+  newlyListed: number;
+}
+
+/**
+ * 종목마스터 정보만으로 판단 가능한 조건(스팩/리츠·ETF·ETN/신규상장)을 개별 시세 API
+ * 호출 전에 걸러낸다. 상장일을 파싱하지 못한 종목은 신규상장 여부를 알 수 없으므로
+ * 걸러내지 않고 통과시킨다 — 데이터가 없다고 잘못 제외하는 것보다 안전하다.
+ */
+function filterByMaster(
+  stocks: StockEntry[]
+): { survivors: StockEntry[]; counts: MasterFilterCounts } {
+  const now = new Date();
+  const counts: MasterFilterCounts = { spac: 0, reitEtfEtn: 0, newlyListed: 0 };
+  const survivors: StockEntry[] = [];
+
+  for (const stock of stocks) {
+    if (EXCLUDED_NAME_SUBSTRINGS.some((s) => stock.name.includes(s))) {
+      counts.spac++;
+      continue;
+    }
+    if (EXCLUDED_PRODUCT_TYPES.has(stock.productType)) {
+      counts.reitEtfEtn++;
+      continue;
+    }
+
+    const months = monthsSinceListing(stock.listedDate, now);
+    if (months !== null && months < MIN_LISTED_MONTHS) {
+      counts.newlyListed++;
+      continue;
+    }
+
+    survivors.push(stock);
+  }
+
+  return { survivors, counts };
+}
+
+/**
+ * 종목마스터에 없는 조건(시가총액, 동전주 여부)은 시세 조회로 걸러낸다. 이후 단계인
+ * 일봉 수집(종목당 최대 3회 호출)보다 먼저 실행해, 여기서 제외되는 종목은 그 호출을
+ * 아예 하지 않게 한다.
+ */
+async function filterByQuote(
+  stocks: StockEntry[]
+): Promise<{ survivors: StockEntry[]; excludedCount: number; fetchErrors: number }> {
+  const survivors: StockEntry[] = [];
+  let excludedCount = 0;
+  let fetchErrors = 0;
+
+  for (let i = 0; i < stocks.length; i++) {
+    const stock = stocks[i];
+
+    if (i === 0 || (i + 1) % PROGRESS_LOG_INTERVAL === 0 || i === stocks.length - 1) {
+      console.log(
+        `  [${i + 1}/${stocks.length}] 시세 필터 진행 중... (제외 ${excludedCount}건, 조회 실패 ${fetchErrors}건)`
+      );
+    }
+
+    try {
+      const price = await withRetry(
+        () => getStockPrice(stock.code),
+        `${stock.code}(${stock.name}) 시세 조회`
+      );
+
+      if (price.currentPrice < MIN_PRICE_WON || price.marketCapEok < MIN_MARKET_CAP_EOK) {
+        excludedCount++;
+        continue;
+      }
+
+      survivors.push(stock);
+    } catch (error) {
+      fetchErrors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `    ${stock.code}(${stock.name}) 시세 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`
+      );
+    }
+  }
+
+  return { survivors, excludedCount, fetchErrors };
 }
 
 interface ActiveRow {
@@ -197,7 +315,7 @@ async function collectDailyPrices(
   allStocks: { code: string; name: string }[],
   dailyTargetRows: number
 ): Promise<{ priceByCode: Map<string, StockPriceEntry>; fetchErrors: number }> {
-  console.log(`=== 2단계: 전종목 일봉 데이터 수집 (종목당 ${dailyTargetRows}건) ===`);
+  console.log(`=== 3단계: 전종목 일봉 데이터 수집 (종목당 ${dailyTargetRows}건) ===`);
 
   const priceByCode = new Map<string, StockPriceEntry>();
   let fetchErrors = 0;
@@ -299,16 +417,37 @@ async function scanAllStocks(
     return { scanned: 0, matched: 0, errors: 0 };
   }
 
+  console.log("=== 2단계: 잡주 필터링 ===");
+
   const allStocks = await getAllStocks();
+  const { survivors: masterSurvivors, counts: masterCounts } = filterByMaster(allStocks);
+  console.log(
+    `  마스터 필터: ${allStocks.length}개 → ${masterSurvivors.length}개 ` +
+      `(스팩 ${masterCounts.spac}개, 리츠/ETF/ETN ${masterCounts.reitEtfEtn}개, ` +
+      `신규상장 ${masterCounts.newlyListed}개 제외)`
+  );
+
+  console.log(`  시세 필터 조회 중... (대상 ${masterSurvivors.length}개)`);
+  const {
+    survivors: finalStocks,
+    excludedCount: quoteExcluded,
+    fetchErrors: quoteFetchErrors,
+  } = await filterByQuote(masterSurvivors);
+  console.log(
+    `  시세 필터: ${masterSurvivors.length}개 → ${finalStocks.length}개 ` +
+      `(저시가총액/동전주 ${quoteExcluded}개 제외, 조회 실패 ${quoteFetchErrors}건)`
+  );
+  console.log(`최종 스캔 대상: ${finalStocks.length}개 종목`);
+
   const dailyTargetRows = computeDailyTargetRows(strategies);
   const callsPerStock = Math.ceil(dailyTargetRows / 100);
   console.log(
-    `대상 종목 ${allStocks.length}개, 등록 전략 ${strategies.length}개(${strategies
+    `등록 전략 ${strategies.length}개(${strategies
       .map((s) => s.rule_type)
       .join(", ")}), 종목당 일봉 ${dailyTargetRows}건(호출 ${callsPerStock}회)`
   );
 
-  const { priceByCode, fetchErrors } = await collectDailyPrices(allStocks, dailyTargetRows);
+  const { priceByCode, fetchErrors } = await collectDailyPrices(finalStocks, dailyTargetRows);
 
   // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다. 여러 전략 판정이 공유하는
   // 집합이라, 한 전략에서 새로 매칭된 것도 곧바로 다른 전략 판정에 반영된다(같은 종목을
@@ -324,10 +463,10 @@ async function scanAllStocks(
     (existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`)
   );
 
-  console.log(`=== 3단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
+  console.log(`=== 4단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
 
   let totalMatched = 0;
-  let totalErrors = fetchErrors;
+  let totalErrors = fetchErrors + quoteFetchErrors;
 
   for (const strategy of strategies) {
     try {
@@ -347,7 +486,7 @@ async function scanAllStocks(
   }
 
   console.log(`스캔 완료: 신규 매칭 ${totalMatched}건, 오류 ${totalErrors}건`);
-  return { scanned: allStocks.length, matched: totalMatched, errors: totalErrors };
+  return { scanned: finalStocks.length, matched: totalMatched, errors: totalErrors };
 }
 
 async function recordRun(

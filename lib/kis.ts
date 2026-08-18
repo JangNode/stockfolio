@@ -215,6 +215,8 @@ export interface StockPrice {
   highPrice: number;
   lowPrice: number;
   volume: number;
+  // 시가총액(억원). 스크리닝 배치의 잡주 필터링(저시가총액 제외)에 쓴다.
+  marketCapEok: number;
 }
 
 interface InquirePriceResponse extends KisResponse {
@@ -226,6 +228,7 @@ interface InquirePriceResponse extends KisResponse {
     stck_hgpr: string;
     stck_lwpr: string;
     acml_vol: string;
+    hts_avls: string;
   };
 }
 
@@ -260,6 +263,7 @@ export async function getStockPrice(stockCode: string): Promise<StockPrice> {
     highPrice: Number(output.stck_hgpr),
     lowPrice: Number(output.stck_lwpr),
     volume: Number(output.acml_vol),
+    marketCapEok: Number(output.hts_avls),
   };
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
+import { authFetch } from "@/lib/authFetch";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 
 const WINDOW_OPTIONS = [
@@ -61,7 +62,7 @@ export default function Backtest({ user }: { user: User }) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/stock/search?q=${encodeURIComponent(trimmed)}`);
+        const res = await authFetch(`/api/stock/search?q=${encodeURIComponent(trimmed)}`);
         const data = await res.json();
         setSuggestions(res.ok && Array.isArray(data) ? data : []);
       } catch {
@@ -97,7 +98,7 @@ export default function Backtest({ user }: { user: User }) {
       if (selectedStock && selectedStock.name === trimmed) {
         resolved = selectedStock;
       } else {
-        const resolveRes = await fetch(`/api/stock/resolve?q=${encodeURIComponent(trimmed)}`);
+        const resolveRes = await authFetch(`/api/stock/resolve?q=${encodeURIComponent(trimmed)}`);
         const data = await resolveRes.json();
         if (!resolveRes.ok) {
           setErrorMsg(data.error ?? "종목을 찾을 수 없습니다.");
@@ -107,7 +108,7 @@ export default function Backtest({ user }: { user: User }) {
       }
 
       // 모든 전략이 일봉 기준으로 계산되므로 항상 일봉을 가져온다.
-      const historyRes = await fetch(`/api/stock/${resolved.code}/history?period=D`);
+      const historyRes = await authFetch(`/api/stock/${resolved.code}/history?period=D`);
       const prices: DailyPrice[] | { error: string } = await historyRes.json();
       if (!historyRes.ok) {
         setErrorMsg(

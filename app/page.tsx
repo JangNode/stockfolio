@@ -1,37 +1,29 @@
 "use client";
 
 import { useState } from "react";
-<<<<<<< HEAD
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/useSession";
 import Watchlist from "@/components/Watchlist";
 import MarketSummary from "@/components/MarketSummary";
-import ApprovalNotice from "@/components/ApprovalNotice";
-=======
-import { supabase } from "@/lib/supabase";
-import { useUser } from "@/lib/useUser";
-import Watchlist from "@/components/Watchlist";
-import MarketSummary from "@/components/MarketSummary";
 import NavBar from "@/components/NavBar";
->>>>>>> origin/main
+import ApprovalNotice from "@/components/ApprovalNotice";
 
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-<<<<<<< HEAD
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const { user, status, isApproved, isAdmin, loading: sessionLoading } =
-    useSession();
+  // useSession은 useUser(로그인 여부)에 profiles의 승인 상태까지 얹어서 돌려준다.
+  const {
+    user,
+    status,
+    isApproved,
+    isAdmin,
+    loading: sessionLoading,
+  } = useSession();
 
-=======
-  const { user } = useUser();
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
->>>>>>> origin/main
   const handleSignUp = async () => {
     setLoading(true);
     setMessage("");
@@ -73,21 +65,16 @@ export default function Home() {
           <NavBar />
         </div>
         {user && (
-<<<<<<< HEAD
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
             {isAdmin && (
               <Link
                 href="/admin"
-                className="flex h-9 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+                className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
               >
                 관리자
               </Link>
             )}
-            <span className="text-sm text-zinc-600 dark:text-zinc-400">
-=======
-          <div className="flex items-center justify-between gap-3 sm:justify-end">
             <span className="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400">
->>>>>>> origin/main
               {user.email}
             </span>
             <button
@@ -101,21 +88,12 @@ export default function Home() {
         )}
       </header>
 
-<<<<<<< HEAD
-      <main className="flex flex-1 flex-col items-center gap-6 p-6">
+      <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
         {sessionLoading ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             불러오는 중...
           </p>
         ) : !user ? (
-=======
-      <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
-        <MarketSummary />
-
-        {user ? (
-          <Watchlist user={user} />
-        ) : (
->>>>>>> origin/main
           <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950">
             <h2 className="mb-2 text-xl font-semibold text-black dark:text-zinc-50">
               로그인이 필요합니다

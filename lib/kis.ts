@@ -43,28 +43,129 @@ function isValid(row: TokenRow | null): row is TokenRow {
 
 // KIS는 tr_id별이 아니라 앱키 전체를 통틀어 초당 호출 횟수를 제한한다. 그래서
 // 현재가 조회, 일/주/월봉, 분봉이 동시에 호출되면 서로의 몫을 갉아먹고 EGW00201
-// ("초당 거래건수를 초과하였습니다")로 거부당할 수 있다. 이를 막기 위해 이
-// 모듈을 거치는 모든 KIS 데이터 호출을 하나의 큐로 직렬화하고 최소 간격을 둔다.
-const MIN_KIS_CALL_INTERVAL_MS = 1100;
+// ("초당 거래건수를 초과하였습니다")로 거부당할 수 있다.
+//
+// 실전투자 계좌의 실제 한도는 앱키당 초당 20건이다(KIS 공식 문서에 정확한
+// 수치가 명시돼 있진 않지만, 다수의 서드파티 구현체가 공통적으로 이 값을
+// 전제로 한다). 여기서는 안전마진을 두고 초당 15건을 총 한도로 쓴다.
+//
+// 이 모듈은 배치(screen-all-stocks.ts)와 사람이 웹에서 쓰는 API 라우트가
+// 공유한다. 배치가 15건을 다 써버리면 그 시간 동안 실제 사용자 요청이
+// 밀린다. 그래서 초당 15건을 "공용 버킷" 하나와 "배치 전용 버킷"(더 낮은
+// 한도) 두 개로 나눈다 — 배치 호출은 두 버킷에서 모두 토큰을 받아야 하므로
+// 사실상 배치 전용 버킷 한도를 넘지 못하고, 그 차이만큼(15-12=3건/초)은
+// 배치가 아무리 밀려 있어도 손댈 수 없는 사용자 전용 여유분으로 남는다.
+// 대기 중인 요청이 여러 건이면 사용자 우선순위를 항상 먼저 내보낸다 — 배치가
+// 계속 밀리면 이론상 사용자 요청에 밀려 오래 기다릴 수 있지만(기아 방지 로직
+// 없음), 배치는 사람이 안 보는 야간/장중 자동 실행이라 이 트레이드오프를
+// 받아들인다.
+const KIS_TOTAL_CALLS_PER_SECOND = 15;
+const KIS_BATCH_CALLS_PER_SECOND = 12;
+const RATE_LIMIT_TICK_MS = 20;
+
 const RATE_LIMIT_MSG_CODE = "EGW00201";
 const RATE_LIMIT_MAX_RETRIES = 4;
+// 지수 백오프: 1500ms, 3000ms, 6000ms, 12000ms. 처리량이 커진 만큼(기존 초당
+// 0.9건 → 15건) 순간적으로 한도를 넘겨 EGW00201을 받을 가능성도 커지므로,
+// 재시도할수록 더 크게 물러난다.
 const RATE_LIMIT_BACKOFF_MS = 1500;
 
-let kisQueueTail: Promise<void> = Promise.resolve();
-let lastKisCallAt = 0;
+/** 초당 N개로 리필되는 토큰버킷. 시작 시 가득 찬 상태라 콜드 스타트 시 최대
+ * capacity개까지는 즉시 나간다(표준적인 토큰버킷 동작). */
+class TokenBucket {
+  private readonly capacity: number;
+  private readonly refillPerMs: number;
+  private tokens: number;
+  private lastRefill: number;
 
-function throttleKisCall(): Promise<void> {
-  const myTurn = kisQueueTail.then(async () => {
-    const wait = lastKisCallAt + MIN_KIS_CALL_INTERVAL_MS - Date.now();
-    if (wait > 0) {
-      await new Promise((resolve) => setTimeout(resolve, wait));
+  constructor(ratePerSecond: number) {
+    this.capacity = ratePerSecond;
+    this.refillPerMs = ratePerSecond / 1000;
+    this.tokens = ratePerSecond;
+    this.lastRefill = Date.now();
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsedMs = now - this.lastRefill;
+    if (elapsedMs <= 0) return;
+    this.tokens = Math.min(this.capacity, this.tokens + elapsedMs * this.refillPerMs);
+    this.lastRefill = now;
+  }
+
+  /** 토큰이 있는지 확인만 하고 소비하지 않는다. take()와 짝을 지어 쓴다 —
+   * 두 버킷 모두에서 토큰이 있는지 먼저 확인한 뒤에만 둘 다 소비해야
+   * (배치 호출처럼) 한쪽만 소비하고 실패하는 상황을 피할 수 있다. */
+  hasToken(): boolean {
+    this.refill();
+    return this.tokens >= 1;
+  }
+
+  take(): void {
+    this.tokens -= 1;
+  }
+}
+
+type KisCallPriority = "user" | "batch";
+
+const sharedBucket = new TokenBucket(KIS_TOTAL_CALLS_PER_SECOND);
+const batchBucket = new TokenBucket(KIS_BATCH_CALLS_PER_SECOND);
+
+interface Waiter {
+  resolve: () => void;
+}
+
+const userWaiters: Waiter[] = [];
+const batchWaiters: Waiter[] = [];
+let drainTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 대기 중인 요청 중 지금 당장 내보낼 수 있는 만큼 내보낸다. 사용자 요청을
+ * 항상 먼저 검사하므로, 공용 버킷에 토큰이 있으면 배치보다 먼저 가져간다. */
+function dispatchWaiters(): void {
+  for (;;) {
+    if (userWaiters.length > 0 && sharedBucket.hasToken()) {
+      sharedBucket.take();
+      userWaiters.shift()!.resolve();
+      continue;
     }
-    lastKisCallAt = Date.now();
+    if (batchWaiters.length > 0 && sharedBucket.hasToken() && batchBucket.hasToken()) {
+      sharedBucket.take();
+      batchBucket.take();
+      batchWaiters.shift()!.resolve();
+      continue;
+    }
+    return;
+  }
+}
+
+function ensureDraining(): void {
+  if (drainTimer) return;
+  drainTimer = setInterval(() => {
+    dispatchWaiters();
+    if (userWaiters.length === 0 && batchWaiters.length === 0) {
+      clearInterval(drainTimer!);
+      drainTimer = null;
+    }
+  }, RATE_LIMIT_TICK_MS);
+}
+
+/** 우선순위 큐에 줄을 서고 토큰을 받을 차례가 되면 resolve된다. */
+function acquireSlot(priority: KisCallPriority): Promise<void> {
+  return new Promise((resolve) => {
+    (priority === "user" ? userWaiters : batchWaiters).push({ resolve });
+    dispatchWaiters();
+    if (userWaiters.length > 0 || batchWaiters.length > 0) {
+      ensureDraining();
+    }
   });
-  // 다음 호출이 내 차례가 끝나기를 기다리도록 큐를 이어붙인다. 이 호출이 실패해도
-  // 큐 자체는 끊기면 안 되므로 실패를 흡수해서 이어붙인다.
-  kisQueueTail = myTurn.catch(() => {});
-  return myTurn;
+}
+
+const kisCallStats = { total: 0, retried: 0 };
+
+/** 이번 프로세스에서 이 모듈을 거쳐 나간 KIS 호출 통계(총 시도 횟수, 그중
+ * EGW00201로 재시도한 횟수). 배치/검증 스크립트의 로그 출력용. */
+export function getKisCallStats(): { total: number; retried: number } {
+  return { ...kisCallStats };
 }
 
 interface KisResponse {
@@ -75,18 +176,21 @@ interface KisResponse {
 }
 
 /**
- * 이 모듈의 모든 KIS 데이터 API 호출이 거치는 공통 통로. 전역 큐로 호출 간격을
- * 강제하고, 초당 호출 제한(EGW00201)에 걸리면 잠깐 대기 후 자동으로 재시도한다.
+ * 이 모듈의 모든 KIS 데이터 API 호출이 거치는 공통 통로. 우선순위 큐에서 토큰을
+ * 받아야 실제 호출이 나가고, 초당 호출 제한(EGW00201)에 걸리면 지수 백오프 후
+ * 자동으로 재시도한다. priority가 "batch"면 배치 전용 버킷의 한도도 같이 적용된다.
  */
 async function kisFetch(
   url: URL,
   trId: string,
   accessToken: string,
   appKey: string,
-  appSecret: string
+  appSecret: string,
+  priority: KisCallPriority = "user"
 ): Promise<KisResponse> {
   for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
-    await throttleKisCall();
+    await acquireSlot(priority);
+    kisCallStats.total++;
 
     const res = await fetch(url, {
       headers: {
@@ -109,8 +213,9 @@ async function kisFetch(
     }
 
     if (body?.msg_cd === RATE_LIMIT_MSG_CODE && attempt < RATE_LIMIT_MAX_RETRIES) {
+      kisCallStats.retried++;
       await new Promise((resolve) =>
-        setTimeout(resolve, RATE_LIMIT_BACKOFF_MS * (attempt + 1))
+        setTimeout(resolve, RATE_LIMIT_BACKOFF_MS * 2 ** attempt)
       );
       continue;
     }
@@ -232,8 +337,16 @@ interface InquirePriceResponse extends KisResponse {
   };
 }
 
-/** 국내 주식 현재가 시세를 조회한다. stockCode는 6자리 종목코드 (예: "005930"). */
-export async function getStockPrice(stockCode: string): Promise<StockPrice> {
+/**
+ * 국내 주식 현재가 시세를 조회한다. stockCode는 6자리 종목코드 (예: "005930").
+ * priority는 웹에서 사람이 기다리는 요청이면 "user"(기본값), 배치처럼 사람이
+ * 안 보는 자동 실행이면 "batch"로 넘긴다 — 배치는 더 낮은 초당 한도로 묶여
+ * 사용자 요청을 밀어내지 않는다.
+ */
+export async function getStockPrice(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<StockPrice> {
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
 
@@ -249,7 +362,8 @@ export async function getStockPrice(stockCode: string): Promise<StockPrice> {
     TR_ID_INQUIRE_PRICE,
     accessToken,
     appKey,
-    appSecret
+    appSecret,
+    priority
   )) as InquirePriceResponse;
 
   const { output } = data;
@@ -318,11 +432,13 @@ function addDaysToYyyymmdd(yyyymmdd: string, days: number): string {
  * 100건만 주므로, 이전 배치의 가장 오래된 날짜 바로 전날을 다음 조회 종료일로
  * 삼아 여러 번 호출해 targetRows만큼(기본값은 MA448까지 계산 가능한 최대 500건) 모은다.
  * 스크리닝처럼 조건 판정만 필요할 땐 targetRows를 100 정도로 낮춰 호출 1회로 끝낼 수 있다.
+ * priority는 getStockPrice와 같은 의미다(기본값 "user").
  */
 export async function getDailyPrices(
   stockCode: string,
   period: ChartPeriod,
-  targetRows: number = TARGET_CHART_ROWS
+  targetRows: number = TARGET_CHART_ROWS,
+  priority: "user" | "batch" = "user"
 ): Promise<DailyPrice[]> {
   const cacheKey = `${stockCode}:${period}:${targetRows}`;
   const cached = chartCache.get(cacheKey);
@@ -355,7 +471,8 @@ export async function getDailyPrices(
       TR_ID_INQUIRE_DAILY_CHART_PRICE,
       accessToken,
       appKey,
-      appSecret
+      appSecret,
+      priority
     )) as InquireDailyChartPriceResponse;
 
     const rows = data.output2.filter((row) => row.stck_bsop_date);

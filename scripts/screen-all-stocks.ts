@@ -11,7 +11,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getDailyPrices, getStockPrice } from "@/lib/kis";
+import { getDailyPrices, getKisCallStats, getStockPrice } from "@/lib/kis";
 import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import {
   computeEntryPlan,
@@ -36,11 +36,17 @@ const MIN_PRICE_WON = 1000;
 // 스크리닝은 조건 판정만 하면 되므로 차트용 최대치(500건)가 아니라 필요 최소한만 가져온다.
 // 미너비니 템플릿은 250거래일 신고/신저가 조건 때문에 250~300건이 필요해 KIS 페이지당
 // 한도(100건) 상 종목당 최대 3회 호출이 든다 — ma_cross만 등록돼 있다면 훨씬 적게 든다.
-// getDailyPrices/kisFetch의 전역 큐가 호출 주체와 무관하게 모든 KIS 호출을 초당 제한 안에서
-// 직렬화하므로(lib/kis.ts의 MIN_KIS_CALL_INTERVAL_MS), 호출 횟수가 늘어도 쓰로틀링 자체는
-// 그대로 안전하게 동작한다 — 다만 총 소요 시간이 그만큼 늘어난다.
+// 실제 초당 호출 제한은 lib/kis.ts의 우선순위 토큰버킷이 지킨다(이 배치는 "batch"
+// 우선순위로 호출하므로 사용자 요청보다 낮은 한도 안에서 돈다). 여기서는 그 한도를
+// 최대한 채워 쓰도록 여러 종목을 동시에 처리한다 — 아래 BATCH_CONCURRENCY 참고.
 const DAILY_TARGET_ROWS_DEFAULT = 100;
 const MINERVINI_DAILY_TARGET_ROWS = 300;
+
+// 동시에 진행할 최대 종목 수. 실제 처리량은 lib/kis.ts의 토큰버킷(배치 초당 12건)이
+// 최종적으로 제한하므로, 이 값은 "그 12건/초를 항상 채울 만큼만" 있으면 된다 — 너무
+// 작으면 요청 사이 네트워크 왕복 시간 동안 큐가 비어 처리량이 12건/초에 못 미치고,
+// 너무 크면 (동시 요청 수 × 네트워크/메모리) 자원만 낭비하고 속도에는 도움이 안 된다.
+const BATCH_CONCURRENCY = 10;
 
 const CALL_RETRY_COUNT = 2;
 const CALL_RETRY_DELAY_MS = 2000;
@@ -48,6 +54,33 @@ const PROGRESS_LOG_INTERVAL = 50;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * items를 최대 limit개까지 동시에 처리한다. worker 안에서 발생한 예외는 이 함수
+ * 밖으로 던지지 않는다고 가정한다(각 호출부가 자체적으로 흡수해서 다른 종목 처리에
+ * 영향이 가지 않게 한다) — 그래야 하나가 실패해도 워커가 죽지 않고 계속 다음
+ * 항목을 집어간다. 완료 순서가 입력 순서와 다를 수 있으므로, 호출부의 진행 로그는
+ * "몇 번째 항목인지"가 아니라 "몇 개가 끝났는지" 기준으로 찍어야 한다.
+ */
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  let nextIndex = 0;
+
+  async function runOne(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      await worker(items[index]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, runOne)
+  );
 }
 
 /** kis.ts 내부적으로도 초당 제한(EGW00201)에 대한 재시도가 있지만, 그 외의 일시적 오류
@@ -172,36 +205,39 @@ async function filterByQuote(
   const survivors: StockEntry[] = [];
   let excludedCount = 0;
   let fetchErrors = 0;
+  let completed = 0;
 
-  for (let i = 0; i < stocks.length; i++) {
-    const stock = stocks[i];
-
-    if (i === 0 || (i + 1) % PROGRESS_LOG_INTERVAL === 0 || i === stocks.length - 1) {
-      console.log(
-        `  [${i + 1}/${stocks.length}] 시세 필터 진행 중... (제외 ${excludedCount}건, 조회 실패 ${fetchErrors}건)`
-      );
-    }
-
+  await runWithConcurrency(stocks, BATCH_CONCURRENCY, async (stock) => {
     try {
       const price = await withRetry(
-        () => getStockPrice(stock.code),
+        () => getStockPrice(stock.code, "batch"),
         `${stock.code}(${stock.name}) 시세 조회`
       );
 
       if (price.currentPrice < MIN_PRICE_WON || price.marketCapEok < MIN_MARKET_CAP_EOK) {
         excludedCount++;
-        continue;
+      } else {
+        survivors.push(stock);
       }
-
-      survivors.push(stock);
     } catch (error) {
       fetchErrors++;
       const message = error instanceof Error ? error.message : String(error);
       console.error(
         `    ${stock.code}(${stock.name}) 시세 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`
       );
+    } finally {
+      completed++;
+      if (
+        completed === 1 ||
+        completed % PROGRESS_LOG_INTERVAL === 0 ||
+        completed === stocks.length
+      ) {
+        console.log(
+          `  [${completed}/${stocks.length}] 시세 필터 진행 중... (제외 ${excludedCount}건, 조회 실패 ${fetchErrors}건)`
+        );
+      }
     }
-  }
+  });
 
   return { survivors, excludedCount, fetchErrors };
 }
@@ -239,19 +275,29 @@ async function updateActiveTracking(): Promise<{
   console.log(`추적 중인 종목 ${activeRows.length}건 (종목코드 기준 ${uniqueCodes.length}개)`);
 
   const priceByCode = new Map<string, number>();
+  let completed = 0;
 
-  for (let i = 0; i < uniqueCodes.length; i++) {
-    const code = uniqueCodes[i];
-    console.log(`  [${i + 1}/${uniqueCodes.length}] ${code} 현재가 조회 중...`);
-
+  await runWithConcurrency(uniqueCodes, BATCH_CONCURRENCY, async (code) => {
     try {
-      const price = await withRetry(() => getStockPrice(code), `${code} 현재가 조회`);
+      const price = await withRetry(
+        () => getStockPrice(code, "batch"),
+        `${code} 현재가 조회`
+      );
       priceByCode.set(code, price.currentPrice);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`    ${code} 현재가 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`);
+    } finally {
+      completed++;
+      if (
+        completed === 1 ||
+        completed % PROGRESS_LOG_INTERVAL === 0 ||
+        completed === uniqueCodes.length
+      ) {
+        console.log(`  [${completed}/${uniqueCodes.length}] 현재가 조회 진행 중...`);
+      }
     }
-  }
+  });
 
   let updated = 0;
   let stopped = 0;
@@ -319,17 +365,12 @@ async function collectDailyPrices(
 
   const priceByCode = new Map<string, StockPriceEntry>();
   let fetchErrors = 0;
+  let completed = 0;
 
-  for (let i = 0; i < allStocks.length; i++) {
-    const stock = allStocks[i];
-
-    if (i === 0 || (i + 1) % PROGRESS_LOG_INTERVAL === 0 || i === allStocks.length - 1) {
-      console.log(`  [${i + 1}/${allStocks.length}] 데이터 수집 중... (조회 실패 ${fetchErrors}건)`);
-    }
-
+  await runWithConcurrency(allStocks, BATCH_CONCURRENCY, async (stock) => {
     try {
       const prices = await withRetry(
-        () => getDailyPrices(stock.code, "D", dailyTargetRows),
+        () => getDailyPrices(stock.code, "D", dailyTargetRows, "batch"),
         `${stock.code}(${stock.name}) 일봉 조회`
       );
       if (prices.length > 0) {
@@ -339,8 +380,17 @@ async function collectDailyPrices(
       fetchErrors++;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`    ${stock.code}(${stock.name}) 일봉 조회 실패, 건너뜁니다: ${message}`);
+    } finally {
+      completed++;
+      if (
+        completed === 1 ||
+        completed % PROGRESS_LOG_INTERVAL === 0 ||
+        completed === allStocks.length
+      ) {
+        console.log(`  [${completed}/${allStocks.length}] 데이터 수집 중... (조회 실패 ${fetchErrors}건)`);
+      }
     }
-  }
+  });
 
   console.log(`데이터 수집 완료: ${priceByCode.size}개 종목 확보, 조회 실패 ${fetchErrors}건`);
   return { priceByCode, fetchErrors };
@@ -521,7 +571,11 @@ async function main(): Promise<void> {
   await recordRun(startedAt, scanned, matched, errors);
 
   const elapsedSec = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
-  console.log(`스크리닝 배치 종료: ${elapsedSec}초 소요`);
+  const kisStats = getKisCallStats();
+  console.log(
+    `스크리닝 배치 종료: ${elapsedSec}초 소요 (KIS 호출 ${kisStats.total}건, ` +
+      `EGW00201 재시도 ${kisStats.retried}건)`
+  );
 }
 
 main().catch((error) => {

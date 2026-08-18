@@ -4,10 +4,14 @@ import {
   findNameByCode,
   searchStocks,
 } from "@/lib/stockMaster";
+import { requireApproved } from "@/lib/requireApproved";
 
 const CODE_PATTERN = /^\d{6}$/;
 
 export async function GET(request: NextRequest) {
+  const denied = await requireApproved(request);
+  if (denied) return denied;
+
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
 
   if (!query) {

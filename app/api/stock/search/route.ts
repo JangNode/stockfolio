@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchStocks } from "@/lib/stockMaster";
+import { requireApproved } from "@/lib/requireApproved";
 
 export async function GET(request: NextRequest) {
+  const denied = await requireApproved(request);
+  if (denied) return denied;
+
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
 
   if (!query) {

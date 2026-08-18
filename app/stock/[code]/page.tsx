@@ -1,5 +1,6 @@
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
+import RequireApproved from "@/components/RequireApproved";
 
 export default async function StockPage({
   params,
@@ -28,9 +29,17 @@ export default async function StockPage({
         </h1>
       </header>
 
+<<<<<<< HEAD
+      <main className="flex flex-1 justify-center p-6">
+        <div className="flex w-full max-w-4xl justify-center">
+          <RequireApproved>
+            <StockChart code={code} />
+          </RequireApproved>
+=======
       <main className="flex flex-1 justify-center p-4 sm:p-6">
         <div className="w-full max-w-4xl">
           <StockChart code={code} />
+>>>>>>> origin/main
         </div>
       </main>
     </div>

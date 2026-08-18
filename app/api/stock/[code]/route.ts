@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getStockPrice } from "@/lib/kis";
+import { requireApproved } from "@/lib/requireApproved";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
+  const denied = await requireApproved(request);
+  if (denied) return denied;
+
   const { code } = await params;
 
   try {

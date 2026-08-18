@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
-import { computeSMA } from "@/lib/sma";
+import { authJsonFetcher } from "@/lib/authFetch";
 import {
   createChart,
   CandlestickSeries,
@@ -136,14 +136,7 @@ function computeMovingAverage(bars: Bar[], length: number): LineData[] {
   return result;
 }
 
-const fetcher = async (url: string): Promise<RawBar[]> => {
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "차트 데이터를 불러오지 못했습니다.");
-  }
-  return data;
-};
+const fetcher = (url: string) => authJsonFetcher<RawBar[]>(url);
 
 interface Tooltip {
   label: string;

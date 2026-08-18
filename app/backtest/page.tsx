@@ -1,12 +1,12 @@
 "use client";
 
-import { useUser } from "@/lib/useUser";
+import { useSession } from "@/lib/useSession";
 import NavBar from "@/components/NavBar";
-import RequireLogin from "@/components/RequireLogin";
+import RequireApproved from "@/components/RequireApproved";
 import Backtest from "@/components/Backtest";
 
 export default function BacktestPage() {
-  const { user, loading } = useUser();
+  const { user } = useSession();
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
@@ -16,7 +16,9 @@ export default function BacktestPage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
-        {!loading && (user ? <Backtest user={user} /> : <RequireLogin />)}
+        <RequireApproved>
+          {user && <Backtest user={user} />}
+        </RequireApproved>
       </main>
     </div>
   );

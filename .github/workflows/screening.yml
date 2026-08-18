@@ -2,8 +2,11 @@ name: Stock Screening Batch
 
 on:
   schedule:
-    # 매일 한국시간(KST, UTC+9) 오후 4시 = UTC 07:00. 장 마감(15:30) 이후 여유를 두고 실행한다.
-    - cron: "0 7 * * *"
+    # 평일 한국시간(KST, UTC+9) 오후 3시 = UTC 06:00, 장 마감(15:30) 전에 끝나도록 실행한다.
+    # 정각(0분)은 GitHub Actions 스케줄이 몰려 지연되기 쉬우므로 몇 분 비켜서 잡는다.
+    # cron의 요일 필드는 UTC 기준이지만 KST 15:00 - 9h = UTC 06:00로 날짜가 안 바뀌므로
+    # 평일(월~금, 1-5) 그대로 대응된다.
+    - cron: "3 6 * * 1-5"
   workflow_dispatch: {}
 
 jobs:

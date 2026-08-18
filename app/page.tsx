@@ -1,22 +1,37 @@
 "use client";
 
 import { useState } from "react";
+<<<<<<< HEAD
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/useSession";
 import Watchlist from "@/components/Watchlist";
 import MarketSummary from "@/components/MarketSummary";
 import ApprovalNotice from "@/components/ApprovalNotice";
+=======
+import { supabase } from "@/lib/supabase";
+import { useUser } from "@/lib/useUser";
+import Watchlist from "@/components/Watchlist";
+import MarketSummary from "@/components/MarketSummary";
+import NavBar from "@/components/NavBar";
+>>>>>>> origin/main
 
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+<<<<<<< HEAD
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const { user, status, isApproved, isAdmin, loading: sessionLoading } =
     useSession();
 
+=======
+  const { user } = useUser();
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+>>>>>>> origin/main
   const handleSignUp = async () => {
     setLoading(true);
     setMessage("");
@@ -50,11 +65,15 @@ export default function Home() {
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="flex items-center justify-between border-b border-black/[.08] px-6 py-4 dark:border-white/[.145]">
-        <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
-          Stockfolio
-        </h1>
+      <header className="flex flex-col gap-3 border-b border-black/[.08] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 dark:border-white/[.145]">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 sm:justify-start">
+          <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
+            Stockfolio
+          </h1>
+          <NavBar />
+        </div>
         {user && (
+<<<<<<< HEAD
           <div className="flex items-center gap-3">
             {isAdmin && (
               <Link
@@ -65,12 +84,16 @@ export default function Home() {
               </Link>
             )}
             <span className="text-sm text-zinc-600 dark:text-zinc-400">
+=======
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <span className="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400">
+>>>>>>> origin/main
               {user.email}
             </span>
             <button
               onClick={handleSignOut}
               disabled={loading}
-              className="h-9 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              className="h-9 shrink-0 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
             >
               로그아웃
             </button>
@@ -78,12 +101,21 @@ export default function Home() {
         )}
       </header>
 
+<<<<<<< HEAD
       <main className="flex flex-1 flex-col items-center gap-6 p-6">
         {sessionLoading ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             불러오는 중...
           </p>
         ) : !user ? (
+=======
+      <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
+        <MarketSummary />
+
+        {user ? (
+          <Watchlist user={user} />
+        ) : (
+>>>>>>> origin/main
           <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950">
             <h2 className="mb-2 text-xl font-semibold text-black dark:text-zinc-50">
               로그인이 필요합니다

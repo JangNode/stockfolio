@@ -124,11 +124,14 @@ function formatDisplayTime(time: Time, intraday: boolean): string {
 }
 
 function computeMovingAverage(bars: Bar[], length: number): LineData[] {
+  const sma = computeSMA(
+    bars.map((b) => b.close),
+    length
+  );
   const result: LineData[] = [];
-  for (let i = length - 1; i < bars.length; i++) {
-    let sum = 0;
-    for (let j = i - length + 1; j <= i; j++) sum += bars[j].close;
-    result.push({ time: bars[i].time, value: sum / length });
+  for (let i = 0; i < bars.length; i++) {
+    const value = sma[i];
+    if (value !== undefined) result.push({ time: bars[i].time, value });
   }
   return result;
 }

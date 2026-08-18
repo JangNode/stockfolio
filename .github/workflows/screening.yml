@@ -1,0 +1,35 @@
+name: Stock Screening Batch
+
+on:
+  schedule:
+    # 매일 한국시간(KST, UTC+9) 오후 4시 = UTC 07:00. 장 마감(15:30) 이후 여유를 두고 실행한다.
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    # 미너비니 전략이 등록돼 있으면 종목당 일봉 조회에 최대 3회 호출이 들어(전종목 기준
+    # 약 7,000~8,000회) KIS 초당 제한(~1.1초/호출)만으로도 2시간 이상 걸릴 수 있다.
+    # GitHub 호스티드 러너의 잡 최대 실행 시간(6시간)보다 넉넉히 낮게 잡는다.
+    timeout-minutes: 300
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run screening batch
+        run: npm run screen:all-stocks
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

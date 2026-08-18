@@ -1,0 +1,85 @@
+"use client";
+
+import useSWR from "swr";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
+import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
+
+export type StrategyRow = StrategyRule & {
+  id: string;
+  name: string | null;
+  created_at: string;
+};
+
+const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
+  ma_cross: "이평선 골든/데드크로스",
+  minervini_trend_template: "미너비니 트렌드 템플릿",
+};
+
+const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
+  ma_cross:
+    "단기 이동평균선이 장기 이동평균선을 아래에서 위로 뚫고 올라가는 골든크로스가 발생하면 매수 신호로, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호로 판단합니다.",
+  minervini_trend_template:
+    "마크 미너비니의 추세추종 전략입니다. 주가가 단기·중기·장기 이동평균선 위에 있고 이동평균선이 정배열(단기>중기>장기)을 이루며 장기 이동평균선이 상승 추세이고, 250거래일 신저가 대비 30% 이상 올랐으면서 250거래일 신고가에서 25% 이내인 등 7가지 조건을 모두 만족해야 신호로 인정합니다.",
+};
+
+function describeParams(strategy: StrategyRow): string {
+  if (strategy.rule_type === "minervini_trend_template") {
+    const { ma_short, ma_mid, ma_long } = strategy.rule_params;
+    return `${ma_short}/${ma_mid}/${ma_long}일`;
+  }
+  const { short_period, long_period } = strategy.rule_params;
+  return `단기 ${short_period}일 / 장기 ${long_period}일`;
+}
+
+export function describeStrategy(strategy: StrategyRow): string {
+  return `${RULE_TYPE_LABELS[strategy.rule_type]} · ${describeParams(strategy)}`;
+}
+
+export function useStrategies(user: User) {
+  return useSWR(["strategies", user.id], async ([, userId]: [string, string]) => {
+    const { data, error } = await supabase
+      .from("strategies")
+      .select("id, name, rule_type, rule_params, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return data as StrategyRow[];
+  });
+}
+
+export default function StrategyManager({ user }: { user: User }) {
+  const { data: strategies, error, isLoading } = useStrategies(user);
+
+  return (
+    <div className="w-full max-w-3xl">
+      {isLoading ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
+      ) : error ? (
+        <p className="text-sm text-blue-600 dark:text-blue-400">전략을 불러오지 못했습니다.</p>
+      ) : strategies && strategies.length > 0 ? (
+        <div className="flex flex-wrap gap-4">
+          {strategies.map((strategy) => (
+            <div
+              key={strategy.id}
+              className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
+            >
+              <p className="font-medium text-black dark:text-zinc-50">
+                {RULE_TYPE_LABELS[strategy.rule_type]}
+              </p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                {describeParams(strategy)}
+              </p>
+              <p className="mt-3 border-t border-black/[.08] pt-3 text-xs text-zinc-500 dark:border-white/[.145] dark:text-zinc-400">
+                {STRATEGY_DESCRIPTIONS[strategy.rule_type]}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">등록된 전략이 없습니다.</p>
+      )}
+    </div>
+  );
+}

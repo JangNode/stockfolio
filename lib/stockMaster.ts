@@ -106,6 +106,12 @@ async function getCache(): Promise<MasterCache> {
   return loading;
 }
 
+/** KOSPI+KOSDAQ 전 종목 목록을 반환한다. */
+export async function getAllStocks(): Promise<StockEntry[]> {
+  const { entries } = await getCache();
+  return entries;
+}
+
 export async function findNameByCode(code: string): Promise<string | null> {
   const { codeToName } = await getCache();
   return codeToName.get(code) ?? null;

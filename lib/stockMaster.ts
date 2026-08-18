@@ -15,14 +15,17 @@ const GROUP_CODE_PATTERN = /^(.*?)(ST|MF|RT|SR|EF|SW|EN|FS)\d/;
 
 // KIS 종목마스터(.mst)는 각 줄이 "코드(9)+표준코드(12)+한글명(가변)" 뒤에 시장별로 길이가
 // 다른 고정폭 필드 블록이 붙는 구조다(코스피 228바이트, 코스닥 222바이트 — 필드 순서도 다름).
-// 상장일자 필드의 정확한 위치는 KIS 공식 예제(github.com/koreainvestment/open-trading-api의
-// stocks_info/kis_kospi_code_mst.py, kis_kosdaq_code_mst.py)의 필드 스펙에서 계산했다.
+// 상장일자 필드의 위치는 KIS 공식 예제(github.com/koreainvestment/open-trading-api의
+// stocks_info/kis_kospi_code_mst.py, kis_kosdaq_code_mst.py)의 필드 스펙에서 계산한
+// 값에서 실제 종목(삼성전자 19750611, SK하이닉스 19961226, 에스엠 20000427,
+// 펄어비스 20170914 등)으로 검증해 1바이트 보정했다 — 스펙 그대로 계산한 값은 항상
+// 마지막 한 글자가 잘리고 앞에 0이 붙어 나왔다(예: 19750611 대신 01975061).
 const MARKET_LAYOUT: Record<
   Market,
   { tailLength: number; listedDateOffset: number; listedDateWidth: number }
 > = {
-  KOSPI: { tailLength: 228, listedDateOffset: 105, listedDateWidth: 8 },
-  KOSDAQ: { tailLength: 222, listedDateOffset: 100, listedDateWidth: 8 },
+  KOSPI: { tailLength: 228, listedDateOffset: 106, listedDateWidth: 8 },
+  KOSDAQ: { tailLength: 222, listedDateOffset: 101, listedDateWidth: 8 },
 };
 
 export interface StockEntry {

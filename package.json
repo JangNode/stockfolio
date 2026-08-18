@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts"
+    "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts",
+    "verify:rate-limit": "tsx --conditions=react-server scripts/verify-rate-limit.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

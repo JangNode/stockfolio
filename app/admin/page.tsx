@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from "@/lib/authFetch";
 import {
   PROFILE_COLUMNS,
   useSession,
@@ -73,6 +74,33 @@ export default function AdminPage() {
 
     if (error) {
       setActionError(error.message);
+      return;
+    }
+
+    mutate();
+  };
+
+  const handleDelete = async (userId: string, email: string) => {
+    if (
+      !window.confirm(
+        `${email || userId} 계정을 정말 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며, 같은 이메일로 재가입할 수 있게 됩니다.`
+      )
+    ) {
+      return;
+    }
+
+    setActionError("");
+    setPendingId(userId);
+
+    const res = await authFetch(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+
+    setPendingId(null);
+
+    if (!res.ok) {
+      setActionError(data.error ?? "삭제에 실패했습니다.");
       return;
     }
 
@@ -197,6 +225,17 @@ export default function AdminPage() {
                                   className="h-8 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
                                 >
                                   거절
+                                </button>
+                              )}
+                              {profile.status !== "approved" && (
+                                <button
+                                  onClick={() =>
+                                    handleDelete(profile.user_id, profile.email)
+                                  }
+                                  disabled={pendingId === profile.user_id}
+                                  className="h-8 rounded-full border border-black/[.08] px-4 text-sm font-medium text-blue-600 transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-blue-400 dark:hover:bg-[#1a1a1a]"
+                                >
+                                  삭제
                                 </button>
                               )}
                             </div>

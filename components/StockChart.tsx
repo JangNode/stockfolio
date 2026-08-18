@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { computeSMA } from "@/lib/sma";
 import {
   createChart,
   CandlestickSeries,

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { authJsonFetcher } from "@/lib/authFetch";
 
 interface StockPrice {
   stockCode: string;
@@ -18,14 +19,7 @@ const STOCK_NAMES: Record<string, string> = {
   "005930": "삼성전자",
 };
 
-const fetcher = async (url: string): Promise<StockPrice> => {
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "시세 조회에 실패했습니다.");
-  }
-  return data;
-};
+const fetcher = (url: string) => authJsonFetcher<StockPrice>(url);
 
 interface StockCardProps {
   code: string;

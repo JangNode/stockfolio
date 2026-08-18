@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import { authJsonFetcher } from "@/lib/authFetch";
 
 interface IndexQuote {
   category: "국내" | "해외";
@@ -15,14 +16,7 @@ interface MarketSummaryData {
   overseas: IndexQuote[];
 }
 
-const fetcher = async (url: string): Promise<MarketSummaryData> => {
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "시장 지표를 불러오지 못했습니다.");
-  }
-  return data;
-};
+const fetcher = (url: string) => authJsonFetcher<MarketSummaryData>(url);
 
 function IndexChip({ quote }: { quote: IndexQuote }) {
   const isUp = quote.change > 0;

@@ -1,35 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import { useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { useSession } from "@/lib/useSession";
 import Watchlist from "@/components/Watchlist";
 import MarketSummary from "@/components/MarketSummary";
+import ApprovalNotice from "@/components/ApprovalNotice";
 
 export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [user, setUser] = useState<User | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-
-    const { data: subscription } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.subscription.unsubscribe();
-  }, []);
+  const { user, status, isApproved, isAdmin, loading: sessionLoading } =
+    useSession();
 
   const handleSignUp = async () => {
     setLoading(true);
     setMessage("");
     const { error } = await supabase.auth.signUp({ email, password });
-    setMessage(error ? error.message : "확인 이메일을 보냈습니다. 받은 편지함을 확인해주세요.");
+    setMessage(
+      error
+        ? error.message
+        : "가입 신청이 접수되었습니다. 확인 이메일을 확인한 뒤, 관리자 승인이 완료되면 이용할 수 있습니다."
+    );
     setLoading(false);
   };
 
@@ -60,6 +56,14 @@ export default function Home() {
         </h1>
         {user && (
           <div className="flex items-center gap-3">
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className="flex h-9 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              >
+                관리자
+              </Link>
+            )}
             <span className="text-sm text-zinc-600 dark:text-zinc-400">
               {user.email}
             </span>
@@ -75,17 +79,18 @@ export default function Home() {
       </header>
 
       <main className="flex flex-1 flex-col items-center gap-6 p-6">
-        <MarketSummary />
-
-        {user ? (
-          <Watchlist user={user} />
-        ) : (
+        {sessionLoading ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            불러오는 중...
+          </p>
+        ) : !user ? (
           <div className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950">
             <h2 className="mb-2 text-xl font-semibold text-black dark:text-zinc-50">
               로그인이 필요합니다
             </h2>
             <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-              관심종목을 보려면 로그인하거나 계정을 만들어주세요.
+              관심종목을 보려면 로그인하거나 계정을 만들어주세요. 새로 가입한
+              계정은 관리자 승인 후 이용할 수 있습니다.
             </p>
 
             <div className="flex flex-col gap-4">
@@ -127,6 +132,13 @@ export default function Home() {
               </p>
             )}
           </div>
+        ) : !isApproved ? (
+          <ApprovalNotice status={status} email={user.email} />
+        ) : (
+          <>
+            <MarketSummary />
+            <Watchlist user={user} />
+          </>
         )}
       </main>
     </div>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDailyPrices, getIntradayBars, type ChartPeriod } from "@/lib/kis";
+import { requireApproved } from "@/lib/requireApproved";
 
 const DAILY_PERIODS: ChartPeriod[] = ["D", "W", "M", "Y"];
 const MINUTE_INTERVAL = 10;
@@ -8,6 +9,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
+  const denied = await requireApproved(request);
+  if (denied) return denied;
+
   const { code } = await params;
   const periodParam = request.nextUrl.searchParams.get("period") ?? "D";
 

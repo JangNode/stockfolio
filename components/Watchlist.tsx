@@ -5,6 +5,7 @@ import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import StockCard from "@/components/StockCard";
+import { authFetch } from "@/lib/authFetch";
 
 interface WatchlistItem {
   id: string;
@@ -48,7 +49,7 @@ export default function Watchlist({ user }: { user: User }) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(
+        const res = await authFetch(
           `/api/stock/search?q=${encodeURIComponent(trimmed)}`
         );
         const data = await res.json();
@@ -97,7 +98,7 @@ export default function Watchlist({ user }: { user: User }) {
     if (selected && selected.name === trimmed) {
       stock = selected;
     } else {
-      const resolveRes = await fetch(
+      const resolveRes = await authFetch(
         `/api/stock/resolve?q=${encodeURIComponent(trimmed)}`
       );
       const resolved = await resolveRes.json();

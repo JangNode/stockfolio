@@ -5,10 +5,18 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
 
+export type Market = "KR" | "US";
+
 export type StrategyRow = StrategyRule & {
   id: string;
   name: string | null;
+  market: Market;
   created_at: string;
+};
+
+export const MARKET_LABELS: Record<Market, string> = {
+  KR: "국내",
+  US: "미국",
 };
 
 const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
@@ -40,7 +48,7 @@ export function useStrategies(user: User) {
   return useSWR(["strategies", user.id], async ([, userId]: [string, string]) => {
     const { data, error } = await supabase
       .from("strategies")
-      .select("id, name, rule_type, rule_params, created_at")
+      .select("id, name, rule_type, rule_params, market, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
 
@@ -66,6 +74,9 @@ export default function StrategyManager({ user }: { user: User }) {
               className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
             >
               <p className="font-medium text-black dark:text-zinc-50">
+                <span className="mr-2 rounded-full bg-black/[.06] px-2 py-0.5 text-xs font-normal text-zinc-600 dark:bg-white/[.1] dark:text-zinc-300">
+                  {MARKET_LABELS[strategy.market]}
+                </span>
                 {RULE_TYPE_LABELS[strategy.rule_type]}
               </p>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">

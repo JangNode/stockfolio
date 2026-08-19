@@ -18,7 +18,6 @@ const MA_CROSS_GAP_FULL_SCORE_PCT = 3; // 단기·장기 이평선이 3% 이상 
 const MINERVINI_MARGIN_FULL_SCORE_PCT = 5; // 현재가가 이평선들보다 평균 5% 이상 높으면 만점
 const TREND_SLOPE_FULL_SCORE_PCT = 10; // 장기 이평선이 20거래일 전보다 10% 이상 올랐으면 만점
 const VOLATILITY_FULL_PENALTY_PCT = 5; // 최근 일간 변동성 표준편차가 5% 이상이면 안정성 0점
-const MARKET_CAP_FULL_SCORE_EOK = 10000; // 시가총액 1조원 이상이면 만점
 
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
@@ -104,8 +103,12 @@ function computeVolumeScore(prices: DailyPrice[]): number {
   return (upVolume / total) * VOLUME_WEIGHT;
 }
 
-/** 최근 변동성이 낮을수록(60%), 시가총액이 클수록(40%) 고득점. 각 데이터 부족 시 중립(만점의 절반). */
-function computeStabilityScore(prices: DailyPrice[], marketCapEok: number | null): number {
+/**
+ * 최근 변동성이 낮을수록(60%), 시가총액이 클수록(40%) 고득점. 각 데이터 부족 시 중립(만점의 절반).
+ * marketCapRatio01은 호출부가 시장별 기준(원화 "억원" 단위 KR, 달러 단위 US 등)으로
+ * 이미 0~1로 정규화해서 넘긴다 — 이 함수는 통화·단위를 모르므로 직접 임계값을 두지 않는다.
+ */
+function computeStabilityScore(prices: DailyPrice[], marketCapRatio01: number | null): number {
   const windowBars = Math.min(VOLATILITY_LOOKBACK_BARS, prices.length - 1);
   let volatilityScore = STABILITY_WEIGHT * 0.6 * 0.5;
 
@@ -124,9 +127,9 @@ function computeStabilityScore(prices: DailyPrice[], marketCapEok: number | null
   }
 
   const marketCapScore =
-    marketCapEok === null
+    marketCapRatio01 === null
       ? STABILITY_WEIGHT * 0.4 * 0.5
-      : clamp01(marketCapEok / MARKET_CAP_FULL_SCORE_EOK) * STABILITY_WEIGHT * 0.4;
+      : clamp01(marketCapRatio01) * STABILITY_WEIGHT * 0.4;
 
   return volatilityScore + marketCapScore;
 }
@@ -138,18 +141,20 @@ function computeStabilityScore(prices: DailyPrice[], marketCapEok: number | null
  * - 추세 강도(25점): 52주 신고가 대비 근접도 + 장기 이평선 상승 기울기
  * - 거래량 신뢰도(20점): 최근 20거래일 상승일/하락일 거래량 비율
  * - 안정성(15점): 최근 변동성 + 시가총액 규모
- * marketCapEok는 배치의 시세 필터 단계에서 이미 조회한 값을 그대로 재사용한다(추가 API 호출 없음).
+ * marketCapRatio01은 "이 정도면 대형주로 쳐서 만점"이라는 시장별 기준 대비 0~1로 정규화한
+ * 값을 호출부가 계산해서 넘긴다(예: KR은 marketCapEok/10000, US는 marketCapUsd/5_000_000_000
+ * 등) — 배치의 시세 필터 단계에서 이미 조회한 시가총액을 그대로 재사용한다(추가 API 호출 없음).
  */
 export function computeSignalScore(
   prices: DailyPrice[],
   rule: StrategyRule,
-  marketCapEok: number | null
+  marketCapRatio01: number | null
 ): number {
   const total =
     computeConditionScore(prices, rule) +
     computeTrendScore(prices, rule) +
     computeVolumeScore(prices) +
-    computeStabilityScore(prices, marketCapEok);
+    computeStabilityScore(prices, marketCapRatio01);
 
   return Math.round(Math.min(100, Math.max(0, total)));
 }

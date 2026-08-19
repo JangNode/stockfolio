@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts",
+    "screen:us-stocks": "tsx --conditions=react-server scripts/screen-us-stocks.ts",
     "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts"
   },
   "dependencies": {

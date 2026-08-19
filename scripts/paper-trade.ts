@@ -171,10 +171,13 @@ function toConditions(row: ActiveStrategyRow): TradeConditions {
 }
 
 async function loadCandidates(): Promise<ScreeningCandidateRow[]> {
+  // AI 모의투자는 아직 국내주식 전용이다 — screening_results에 미국주식 행이 섞여도
+  // (scripts/screen-us-stocks.ts) 매매 후보에 들어오지 않도록 명시적으로 국내만 조회한다.
   const { data: results, error } = await supabaseAdmin
     .from("screening_results")
     .select("id, stock_code, stock_name, strategy_id, return_pct, current_price")
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("market", "KR");
   if (error) throw new Error(`스크리닝 결과 조회 실패: ${error.message}`);
   if (!results || results.length === 0) return [];
 

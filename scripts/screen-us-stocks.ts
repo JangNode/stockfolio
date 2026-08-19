@@ -1,18 +1,29 @@
 /**
- * 한국 주식(KOSPI+KOSDAQ) 전종목을 대상으로 저장된 전략들을 스캔해 screening_results
- * 테이블을 갱신하는 배치 스크립트. GitHub Actions에서 매일 실행된다 (.github/workflows/screening.yml).
+ * 미국 주식(나스닥+뉴욕+아멕스)을 대상으로 저장된 전략(strategies.market='US')들을 스캔해
+ * screening_results 테이블을 갱신하는 배치 스크립트. scripts/screen-all-stocks.ts와 같은
+ * 전략 판정 엔진(lib/backtest.ts)·점수 계산(lib/screeningScore.ts)을 그대로 재사용하지만,
+ * 시세/종목마스터 조회가 완전히 다르고 스케줄(뉴욕 마감 기준, DST 반영)도 달라 별도
+ * 스크립트로 분리했다. GitHub Actions에서 매일 실행된다 (.github/workflows/screening-us.yml).
  *
- * server-only로 막힌 lib/kis.ts, lib/supabaseAdmin.ts, lib/stockMaster.ts를 순수 Node
- * 스크립트에서도 그대로 재사용하기 위해 "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/screen-all-stocks.ts
- * (package.json의 screen:all-stocks 스크립트가 이 플래그를 포함한다.)
+ * 필드명(lib/kis.ts의 해외주식 함수들)은 KIS 공식 예제 저장소를 기준으로 했고, 이 환경에는
+ * 실제 KIS 계정으로 라이브 검증할 방법이 없었다 — 운영 투입 전 소수 종목으로 스팟체크 필요.
+ *
+ *   tsx --conditions=react-server scripts/screen-us-stocks.ts
+ * (package.json의 screen:us-stocks 스크립트가 이 플래그를 포함한다.)
  *
  * 필요 환경변수: KIS_APP_KEY, KIS_APP_SECRET, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getDailyPrices, getKisCallStats, getStockPrice } from "@/lib/kis";
-import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
+import {
+  getKisCallStats,
+  getOverseasDailyPrices,
+  getOverseasPriceDetail,
+  getOverseasStockPrice,
+  type OverseasExchangeCode,
+} from "@/lib/kis";
+import { getAllOverseasStocks, type OverseasStockEntry } from "@/lib/stockMasterOverseas";
+import { getUsBatchTradingDate } from "@/lib/usMarketCalendar";
 import {
   computeEntryPlan,
   evaluateTrackingStatus,
@@ -22,35 +33,26 @@ import {
 } from "@/lib/backtest";
 import { computeSignalScore } from "@/lib/screeningScore";
 
-// ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
-// 종목명에 이 문자열이 포함되면 제외한다 (스팩).
-const EXCLUDED_NAME_SUBSTRINGS = ["스팩"];
-// 종목마스터의 종목구분코드 기준 제외 대상: RT=리츠, EF=ETF, EN=ETN.
-const EXCLUDED_PRODUCT_TYPES = new Set(["RT", "EF", "EN"]);
-// 상장 후 이 개월 수 미만인 종목은 제외한다 (신규 상장 변동성 회피).
-const MIN_LISTED_MONTHS = 6;
-// 이 시가총액(억원) 미만인 종목은 제외한다.
-const MIN_MARKET_CAP_EOK = 500;
-// 이 가격(원) 미만인 종목(동전주)은 제외한다.
-const MIN_PRICE_WON = 1000;
-// 점수 계산(안정성 항목)에서 시가총액이 이 값(억원) 이상이면 만점으로 친다.
-const MARKET_CAP_SCORE_FULL_EOK = 10000;
+// ===== 잡주 필터링 조건 =====
+// 영문 종목명에 이 패턴이 매치되면 제외한다(SPAC). 국내와 달리 미국 마스터파일엔 SPAC
+// 여부를 나타내는 별도 필드가 없어 이름 패턴에 의존한다 — 국내의 "스팩" 문자열 매칭보다
+// 오탐/누락 가능성이 크다는 점을 감안한다(시가총액 필터가 상당수를 추가로 걸러낸다).
+const SPAC_NAME_PATTERN = /\bacquisition\s+(corp|corporation|company|co)\b|\bspac\b/i;
+// 이 시가총액(달러) 미만인 종목은 제외한다.
+const MIN_MARKET_CAP_USD = 500_000_000;
+// 이 가격(달러) 미만인 종목(동전주)은 제외한다. 국내(₩1,000)에 대응하는 미국 관례 기준으로,
+// 사용자가 별도로 지정하지 않아 임의로 정한 값이다 — 필요하면 조정.
+const MIN_PRICE_USD = 1;
+// 점수 계산(안정성 항목)에서 시가총액이 이 값(달러) 이상이면 만점으로 친다.
+const MARKET_CAP_SCORE_FULL_USD = 5_000_000_000;
 
-// 스크리닝은 조건 판정만 하면 되므로 차트용 최대치(500건)가 아니라 필요 최소한만 가져온다.
-// 미너비니 템플릿은 250거래일 신고/신저가 조건 때문에 250~300건이 필요해 KIS 페이지당
-// 한도(100건) 상 종목당 최대 3회 호출이 든다 — ma_cross만 등록돼 있다면 훨씬 적게 든다.
-// 실제 초당 호출 제한은 lib/kis.ts의 우선순위 토큰버킷이 지킨다(이 배치는 "batch"
-// 우선순위로 호출하므로 사용자 요청보다 낮은 한도 안에서 돈다). 여기서는 그 한도를
-// 최대한 채워 쓰도록 여러 종목을 동시에 처리한다 — 아래 BATCH_CONCURRENCY 참고.
+// 미너비니 템플릿은 250거래일 신고/신저가 조건이 필요해 넉넉히 300건을 받는다. 해외
+// dailyprice는 페이지당 정확히 몇 건을 주는지 문서로 확인 못 해(lib/kis.ts 주석 참고)
+// 최대 페이지 수로만 상한을 둔다.
 const DAILY_TARGET_ROWS_DEFAULT = 100;
 const MINERVINI_DAILY_TARGET_ROWS = 300;
 
-// 동시에 진행할 최대 종목 수. 실제 처리량은 lib/kis.ts의 토큰버킷(배치 초당 12건)이
-// 최종적으로 제한하므로, 이 값은 "그 12건/초를 항상 채울 만큼만" 있으면 된다 — 너무
-// 작으면 요청 사이 네트워크 왕복 시간 동안 큐가 비어 처리량이 12건/초에 못 미치고,
-// 너무 크면 (동시 요청 수 × 네트워크/메모리) 자원만 낭비하고 속도에는 도움이 안 된다.
 const BATCH_CONCURRENCY = 10;
-
 const CALL_RETRY_COUNT = 2;
 const CALL_RETRY_DELAY_MS = 2000;
 const PROGRESS_LOG_INTERVAL = 50;
@@ -59,13 +61,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * items를 최대 limit개까지 동시에 처리한다. worker 안에서 발생한 예외는 이 함수
- * 밖으로 던지지 않는다고 가정한다(각 호출부가 자체적으로 흡수해서 다른 종목 처리에
- * 영향이 가지 않게 한다) — 그래야 하나가 실패해도 워커가 죽지 않고 계속 다음
- * 항목을 집어간다. 완료 순서가 입력 순서와 다를 수 있으므로, 호출부의 진행 로그는
- * "몇 번째 항목인지"가 아니라 "몇 개가 끝났는지" 기준으로 찍어야 한다.
- */
+/** scripts/screen-all-stocks.ts와 동일한 동시성 유틸 — 두 배치가 각자 self-contained하게
+ * 유지되도록 의도적으로 별도 lib로 뽑지 않고 그대로 중복한다. */
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
@@ -81,13 +78,9 @@ async function runWithConcurrency<T>(
     }
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, runOne)
-  );
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runOne));
 }
 
-/** kis.ts 내부적으로도 초당 제한(EGW00201)에 대한 재시도가 있지만, 그 외의 일시적 오류
- * (네트워크 오류, 게이트웨이 오류 등)까지 흡수하기 위한 한 겹 더 바깥의 재시도. */
 async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   let lastError: unknown;
 
@@ -110,21 +103,15 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
 type StrategyRow = StrategyRule & { id: string; name: string | null };
 
 async function loadStrategies(): Promise<StrategyRow[]> {
-  // market="US" 전략은 screen-us-stocks.ts가 별도로 스캔한다 — 여기서 같이 돌리면
-  // 국내 일봉 데이터에 미국 전략 조건을 판정해 의미 없는 결과가 쌓인다.
   const { data, error } = await supabaseAdmin
     .from("strategies")
     .select("id, name, rule_type, rule_params")
-    .eq("market", "KR");
+    .eq("market", "US");
 
   if (error) throw new Error(`전략 조회 실패: ${error.message}`);
   return (data ?? []) as StrategyRow[];
 }
 
-/**
- * 등록된 전략들이 필요로 하는 최대 일봉 건수를 계산한다. 종목당 한 번만 조회해서 모든
- * 전략 판정에 재사용하므로, 가장 많이 필요로 하는 전략 기준으로 한 번에 넉넉히 가져온다.
- */
 function computeDailyTargetRows(strategies: StrategyRow[]): number {
   let target = DAILY_TARGET_ROWS_DEFAULT;
 
@@ -139,83 +126,39 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
   return target;
 }
 
-/** 상장일자(YYYYMMDD) 기준으로 상장 후 지난 개월 수를 계산한다. 파싱 실패 시 null. */
-function monthsSinceListing(listedDate: string | null, now: Date): number | null {
-  if (!listedDate) return null;
-
-  const year = Number(listedDate.slice(0, 4));
-  const month = Number(listedDate.slice(4, 6));
-  const day = Number(listedDate.slice(6, 8));
-  // Date 생성자는 범위를 벗어난 월/일을 예외 없이 다른 날짜로 밀어버리므로(예: 0월 0일 →
-  // 전년도 12월 어느 날), "00000000" 같은 빈 값을 걸러내려면 먼저 범위를 직접 검증해야 한다.
-  if (year < 1950 || month < 1 || month > 12 || day < 1 || day > 31) return null;
-
-  const listed = new Date(year, month - 1, day);
-  if (Number.isNaN(listed.getTime())) return null;
-
-  return (
-    (now.getFullYear() - listed.getFullYear()) * 12 +
-    (now.getMonth() - listed.getMonth()) -
-    (now.getDate() < listed.getDate() ? 1 : 0)
-  );
-}
-
 interface MasterFilterCounts {
   spac: number;
-  reitEtfEtn: number;
-  newlyListed: number;
 }
 
-/**
- * 종목마스터 정보만으로 판단 가능한 조건(스팩/리츠·ETF·ETN/신규상장)을 개별 시세 API
- * 호출 전에 걸러낸다. 상장일을 파싱하지 못한 종목은 신규상장 여부를 알 수 없으므로
- * 걸러내지 않고 통과시킨다 — 데이터가 없다고 잘못 제외하는 것보다 안전하다.
- */
+/** SPAC 이름 패턴만 마스터파일 단계에서 거른다 — ETF/지수/워런트는 이미
+ * lib/stockMasterOverseas.ts가 파싱 시점에 securityType으로 제외했고, 신규상장 필터는
+ * 해외 마스터파일에 상장일 필드가 없어 적용할 수 없다(이 부분은 시가총액 필터로 일부 대체). */
 function filterByMaster(
-  stocks: StockEntry[]
-): { survivors: StockEntry[]; counts: MasterFilterCounts } {
-  const now = new Date();
-  const counts: MasterFilterCounts = { spac: 0, reitEtfEtn: 0, newlyListed: 0 };
-  const survivors: StockEntry[] = [];
+  stocks: OverseasStockEntry[]
+): { survivors: OverseasStockEntry[]; counts: MasterFilterCounts } {
+  const counts: MasterFilterCounts = { spac: 0 };
+  const survivors: OverseasStockEntry[] = [];
 
   for (const stock of stocks) {
-    if (EXCLUDED_NAME_SUBSTRINGS.some((s) => stock.name.includes(s))) {
+    if (SPAC_NAME_PATTERN.test(stock.name)) {
       counts.spac++;
       continue;
     }
-    if (EXCLUDED_PRODUCT_TYPES.has(stock.productType)) {
-      counts.reitEtfEtn++;
-      continue;
-    }
-
-    const months = monthsSinceListing(stock.listedDate, now);
-    if (months !== null && months < MIN_LISTED_MONTHS) {
-      counts.newlyListed++;
-      continue;
-    }
-
     survivors.push(stock);
   }
 
   return { survivors, counts };
 }
 
-/**
- * 종목마스터에 없는 조건(시가총액, 동전주 여부)은 시세 조회로 걸러낸다. 이후 단계인
- * 일봉 수집(종목당 최대 3회 호출)보다 먼저 실행해, 여기서 제외되는 종목은 그 호출을
- * 아예 하지 않게 한다.
- */
 async function filterByQuote(
-  stocks: StockEntry[]
+  stocks: OverseasStockEntry[]
 ): Promise<{
-  survivors: StockEntry[];
+  survivors: OverseasStockEntry[];
   marketCapByCode: Map<string, number>;
   excludedCount: number;
   fetchErrors: number;
 }> {
-  const survivors: StockEntry[] = [];
-  // 시세 필터 단계에서 이미 조회한 시가총액을 점수 계산(안정성 항목)에 재사용한다 —
-  // 그 단계 이후 별도로 다시 조회하지 않는다.
+  const survivors: OverseasStockEntry[] = [];
   const marketCapByCode = new Map<string, number>();
   let excludedCount = 0;
   let fetchErrors = 0;
@@ -223,22 +166,22 @@ async function filterByQuote(
 
   await runWithConcurrency(stocks, BATCH_CONCURRENCY, async (stock) => {
     try {
-      const price = await withRetry(
-        () => getStockPrice(stock.code, "batch"),
-        `${stock.code}(${stock.name}) 시세 조회`
+      const detail = await withRetry(
+        () => getOverseasPriceDetail(stock.exchange, stock.code, "batch"),
+        `${stock.code}(${stock.name}) 시세상세 조회`
       );
 
-      if (price.currentPrice < MIN_PRICE_WON || price.marketCapEok < MIN_MARKET_CAP_EOK) {
+      if (detail.currentPrice < MIN_PRICE_USD || detail.marketCap < MIN_MARKET_CAP_USD) {
         excludedCount++;
       } else {
         survivors.push(stock);
-        marketCapByCode.set(stock.code, price.marketCapEok);
+        marketCapByCode.set(stock.code, detail.marketCap);
       }
     } catch (error) {
       fetchErrors++;
       const message = error instanceof Error ? error.message : String(error);
       console.error(
-        `    ${stock.code}(${stock.name}) 시세 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`
+        `    ${stock.code}(${stock.name}) 시세상세 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`
       );
     } finally {
       completed++;
@@ -260,12 +203,12 @@ async function filterByQuote(
 interface ActiveRow {
   id: string;
   stock_code: string;
+  exchange: string | null;
   entry_price: number;
   stop_loss_price: number;
   take_profit_price: number;
 }
 
-/** status=active인 기존 추적 종목의 현재가를 갱신하고, 손절/익절 조건에 걸리면 종료 처리한다. */
 async function updateActiveTracking(): Promise<{
   updated: number;
   stopped: number;
@@ -273,14 +216,11 @@ async function updateActiveTracking(): Promise<{
 }> {
   console.log("=== 1단계: 기존 추적 종목 갱신 ===");
 
-  // market="US" 행은 별도 배치(screen-us-stocks.ts)가 다룬다 — 이 함수가 국내
-  // getStockPrice(6자리 종목코드 전제)로 미국 티커를 조회하면 잘못된 값을 받거나
-  // 실패하므로 반드시 국내 행만 골라야 한다.
   const { data: activeRows, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, stock_code, entry_price, stop_loss_price, take_profit_price")
+    .select("id, stock_code, exchange, entry_price, stop_loss_price, take_profit_price")
     .eq("status", "active")
-    .eq("market", "KR");
+    .eq("market", "US");
 
   if (error) throw new Error(`추적 종목 조회 실패: ${error.message}`);
 
@@ -289,31 +229,33 @@ async function updateActiveTracking(): Promise<{
     return { updated: 0, stopped: 0, profited: 0 };
   }
 
-  // 같은 종목이 여러 전략에서 동시에 active일 수 있으니 종목코드별로 현재가를 한 번만 조회한다.
-  const uniqueCodes = Array.from(new Set(activeRows.map((r) => r.stock_code)));
-  console.log(`추적 중인 종목 ${activeRows.length}건 (종목코드 기준 ${uniqueCodes.length}개)`);
+  console.log(`추적 중인 종목 ${activeRows.length}건`);
 
   const priceByCode = new Map<string, number>();
   let completed = 0;
 
-  await runWithConcurrency(uniqueCodes, BATCH_CONCURRENCY, async (code) => {
+  await runWithConcurrency(activeRows as ActiveRow[], BATCH_CONCURRENCY, async (row) => {
+    if (!row.exchange) {
+      console.error(`    ${row.stock_code} 거래소 코드 누락, 건너뜁니다.`);
+      return;
+    }
     try {
       const price = await withRetry(
-        () => getStockPrice(code, "batch"),
-        `${code} 현재가 조회`
+        () => getOverseasStockPrice(row.exchange as OverseasExchangeCode, row.stock_code, "batch"),
+        `${row.stock_code} 현재가 조회`
       );
-      priceByCode.set(code, price.currentPrice);
+      priceByCode.set(row.stock_code, price.currentPrice);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`    ${code} 현재가 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`);
+      console.error(`    ${row.stock_code} 현재가 조회 실패, 이번 실행에서는 건너뜁니다: ${message}`);
     } finally {
       completed++;
       if (
         completed === 1 ||
         completed % PROGRESS_LOG_INTERVAL === 0 ||
-        completed === uniqueCodes.length
+        completed === activeRows.length
       ) {
-        console.log(`  [${completed}/${uniqueCodes.length}] 현재가 조회 진행 중...`);
+        console.log(`  [${completed}/${activeRows.length}] 현재가 조회 진행 중...`);
       }
     }
   });
@@ -327,11 +269,7 @@ async function updateActiveTracking(): Promise<{
     if (currentPrice === undefined) continue;
 
     const returnPct = ((currentPrice - row.entry_price) / row.entry_price) * 100;
-    const status = evaluateTrackingStatus(
-      currentPrice,
-      row.stop_loss_price,
-      row.take_profit_price
-    );
+    const status = evaluateTrackingStatus(currentPrice, row.stop_loss_price, row.take_profit_price);
 
     const update: Record<string, unknown> = {
       current_price: currentPrice,
@@ -368,32 +306,28 @@ async function updateActiveTracking(): Promise<{
 
 interface StockPriceEntry {
   name: string;
+  exchange: OverseasExchangeCode;
   prices: DailyPrice[];
 }
 
-/**
- * 전종목의 일봉 데이터를 종목당 정확히 한 번씩만 조회해 메모리에 모은다. 이렇게 모아둔
- * 데이터를 이후 전략별 판정 단계에서 재사용하므로, 등록된 전략이 몇 개든 종목당 조회
- * 횟수는 늘지 않는다.
- */
 async function collectDailyPrices(
-  allStocks: { code: string; name: string }[],
+  stocks: OverseasStockEntry[],
   dailyTargetRows: number
 ): Promise<{ priceByCode: Map<string, StockPriceEntry>; fetchErrors: number }> {
-  console.log(`=== 3단계: 전종목 일봉 데이터 수집 (종목당 ${dailyTargetRows}건) ===`);
+  console.log(`=== 3단계: 대상 종목 일봉 데이터 수집 (종목당 ${dailyTargetRows}건) ===`);
 
   const priceByCode = new Map<string, StockPriceEntry>();
   let fetchErrors = 0;
   let completed = 0;
 
-  await runWithConcurrency(allStocks, BATCH_CONCURRENCY, async (stock) => {
+  await runWithConcurrency(stocks, BATCH_CONCURRENCY, async (stock) => {
     try {
       const prices = await withRetry(
-        () => getDailyPrices(stock.code, "D", dailyTargetRows, "batch"),
+        () => getOverseasDailyPrices(stock.exchange, stock.code, dailyTargetRows, "batch"),
         `${stock.code}(${stock.name}) 일봉 조회`
       );
       if (prices.length > 0) {
-        priceByCode.set(stock.code, { name: stock.name, prices });
+        priceByCode.set(stock.code, { name: stock.name, exchange: stock.exchange, prices });
       }
     } catch (error) {
       fetchErrors++;
@@ -404,9 +338,9 @@ async function collectDailyPrices(
       if (
         completed === 1 ||
         completed % PROGRESS_LOG_INTERVAL === 0 ||
-        completed === allStocks.length
+        completed === stocks.length
       ) {
-        console.log(`  [${completed}/${allStocks.length}] 데이터 수집 중... (조회 실패 ${fetchErrors}건)`);
+        console.log(`  [${completed}/${stocks.length}] 데이터 수집 중... (조회 실패 ${fetchErrors}건)`);
       }
     }
   });
@@ -415,10 +349,6 @@ async function collectDailyPrices(
   return { priceByCode, fetchErrors };
 }
 
-/**
- * 전략 하나를 이미 수집된 전종목 데이터에 대해 판정한다. 이 전략에서 발생하는 오류(판정
- * 함수 버그, 저장 실패 등)는 여기서만 처리되어 다른 전략의 판정에 영향을 주지 않는다.
- */
 async function runStrategyScan(
   strategy: StrategyRow,
   priceByCode: Map<string, StockPriceEntry>,
@@ -431,20 +361,20 @@ async function runStrategyScan(
   let matched = 0;
   let errors = 0;
 
-  for (const [stockCode, { name: stockName, prices }] of priceByCode) {
+  for (const [stockCode, { name: stockName, exchange, prices }] of priceByCode) {
     try {
       if (!matchesToday(prices, strategy)) continue;
 
       const key = `${strategy.id}:${stockCode}`;
-      if (activeKeys.has(key)) continue; // 이미 추적 중
+      if (activeKeys.has(key)) continue;
 
       const signalPrice = prices[prices.length - 1].close;
       const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
-      const marketCapEok = marketCapByCode.get(stockCode) ?? null;
+      const marketCapUsd = marketCapByCode.get(stockCode) ?? null;
       const score = computeSignalScore(
         prices,
         strategy,
-        marketCapEok === null ? null : marketCapEok / MARKET_CAP_SCORE_FULL_EOK
+        marketCapUsd === null ? null : marketCapUsd / MARKET_CAP_SCORE_FULL_USD
       );
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
@@ -459,7 +389,8 @@ async function runStrategyScan(
         return_pct: 0,
         status: "active",
         score,
-        market: "KR",
+        market: "US",
+        exchange,
       });
 
       if (insertError) {
@@ -468,14 +399,12 @@ async function runStrategyScan(
         continue;
       }
 
-      activeKeys.add(key); // 같은 실행 내 중복 방지(다른 전략 판정과도 공유되는 집합)
+      activeKeys.add(key);
       matched++;
       console.log(
-        `    [${label}] ✓ 신규 매칭: ${stockName}(${stockCode}) (진입가 ${entryPrice.toLocaleString("ko-KR")}, 점수 ${score})`
+        `    [${label}] ✓ 신규 매칭: ${stockName}(${stockCode}) (진입가 $${entryPrice.toLocaleString("en-US")}, 점수 ${score})`
       );
     } catch (error) {
-      // 판정 함수 자체가 예외를 던지는 경우(버그, 예상 밖의 rule_params 등)까지 종목
-      // 단위로 흡수해 이 전략의 나머지 종목 판정과 다른 전략에 영향이 가지 않게 한다.
       errors++;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`    [${label}] ${stockCode} 판정 중 오류, 건너뜁니다: ${message}`);
@@ -486,23 +415,20 @@ async function runStrategyScan(
   return { matched, errors };
 }
 
-/** 전종목을 스캔해 저장된 전략 조건을 새로 만족하는 종목을 screening_results에 추가한다. */
 async function scanAllStocks(
   strategies: StrategyRow[]
 ): Promise<{ scanned: number; matched: number; errors: number }> {
   if (strategies.length === 0) {
-    console.log("등록된 전략이 없어 스캔을 건너뜁니다.");
+    console.log("등록된 미국주식 전략이 없어 스캔을 건너뜁니다.");
     return { scanned: 0, matched: 0, errors: 0 };
   }
 
   console.log("=== 2단계: 잡주 필터링 ===");
 
-  const allStocks = await getAllStocks();
+  const allStocks = await getAllOverseasStocks();
   const { survivors: masterSurvivors, counts: masterCounts } = filterByMaster(allStocks);
   console.log(
-    `  마스터 필터: ${allStocks.length}개 → ${masterSurvivors.length}개 ` +
-      `(스팩 ${masterCounts.spac}개, 리츠/ETF/ETN ${masterCounts.reitEtfEtn}개, ` +
-      `신규상장 ${masterCounts.newlyListed}개 제외)`
+    `  마스터 필터: ${allStocks.length}개 → ${masterSurvivors.length}개 (SPAC 추정 ${masterCounts.spac}개 제외)`
   );
 
   console.log(`  시세 필터 조회 중... (대상 ${masterSurvivors.length}개)`);
@@ -519,22 +445,18 @@ async function scanAllStocks(
   console.log(`최종 스캔 대상: ${finalStocks.length}개 종목`);
 
   const dailyTargetRows = computeDailyTargetRows(strategies);
-  const callsPerStock = Math.ceil(dailyTargetRows / 100);
   console.log(
-    `등록 전략 ${strategies.length}개(${strategies
-      .map((s) => s.rule_type)
-      .join(", ")}), 종목당 일봉 ${dailyTargetRows}건(호출 ${callsPerStock}회)`
+    `등록 전략 ${strategies.length}개(${strategies.map((s) => s.rule_type).join(", ")}), ` +
+      `종목당 일봉 목표 ${dailyTargetRows}건`
   );
 
   const { priceByCode, fetchErrors } = await collectDailyPrices(finalStocks, dailyTargetRows);
 
-  // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다. 여러 전략 판정이 공유하는
-  // 집합이라, 한 전략에서 새로 매칭된 것도 곧바로 다른 전략 판정에 반영된다(같은 종목을
-  // 서로 다른 전략이 중복으로 추적하는 건 막지 않는다 — strategy_id가 다르면 별개 추적).
   const { data: existingActive, error: activeError } = await supabaseAdmin
     .from("screening_results")
     .select("strategy_id, stock_code")
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("market", "US");
 
   if (activeError) throw new Error(`추적 중인 종목 조회 실패: ${activeError.message}`);
 
@@ -558,9 +480,6 @@ async function scanAllStocks(
       totalMatched += matched;
       totalErrors += errors;
     } catch (error) {
-      // runStrategyScan 내부에서 이미 종목 단위로 오류를 흡수하지만, 혹시 그 바깥에서
-      // 예외가 터지더라도(예: 전략 판정 자체가 준비 단계에서 실패) 다른 전략 판정은
-      // 계속 진행되도록 여기서 한 번 더 막는다.
       totalErrors++;
       const message = error instanceof Error ? error.message : String(error);
       console.error(
@@ -594,10 +513,21 @@ async function recordRun(
 
 async function main(): Promise<void> {
   const startedAt = new Date();
-  console.log(`스크리닝 배치 시작: ${startedAt.toISOString()}`);
+  console.log(`미국주식 스크리닝 배치 시작: ${startedAt.toISOString()}`);
+
+  // 이 배치는 뉴욕 정규장이 EDT/EST 어느 쪽이든 이미 마감된 뒤(KST 06:30 고정)에만
+  // 돌게 스케줄돼 있다 — 그래도 주말/휴장일에 워크플로가 잘못 걸리거나 workflow_dispatch로
+  // 수동 실행될 경우를 대비해 여기서 한 번 더 가드한다.
+  const { dateKey, isTradingDay } = getUsBatchTradingDate();
+  if (!isTradingDay) {
+    console.log(`오늘(뉴욕 기준 ${dateKey})은 미국 증시 휴장일입니다. 배치를 건너뜁니다.`);
+    await recordRun(startedAt, 0, 0, 0);
+    return;
+  }
+  console.log(`대상 거래일(뉴욕 기준): ${dateKey}`);
 
   const strategies = await loadStrategies();
-  console.log(`등록된 전략 수: ${strategies.length}`);
+  console.log(`등록된 미국주식 전략 수: ${strategies.length}`);
 
   await updateActiveTracking();
   const { scanned, matched, errors } = await scanAllStocks(strategies);
@@ -607,7 +537,7 @@ async function main(): Promise<void> {
   const elapsedSec = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
   const kisStats = getKisCallStats();
   console.log(
-    `스크리닝 배치 종료: ${elapsedSec}초 소요 (KIS 호출 ${kisStats.total}건, ` +
+    `미국주식 스크리닝 배치 종료: ${elapsedSec}초 소요 (KIS 호출 ${kisStats.total}건, ` +
       `EGW00201 재시도 ${kisStats.retried}건)`
   );
 }

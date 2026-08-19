@@ -20,6 +20,7 @@ import {
   type DailyPrice,
   type StrategyRule,
 } from "@/lib/backtest";
+import { computeSignalScore } from "@/lib/screeningScore";
 
 // ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
 // 종목명에 이 문자열이 포함되면 제외한다 (스팩).
@@ -201,8 +202,16 @@ function filterByMaster(
  */
 async function filterByQuote(
   stocks: StockEntry[]
-): Promise<{ survivors: StockEntry[]; excludedCount: number; fetchErrors: number }> {
+): Promise<{
+  survivors: StockEntry[];
+  marketCapByCode: Map<string, number>;
+  excludedCount: number;
+  fetchErrors: number;
+}> {
   const survivors: StockEntry[] = [];
+  // 시세 필터 단계에서 이미 조회한 시가총액을 점수 계산(안정성 항목)에 재사용한다 —
+  // 그 단계 이후 별도로 다시 조회하지 않는다.
+  const marketCapByCode = new Map<string, number>();
   let excludedCount = 0;
   let fetchErrors = 0;
   let completed = 0;
@@ -218,6 +227,7 @@ async function filterByQuote(
         excludedCount++;
       } else {
         survivors.push(stock);
+        marketCapByCode.set(stock.code, price.marketCapEok);
       }
     } catch (error) {
       fetchErrors++;
@@ -239,7 +249,7 @@ async function filterByQuote(
     }
   });
 
-  return { survivors, excludedCount, fetchErrors };
+  return { survivors, marketCapByCode, excludedCount, fetchErrors };
 }
 
 interface ActiveRow {
@@ -403,7 +413,8 @@ async function collectDailyPrices(
 async function runStrategyScan(
   strategy: StrategyRow,
   priceByCode: Map<string, StockPriceEntry>,
-  activeKeys: Set<string>
+  activeKeys: Set<string>,
+  marketCapByCode: Map<string, number>
 ): Promise<{ matched: number; errors: number }> {
   const label = `${strategy.name ?? strategy.rule_type}(${strategy.rule_type})`;
   console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
@@ -420,6 +431,7 @@ async function runStrategyScan(
 
       const signalPrice = prices[prices.length - 1].close;
       const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
+      const score = computeSignalScore(prices, strategy, marketCapByCode.get(stockCode) ?? null);
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
         strategy_id: strategy.id,
@@ -432,6 +444,7 @@ async function runStrategyScan(
         current_price: signalPrice,
         return_pct: 0,
         status: "active",
+        score,
       });
 
       if (insertError) {
@@ -443,7 +456,7 @@ async function runStrategyScan(
       activeKeys.add(key); // 같은 실행 내 중복 방지(다른 전략 판정과도 공유되는 집합)
       matched++;
       console.log(
-        `    [${label}] ✓ 신규 매칭: ${stockName}(${stockCode}) (진입가 ${entryPrice.toLocaleString("ko-KR")})`
+        `    [${label}] ✓ 신규 매칭: ${stockName}(${stockCode}) (진입가 ${entryPrice.toLocaleString("ko-KR")}, 점수 ${score})`
       );
     } catch (error) {
       // 판정 함수 자체가 예외를 던지는 경우(버그, 예상 밖의 rule_params 등)까지 종목
@@ -480,6 +493,7 @@ async function scanAllStocks(
   console.log(`  시세 필터 조회 중... (대상 ${masterSurvivors.length}개)`);
   const {
     survivors: finalStocks,
+    marketCapByCode,
     excludedCount: quoteExcluded,
     fetchErrors: quoteFetchErrors,
   } = await filterByQuote(masterSurvivors);
@@ -520,7 +534,12 @@ async function scanAllStocks(
 
   for (const strategy of strategies) {
     try {
-      const { matched, errors } = await runStrategyScan(strategy, priceByCode, activeKeys);
+      const { matched, errors } = await runStrategyScan(
+        strategy,
+        priceByCode,
+        activeKeys,
+        marketCapByCode
+      );
       totalMatched += matched;
       totalErrors += errors;
     } catch (error) {

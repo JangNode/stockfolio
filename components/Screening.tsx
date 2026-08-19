@@ -5,6 +5,7 @@ import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
+import { ScoreBar } from "@/components/ScoreBar";
 
 interface ScreeningResultRow {
   id: string;
@@ -15,6 +16,7 @@ interface ScreeningResultRow {
   take_profit_price: number;
   current_price: number;
   return_pct: number;
+  score: number | null;
   status: "active" | "stopped" | "profited";
   matched_at: string;
   closed_at: string | null;
@@ -86,9 +88,10 @@ export default function Screening({ user }: { user: User }) {
       let query = supabase
         .from("screening_results")
         .select(
-          "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, status, matched_at, closed_at"
+          "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, score, status, matched_at, closed_at"
         )
         .eq("strategy_id", sid)
+        .order("score", { ascending: false, nullsFirst: false })
         .order("matched_at", { ascending: false });
 
       query = tab === "active" ? query.eq("status", "active") : query.in("status", ["stopped", "profited"]);
@@ -211,6 +214,7 @@ export default function Screening({ user }: { user: User }) {
                 <thead>
                   <tr className="text-zinc-500 dark:text-zinc-400">
                     <th className="pb-2 pr-4 font-normal">종목명</th>
+                    <th className="pb-2 pr-4 font-normal">점수</th>
                     <th className="pb-2 pr-4 font-normal">진입 추천가</th>
                     <th className="pb-2 pr-4 font-normal">손절가</th>
                     <th className="pb-2 pr-4 font-normal">익절가</th>
@@ -237,6 +241,9 @@ export default function Screening({ user }: { user: User }) {
                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
                             {r.stock_code}
                           </span>
+                        </td>
+                        <td className="py-2 pr-4">
+                          <ScoreBar score={r.score} />
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
                           {r.entry_price.toLocaleString("ko-KR")}

@@ -9,6 +9,9 @@ const TR_ID_INQUIRE_DAILY_CHART_PRICE = "FHKST03010100";
 const TR_ID_INQUIRE_TIME_CHART_PRICE = "FHKST03010200";
 const TR_ID_INQUIRE_INDEX_PRICE = "FHPUP02100000";
 const TR_ID_INQUIRE_OVERSEAS_INDEX = "FHKST03030100";
+const TR_ID_OVERSEAS_PRICE = "HHDFS00000300";
+const TR_ID_OVERSEAS_PRICE_DETAIL = "HHDFS76200200";
+const TR_ID_OVERSEAS_DAILY_PRICE = "HHDFS76240000";
 
 // 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
 const TOKEN_ROW_ID = "kis";
@@ -818,4 +821,195 @@ export async function getMarketSummary(): Promise<MarketSummary> {
   marketSummaryCache = { data, fetchedAt: Date.now() };
 
   return data;
+}
+
+// ===== 미국주식(나스닥/뉴욕/아멕스) 스크리닝용 =====
+// KIS 해외주식 소매 거래는 나스닥/뉴욕/아멕스 3개 거래소만 지원한다(장외/핑크시트 종목은
+// 대상이 아니다). 필드명은 KIS 공식 예제(github.com/koreainvestment/open-trading-api의
+// examples_llm/overseas_stock/{price,price_detail,dailyprice}/chk_*.py에 있는
+// COLUMN_MAPPING)를 기준으로 했다 — 이 저장소에는 실제 KIS 계정으로 라이브 호출해 응답을
+// 검증할 방법이 없었으므로, 운영 투입 전 실제 종목 1~2개로 스팟체크가 필요하다.
+export type OverseasExchangeCode = "NAS" | "NYS" | "AMS";
+
+export interface OverseasStockPrice {
+  currentPrice: number;
+  prevClose: number;
+  change: number;
+  changeRate: number;
+  volume: number;
+}
+
+interface OverseasPriceResponse extends KisResponse {
+  output: {
+    last: string;
+    base: string;
+    diff: string;
+    rate: string;
+    tvol: string;
+  };
+}
+
+/**
+ * 해외주식 현재체결가를 조회한다(시가총액 등 기업개요는 없음 — 그건
+ * getOverseasPriceDetail 몫). 이미 추적 중인 종목의 현재가 갱신처럼 가벼운 호출에 쓴다.
+ */
+export async function getOverseasStockPrice(
+  excd: OverseasExchangeCode,
+  symb: string,
+  priority: "user" | "batch" = "user"
+): Promise<OverseasStockPrice> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/overseas-price/v1/quotations/price", KIS_BASE_URL);
+  url.searchParams.set("AUTH", "");
+  url.searchParams.set("EXCD", excd);
+  url.searchParams.set("SYMB", symb);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_OVERSEAS_PRICE,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as OverseasPriceResponse;
+  const { output } = data;
+
+  return {
+    currentPrice: Number(output.last),
+    prevClose: Number(output.base),
+    change: Number(output.diff),
+    changeRate: Number(output.rate),
+    volume: Number(output.tvol),
+  };
+}
+
+export interface OverseasPriceDetail {
+  currentPrice: number;
+  // 시가총액. 통화(currency)는 원화가 아니라 종목이 거래되는 시장의 통화(미국은 USD) 그대로다.
+  marketCap: number;
+  currency: string;
+  high52w: number;
+  low52w: number;
+}
+
+interface OverseasPriceDetailResponse extends KisResponse {
+  output: {
+    last: string;
+    tomv: string;
+    curr: string;
+    h52p: string;
+    l52p: string;
+  };
+}
+
+/**
+ * 해외주식 현재가상세를 조회한다. 시가총액(tomv)이 이 엔드포인트에만 있어, 잡주
+ * 필터링(시가총액 하한) 단계에서만 쓴다 — 추적 갱신처럼 자주 도는 곳엔 더 가벼운
+ * getOverseasStockPrice를 쓴다.
+ */
+export async function getOverseasPriceDetail(
+  excd: OverseasExchangeCode,
+  symb: string,
+  priority: "user" | "batch" = "user"
+): Promise<OverseasPriceDetail> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/overseas-price/v1/quotations/price-detail", KIS_BASE_URL);
+  url.searchParams.set("AUTH", "");
+  url.searchParams.set("EXCD", excd);
+  url.searchParams.set("SYMB", symb);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_OVERSEAS_PRICE_DETAIL,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as OverseasPriceDetailResponse;
+  const { output } = data;
+
+  return {
+    currentPrice: Number(output.last),
+    marketCap: Number(output.tomv),
+    currency: output.curr,
+    high52w: Number(output.h52p),
+    low52w: Number(output.l52p),
+  };
+}
+
+interface OverseasDailyPriceResponse extends KisResponse {
+  output2: {
+    xymd: string;
+    clos: string;
+    open: string;
+    high: string;
+    low: string;
+    tvol: string;
+  }[];
+}
+
+const OVERSEAS_CHART_TARGET_ROWS_DEFAULT = 300;
+const OVERSEAS_MAX_CHART_PAGES = 8;
+
+/**
+ * 해외주식 기간별(일봉) 시세를 조회한다. 응답 형태(DailyPrice)는 국내 getDailyPrices와
+ * 동일해서 lib/backtest.ts의 전략 판정·lib/screeningScore.ts의 점수 계산을 시장 구분
+ * 없이 그대로 재사용할 수 있다. 페이지당 실제로 몇 건을 주는지 문서로 확인하지 못해,
+ * 국내처럼 "100건 미만이면 마지막 페이지"로 가정하지 않고 응답이 완전히 비었을 때만
+ * 멈춘다(더 안전한 쪽으로) — 대신 MAX_CHART_PAGES로 상한을 둔다.
+ */
+export async function getOverseasDailyPrices(
+  excd: OverseasExchangeCode,
+  symb: string,
+  targetRows: number = OVERSEAS_CHART_TARGET_ROWS_DEFAULT,
+  priority: "user" | "batch" = "user"
+): Promise<DailyPrice[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const collected: OverseasDailyPriceResponse["output2"] = [];
+  let bymd = ""; // 공란 = 오늘 날짜 기준
+
+  for (let page = 0; page < OVERSEAS_MAX_CHART_PAGES; page++) {
+    const url = new URL("/uapi/overseas-price/v1/quotations/dailyprice", KIS_BASE_URL);
+    url.searchParams.set("AUTH", "");
+    url.searchParams.set("EXCD", excd);
+    url.searchParams.set("SYMB", symb);
+    url.searchParams.set("GUBN", "0"); // 0: 일봉
+    url.searchParams.set("BYMD", bymd);
+    url.searchParams.set("MODP", "0"); // 0: 수정주가 미반영(국내 getDailyPrices와 동일 정책)
+
+    const data = (await kisFetch(
+      url,
+      TR_ID_OVERSEAS_DAILY_PRICE,
+      accessToken,
+      appKey,
+      appSecret,
+      priority
+    )) as OverseasDailyPriceResponse;
+
+    const rows = (data.output2 ?? []).filter((row) => row.xymd);
+    if (rows.length === 0) break;
+
+    collected.push(...rows);
+    if (collected.length >= targetRows) break;
+
+    bymd = addDaysToYyyymmdd(rows[rows.length - 1].xymd, -1);
+  }
+
+  // KIS는 최신 순으로 내려주므로 과거→최신 순으로 뒤집는다(국내 getDailyPrices와 동일 규약).
+  return collected
+    .map((row) => ({
+      date: `${row.xymd.slice(0, 4)}-${row.xymd.slice(4, 6)}-${row.xymd.slice(6, 8)}`,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.clos),
+      volume: Number(row.tvol),
+    }))
+    .reverse();
 }

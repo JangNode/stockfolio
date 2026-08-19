@@ -1,0 +1,21 @@
+{
+  "label": "초기 시드: 분산 방어형",
+  "rationale": "안정형 전략의 초기 시드 값입니다. 신호 발생 직후 아직 크게 오르지 않은 종목 위주로 여러 종목에 분산 투자해 개별 종목 리스크를 낮춥니다. 손절/익절 폭을 좁게 잡아 손실을 빠르게 방어하고 이익을 확정합니다. 이후 매일 Routine이 전날 조건을 참고해 재조정합니다.",
+  "generated_at": "2026-08-19T00:00:00Z",
+  "entry_conditions": {
+    "source_rule_types": ["ma_cross", "minervini_trend_template"],
+    "min_signal_return_pct": -3,
+    "max_signal_return_pct": 10,
+    "max_positions": 10,
+    "position_size_pct": 10
+  },
+  "exit_conditions": {
+    "take_profit_pct": 8,
+    "stop_loss_pct": 5,
+    "max_holding_days": 20
+  },
+  "stock_selection_criteria": {
+    "prefer_higher_return_pct": false,
+    "max_candidates_to_consider": 20
+  }
+}

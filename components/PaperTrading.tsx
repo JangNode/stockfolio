@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
-import { ScoreBar } from "@/components/ScoreBar";
+import { ScoreValue } from "@/components/ScoreValue";
 
 type PaperStyle = "aggressive" | "conservative";
 type SubScreen = "overview" | "detail" | "trades" | "history";
@@ -432,7 +432,7 @@ function DetailScreen({
                         <span className="text-xs text-zinc-400 dark:text-zinc-500">{h.stock_code}</span>
                       </td>
                       <td className="py-2 pr-4">
-                        <ScoreBar score={h.score} />
+                        <ScoreValue score={h.score} />
                       </td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">{h.quantity.toLocaleString("ko-KR")}</td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">

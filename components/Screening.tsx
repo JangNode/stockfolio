@@ -5,7 +5,7 @@ import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
-import { ScoreBar } from "@/components/ScoreBar";
+import { ScoreValue } from "@/components/ScoreValue";
 
 interface ScreeningResultRow {
   id: string;
@@ -243,7 +243,7 @@ export default function Screening({ user }: { user: User }) {
                           </span>
                         </td>
                         <td className="py-2 pr-4">
-                          <ScoreBar score={r.score} />
+                          <ScoreValue score={r.score} />
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
                           {r.entry_price.toLocaleString("ko-KR")}

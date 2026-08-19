@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { describeStrategy, useStrategies } from "@/components/StrategyManager";
+import { describeStrategy, useStrategies, MARKET_LABELS, type Market } from "@/components/StrategyManager";
 import { ScoreValue } from "@/components/ScoreValue";
 
 interface ScreeningResultRow {
@@ -20,6 +20,15 @@ interface ScreeningResultRow {
   status: "active" | "stopped" | "profited";
   matched_at: string;
   closed_at: string | null;
+}
+
+const MARKET_TABS: Market[] = ["KR", "US"];
+
+/** 원화는 정수 단위, 달러는 소수점 둘째 자리까지 표시한다. */
+function formatPrice(value: number, market: Market): string {
+  return market === "KR"
+    ? value.toLocaleString("ko-KR")
+    : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 type StatusTab = "active" | "closed";
@@ -62,9 +71,15 @@ function closedDateLabel(iso: string): string {
 
 export default function Screening({ user }: { user: User }) {
   const { data: strategies, isLoading: strategiesLoading } = useStrategies(user);
+  const [market, setMarket] = useState<Market>("KR");
   const [strategyId, setStrategyId] = useState("");
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
   const [closedDate, setClosedDate] = useState("");
+
+  const marketStrategies = useMemo(
+    () => strategies?.filter((s) => s.market === market) ?? [],
+    [strategies, market]
+  );
 
   const { data: lastRun } = useSWR("screening-last-run", async () => {
     const { data, error } = await supabase
@@ -83,14 +98,15 @@ export default function Screening({ user }: { user: User }) {
     error: resultsError,
     isLoading: resultsLoading,
   } = useSWR(
-    strategyId ? ["screening-results", strategyId, statusTab] : null,
-    async ([, sid, tab]: [string, string, StatusTab]) => {
+    strategyId ? ["screening-results", strategyId, statusTab, market] : null,
+    async ([, sid, tab, mkt]: [string, string, StatusTab, Market]) => {
       let query = supabase
         .from("screening_results")
         .select(
           "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, score, status, matched_at, closed_at"
         )
         .eq("strategy_id", sid)
+        .eq("market", mkt) // strategy_id가 이미 시장을 유일하게 결정하지만, 방어적으로 한 번 더 검증한다.
         .order("score", { ascending: false, nullsFirst: false })
         .order("matched_at", { ascending: false });
 
@@ -129,6 +145,29 @@ export default function Screening({ user }: { user: User }) {
     <div className="w-full max-w-4xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
+          <label className="text-xs text-zinc-500 dark:text-zinc-400">시장</label>
+          <div className="flex gap-1">
+            {MARKET_TABS.map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setMarket(m);
+                  setStrategyId("");
+                  setClosedDate("");
+                }}
+                className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
+                  market === m
+                    ? "bg-foreground text-background"
+                    : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                }`}
+              >
+                {MARKET_LABELS[m]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
           <select
             value={strategyId}
@@ -139,7 +178,7 @@ export default function Screening({ user }: { user: User }) {
             className={selectClassName}
           >
             <option value="">전략 선택</option>
-            {strategies?.map((s) => (
+            {marketStrategies.map((s) => (
               <option key={s.id} value={s.id}>
                 {describeStrategy(s)}
               </option>
@@ -148,9 +187,9 @@ export default function Screening({ user }: { user: User }) {
           {strategiesLoading && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
           )}
-          {!strategiesLoading && strategies?.length === 0 && (
+          {!strategiesLoading && marketStrategies.length === 0 && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              등록된 전략이 없습니다. 전략 관리에서 먼저 전략을 추가해주세요.
+              등록된 {MARKET_LABELS[market]} 전략이 없습니다. 전략 관리에서 먼저 전략을 추가해주세요.
             </p>
           )}
         </div>
@@ -246,16 +285,16 @@ export default function Screening({ user }: { user: User }) {
                           <ScoreValue score={r.score} />
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {r.entry_price.toLocaleString("ko-KR")}
+                          {formatPrice(r.entry_price, market)}
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {r.stop_loss_price.toLocaleString("ko-KR")}
+                          {formatPrice(r.stop_loss_price, market)}
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {r.take_profit_price.toLocaleString("ko-KR")}
+                          {formatPrice(r.take_profit_price, market)}
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {r.current_price.toLocaleString("ko-KR")}
+                          {formatPrice(r.current_price, market)}
                         </td>
                         <td className={`py-2 pr-4 font-medium ${returnColor}`}>
                           {r.return_pct > 0 ? "+" : ""}

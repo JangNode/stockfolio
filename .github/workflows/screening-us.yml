@@ -1,0 +1,39 @@
+name: US Stock Screening Batch
+
+on:
+  schedule:
+    # 뉴욕 정규장(09:30~16:00 ET)은 서머타임에 따라 KST 22:30~05:00(EDT) 또는
+    # 23:30~06:00(EST)에 걸쳐 있다. 이 배치는 "이미 완전히 마감된 뒤"에만 돌면 되므로
+    # 굳이 DST에 맞춰 크론을 두 개로 나누지 않고, 두 경우 모두 마감 이후인 KST 06:30
+    # 고정 시각 하나로 충분하다(DST 자체 판별은 스크립트 내부에서 처리 — lib/usMarketCalendar.ts,
+    # Intl API의 America/New_York 타임존을 통해 자동 반영된다).
+    # KST 06:30 = UTC 전날 21:30. 뉴욕 월~금요일 장이 각각 화~토요일 KST 06:30에 대응되므로
+    # UTC 크론 요일은 그대로 월~금(1-5)이다.
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    # 나스닥+뉴욕+아멕스 전종목 스캔이라 국내보다 유니버스가 훨씬 크다. 넉넉한 상한을 둔다.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run US stock screening batch
+        run: npm run screen:us-stocks
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

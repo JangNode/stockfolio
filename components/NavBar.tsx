@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/strategies", label: "전략 관리" },
   { href: "/backtest", label: "백테스트" },
   { href: "/screening", label: "스크리닝" },
+  { href: "/paper-trading", label: "AI 모의투자" },
 ] as const;
 
 export default function NavBar() {

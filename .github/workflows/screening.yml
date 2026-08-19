@@ -36,3 +36,12 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 스크리닝 배치가 갱신한 screening_results를 그대로 입력값으로 쓰므로 추가 KIS
+      # 호출이 없다 — 그래서 같은 잡의 다음 스텝으로 이어 붙인다(별도 워크플로/스케줄 불필요).
+      - name: Run AI paper trading batch
+        run: npm run paper:trade
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

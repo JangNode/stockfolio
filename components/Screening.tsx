@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -43,10 +43,26 @@ function formatDateTime(iso: string): string {
   });
 }
 
+// 종료일 드롭다운의 값/표시용. KST 기준 달력 날짜로 묶어야 자정 근처 종료 건이
+// 엉뚱한 날짜로 갈리지 않는다.
+function closedDateKey(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+function closedDateLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
 export default function Screening({ user }: { user: User }) {
   const { data: strategies, isLoading: strategiesLoading } = useStrategies(user);
   const [strategyId, setStrategyId] = useState("");
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
+  const [closedDate, setClosedDate] = useState("");
 
   const { data: lastRun } = useSWR("screening-last-run", async () => {
     const { data, error } = await supabase
@@ -83,6 +99,26 @@ export default function Screening({ user }: { user: User }) {
     }
   );
 
+  // 종료됨 탭에서만 쓰는 종료일 드롭다운. 실제 closed_at 값이 있는 날짜만 보여줘서
+  // 선택해도 항상 결과가 있도록 한다.
+  const closedDateOptions = useMemo(() => {
+    if (statusTab !== "closed" || !results) return [];
+    const labelByKey = new Map<string, string>();
+    for (const r of results) {
+      if (!r.closed_at) continue;
+      const key = closedDateKey(r.closed_at);
+      if (!labelByKey.has(key)) labelByKey.set(key, closedDateLabel(r.closed_at));
+    }
+    return Array.from(labelByKey.entries())
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([key, label]) => ({ key, label }));
+  }, [results, statusTab]);
+
+  const displayedResults =
+    statusTab === "closed" && closedDate
+      ? results?.filter((r) => r.closed_at && closedDateKey(r.closed_at) === closedDate)
+      : results;
+
   const selectClassName =
     "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
 
@@ -93,7 +129,10 @@ export default function Screening({ user }: { user: User }) {
           <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
           <select
             value={strategyId}
-            onChange={(e) => setStrategyId(e.target.value)}
+            onChange={(e) => {
+              setStrategyId(e.target.value);
+              setClosedDate("");
+            }}
             className={selectClassName}
           >
             <option value="">전략 선택</option>
@@ -126,27 +165,47 @@ export default function Screening({ user }: { user: User }) {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 선택해주세요.</p>
       ) : (
         <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-          <div className="mb-3 flex gap-1">
-            {STATUS_TABS.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setStatusTab(tab.value)}
-                className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
-                  statusTab === tab.value
-                    ? "bg-foreground text-background"
-                    : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
-                }`}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-1">
+              {STATUS_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => {
+                    setStatusTab(tab.value);
+                    setClosedDate("");
+                  }}
+                  className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
+                    statusTab === tab.value
+                      ? "bg-foreground text-background"
+                      : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {statusTab === "closed" && closedDateOptions.length > 0 && (
+              <select
+                value={closedDate}
+                onChange={(e) => setClosedDate(e.target.value)}
+                className={selectClassName}
               >
-                {tab.label}
-              </button>
-            ))}
+                <option value="">종료일: 전체</option>
+                {closedDateOptions.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.label} 종료
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {resultsLoading ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">결과를 불러오는 중...</p>
           ) : resultsError ? (
             <p className="text-sm text-blue-600 dark:text-blue-400">결과를 불러오지 못했습니다.</p>
-          ) : results && results.length > 0 ? (
+          ) : displayedResults && displayedResults.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -162,7 +221,7 @@ export default function Screening({ user }: { user: User }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((r) => {
+                  {displayedResults.map((r) => {
                     const returnColor =
                       r.return_pct > 0
                         ? "text-red-600 dark:text-red-400"
@@ -211,7 +270,9 @@ export default function Screening({ user }: { user: User }) {
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {statusTab === "active"
                 ? "현재 추적 중인 종목이 없습니다."
-                : "종료된 종목이 없습니다."}
+                : closedDate
+                  ? "해당 날짜에 종료된 종목이 없습니다."
+                  : "종료된 종목이 없습니다."}
             </p>
           )}
         </div>

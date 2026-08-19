@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
+import { ScoreBar } from "@/components/ScoreBar";
 
 type PaperStyle = "aggressive" | "conservative";
 type SubScreen = "overview" | "detail" | "trades" | "history";
@@ -80,6 +81,7 @@ interface PositionRow {
   opened_at: string;
   screening_result_id: string | null;
   currentPrice: number | null;
+  score: number | null;
 }
 
 interface TradeRow {
@@ -177,18 +179,23 @@ function usePositions() {
     );
 
     const priceById = new Map<string, number>();
+    const scoreById = new Map<string, number | null>();
     if (screeningIds.length > 0) {
       const { data: screeningRows, error: screeningError } = await supabase
         .from("screening_results")
-        .select("id, current_price")
+        .select("id, current_price, score")
         .in("id", screeningIds);
       if (screeningError) throw screeningError;
-      for (const row of screeningRows ?? []) priceById.set(row.id, row.current_price);
+      for (const row of screeningRows ?? []) {
+        priceById.set(row.id, row.current_price);
+        scoreById.set(row.id, row.score);
+      }
     }
 
     return (positions ?? []).map((p) => ({
       ...p,
       currentPrice: p.screening_result_id ? (priceById.get(p.screening_result_id) ?? null) : null,
+      score: p.screening_result_id ? (scoreById.get(p.screening_result_id) ?? null) : null,
     })) as PositionRow[];
   });
 }
@@ -406,6 +413,7 @@ function DetailScreen({
               <thead>
                 <tr className="text-zinc-500 dark:text-zinc-400">
                   <th className="pb-2 pr-4 font-normal">종목명</th>
+                  <th className="pb-2 pr-4 font-normal">점수</th>
                   <th className="pb-2 pr-4 font-normal">수량</th>
                   <th className="pb-2 pr-4 font-normal">평단가</th>
                   <th className="pb-2 pr-4 font-normal">현재가</th>
@@ -422,6 +430,9 @@ function DetailScreen({
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">
                         {h.stock_name}{" "}
                         <span className="text-xs text-zinc-400 dark:text-zinc-500">{h.stock_code}</span>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <ScoreBar score={h.score} />
                       </td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">{h.quantity.toLocaleString("ko-KR")}</td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">

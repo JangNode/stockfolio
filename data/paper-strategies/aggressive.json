@@ -1,0 +1,21 @@
+{
+  "label": "초기 시드: 모멘텀 추종형",
+  "rationale": "공격형 전략의 초기 시드 값입니다. 상승 모멘텀이 확인된 신호를 폭넓게 받아들이고 소수 종목에 집중 투자해 높은 변동성을 감수합니다. 손절/익절 폭을 넓게 잡아 단기 노이즈에 흔들리지 않도록 했습니다. 이후 매일 Routine이 전날 조건을 참고해 재조정합니다.",
+  "generated_at": "2026-08-19T00:00:00Z",
+  "entry_conditions": {
+    "source_rule_types": ["ma_cross", "minervini_trend_template"],
+    "min_signal_return_pct": -5,
+    "max_signal_return_pct": 30,
+    "max_positions": 5,
+    "position_size_pct": 25
+  },
+  "exit_conditions": {
+    "take_profit_pct": 25,
+    "stop_loss_pct": 12,
+    "max_holding_days": 30
+  },
+  "stock_selection_criteria": {
+    "prefer_higher_return_pct": true,
+    "max_candidates_to_consider": 15
+  }
+}

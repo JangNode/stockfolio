@@ -11,7 +11,6 @@
     "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
     "@supabase/supabase-js": "^2.112.3",
     "adm-zip": "^0.6.0",
     "iconv-lite": "^0.7.3",

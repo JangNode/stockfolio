@@ -2,29 +2,34 @@
  * "AI 모의투자" 배치 스크립트. screening.yml에서 screen:all-stocks 다음 스텝으로
  * 실행된다(추가 KIS 시세 호출 없음 — screening_results.current_price를 그대로 재사용).
  *
+ * 전략(JSON 조건)은 이 스크립트가 직접 생성하지 않는다. Anthropic API 과금 없이
+ * 이미 쓰고 있는 Claude Code 접근을 재사용하기 위해, 별도 Routine(매일 KST 14:10,
+ * 이 배치보다 앞선 시각)이 Claude Code 세션으로 data/paper-strategies/{style}.json을
+ * lib/paperStrategy.ts의 PaperStrategyConditionsSchema에 맞춰 저장소에 직접 커밋해두고,
+ * 이 스크립트는 그 파일을 읽기만 한다. 라우틴이 커밋 전 스스로 검증하는 데는
+ * scripts/validate-paper-strategy.ts를 쓴다.
+ *
  * 매일 하는 일:
- * 1) 공격형/안정형 전략을 Claude로 재생성(어제 전략의 기간 성과를 참고 자료로 넘긴다)
- * 2) 두 가상 계좌의 보유 포지션을 새 전략의 청산조건으로 평가해 매도
+ * 1) data/paper-strategies/{style}.json이 오늘자로 갱신돼 있으면 새 전략 버전으로
+ *    반영하고(기존 활성 버전은 retire), 없으면(라우틴 미실행/실패) 기존 활성 전략을
+ *    그대로 유지한다 — 이 배치가 전략 없이 멈추는 일은 없다.
+ * 2) 두 가상 계좌의 보유 포지션을 전략의 청산조건으로 평가해 매도
  *    (원 스크리닝 신호가 이미 손절/익절로 종료됐으면 그 가격 그대로 함께 청산)
- * 3) 남은 현금/슬롯 한도 안에서 새 전략의 진입조건에 맞는 스크리닝 결과를 매수
+ * 3) 남은 현금/슬롯 한도 안에서 전략의 진입조건에 맞는 스크리닝 결과를 매수
  * 4) 계좌별 일별 평가금액 스냅샷 기록
  *
- * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY
+ * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *   tsx --conditions=react-server scripts/paper-trade.ts
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import {
-  generateStrategy,
-  type PaperStrategyConditions,
-  type PaperStyle,
-  type PreviousStrategySummary,
-} from "@/lib/paperStrategy";
+import { loadStrategyFile, type PaperStrategyConditions, type PaperStyle } from "@/lib/paperStrategy";
 import {
   computeEquity,
   evaluateExit,
   selectBuyCandidates,
   type ScreeningCandidateRow,
+  type TradeConditions,
   type UnderlyingScreeningStatus,
 } from "@/lib/paperTrading";
 
@@ -94,58 +99,36 @@ async function loadActiveStrategy(style: PaperStyle): Promise<ActiveStrategyRow 
   return data as ActiveStrategyRow | null;
 }
 
-/** 직전 전략이 살아있던 기간의 기간 수익률을 일별 스냅샷으로 근사한다. 스냅샷이
- * 아직 없으면(예: 첫 실행 다음 날) 0으로 처리한다 — 참고 자료일 뿐 매매 판단에는
- * 쓰이지 않으므로 근사치로 충분하다. */
-async function summarizePreviousStrategy(
-  portfolioId: string,
-  previous: ActiveStrategyRow
-): Promise<PreviousStrategySummary> {
-  const createdDate = new Date(previous.created_at).toLocaleDateString("en-CA", {
-    timeZone: "Asia/Seoul",
-  });
-
-  const { data: snapshots, error } = await supabaseAdmin
-    .from("paper_daily_snapshots")
-    .select("snapshot_date, equity")
-    .eq("portfolio_id", portfolioId)
-    .gte("snapshot_date", createdDate)
-    .order("snapshot_date", { ascending: true });
-  if (error) throw new Error(`일별 스냅샷 조회 실패: ${error.message}`);
-
-  const first = snapshots?.[0];
-  const last = snapshots?.[snapshots.length - 1];
-  const periodReturnPct =
-    first && last && first.equity > 0 ? ((last.equity - first.equity) / first.equity) * 100 : 0;
-
-  const daysActive = Math.max(
-    1,
-    Math.round((Date.now() - new Date(previous.created_at).getTime()) / 86_400_000)
-  );
-
-  return {
-    label: previous.label,
-    conditions: {
-      entry_conditions: previous.entry_conditions,
-      exit_conditions: previous.exit_conditions,
-      stock_selection_criteria: previous.stock_selection_criteria,
-    },
-    periodReturnPct,
-    daysActive,
-  };
-}
-
-/** 스타일별 전략을 재생성한다: 있던 활성 전략은 retired 처리하고 새 버전을 활성화한다. */
-async function regenerateStrategy(
+/**
+ * data/paper-strategies/{style}.json(라우틴이 커밋)을 읽어 오늘자로 갱신돼 있으면
+ * 새 전략 버전을 활성화하고, 아니면(라우틴 미실행/실패) 기존 활성 전략을 그대로
+ * 반환한다. 활성 전략도 파일도 둘 다 없으면(첫 실행인데 라우틴도 아직 못 돈 경우)
+ * null을 반환해 이 스타일은 이번 실행에서 매매를 건너뛰게 한다.
+ */
+async function determineStrategyForToday(
   style: PaperStyle,
-  portfolioId: string,
   previousRow: ActiveStrategyRow | null
-): Promise<ActiveStrategyRow> {
-  const previousSummary = previousRow
-    ? await summarizePreviousStrategy(portfolioId, previousRow)
-    : null;
+): Promise<ActiveStrategyRow | null> {
+  const file = loadStrategyFile(style);
 
-  const generated = await generateStrategy(style, previousSummary);
+  if (!file) {
+    if (previousRow) {
+      console.warn(`  [${style}] 오늘자 전략 파일이 없어 기존 전략(v${previousRow.version})으로 계속 진행합니다.`);
+      return previousRow;
+    }
+    console.error(`  [${style}] 전략 파일도 없고 기존 활성 전략도 없어 이 스타일은 이번 실행에서 건너뜁니다.`);
+    return null;
+  }
+
+  const previousCreatedDate = previousRow
+    ? new Date(previousRow.created_at).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" })
+    : null;
+  const isNew = previousCreatedDate === null || file.generatedAtKstDate > previousCreatedDate;
+
+  if (!isNew) {
+    console.log(`  [${style}] 전략 파일이 이미 반영된 버전과 같아 재생성을 건너뜁니다(v${previousRow!.version} 유지).`);
+    return previousRow;
+  }
 
   if (previousRow) {
     const { error: retireError } = await supabaseAdmin
@@ -161,13 +144,13 @@ async function regenerateStrategy(
     .insert({
       style,
       version: nextVersion,
-      label: generated.conditions.label,
-      entry_conditions: generated.conditions.entry_conditions,
-      exit_conditions: generated.conditions.exit_conditions,
-      stock_selection_criteria: generated.conditions.stock_selection_criteria,
-      rationale: generated.conditions.rationale,
-      model: generated.model,
-      raw_response: generated.rawResponse,
+      label: file.conditions.label,
+      entry_conditions: file.conditions.entry_conditions,
+      exit_conditions: file.conditions.exit_conditions,
+      stock_selection_criteria: file.conditions.stock_selection_criteria,
+      rationale: file.conditions.rationale,
+      model: "claude-code-routine",
+      raw_response: null,
     })
     .select(
       "id, version, label, entry_conditions, exit_conditions, stock_selection_criteria, created_at"
@@ -175,14 +158,12 @@ async function regenerateStrategy(
     .single();
   if (insertError) throw new Error(`새 전략 저장 실패(${style}): ${insertError.message}`);
 
-  console.log(`  [${style}] 전략 v${nextVersion} "${generated.conditions.label}" 생성 완료`);
+  console.log(`  [${style}] 전략 v${nextVersion} "${file.conditions.label}" 반영 완료`);
   return inserted as ActiveStrategyRow;
 }
 
-function toConditions(row: ActiveStrategyRow): PaperStrategyConditions {
+function toConditions(row: ActiveStrategyRow): TradeConditions {
   return {
-    label: row.label,
-    rationale: "",
     entry_conditions: row.entry_conditions,
     exit_conditions: row.exit_conditions,
     stock_selection_criteria: row.stock_selection_criteria,
@@ -486,13 +467,12 @@ async function main(): Promise<void> {
 
   const portfolios = await loadPortfolios();
 
-  console.log("=== 1단계: 전략 재생성 ===");
+  console.log("=== 1단계: 전략 반영 ===");
   const strategyByStyle = new Map<PaperStyle, ActiveStrategyRow>();
   for (const style of STYLES) {
-    const portfolio = portfolios.find((p) => p.style === style)!;
     const previous = await loadActiveStrategy(style);
-    const strategy = await regenerateStrategy(style, portfolio.id, previous);
-    strategyByStyle.set(style, strategy);
+    const strategy = await determineStrategyForToday(style, previous);
+    if (strategy) strategyByStyle.set(style, strategy);
   }
 
   console.log("=== 2단계: 매매 판단 ===");
@@ -507,7 +487,9 @@ async function main(): Promise<void> {
   const now = new Date();
 
   for (const portfolio of portfolios) {
-    const strategyRow = strategyByStyle.get(portfolio.style)!;
+    const strategyRow = strategyByStyle.get(portfolio.style);
+    if (!strategyRow) continue; // determineStrategyForToday가 이미 사유를 로그로 남겼다
+
     const positions = allPositions.filter((p) => p.portfolio_id === portfolio.id);
     try {
       const { buyCount, sellCount } = await runPortfolio(

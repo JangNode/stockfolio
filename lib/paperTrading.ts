@@ -1,5 +1,12 @@
 import type { PaperStrategyConditions, PaperStyle } from "@/lib/paperStrategy";
 
+// 매매 판단에는 조건 3종만 있으면 되고 label/rationale/generated_at은 필요 없다 —
+// DB에 저장된 활성 전략 행(ActiveStrategyRow)에는 그 필드들이 없으므로 여기서 따로 뺀다.
+export type TradeConditions = Pick<
+  PaperStrategyConditions,
+  "entry_conditions" | "exit_conditions" | "stock_selection_criteria"
+>;
+
 // screening_results에서 매수 후보로 쓰는 최소 정보. 배치 스크립트가 screening_results와
 // 그 strategy_id가 가리키는 strategies.rule_type을 조인해서 채운다.
 export interface ScreeningCandidateRow {
@@ -49,7 +56,7 @@ const STYLE_LABEL: Record<PaperStyle, string> = {
  */
 export function selectBuyCandidates(
   style: PaperStyle,
-  conditions: PaperStrategyConditions,
+  conditions: TradeConditions,
   candidates: ScreeningCandidateRow[],
   heldStockCodes: ReadonlySet<string>,
   currentPositionCount: number,
@@ -119,7 +126,7 @@ export interface SellDecision {
  */
 export function evaluateExit(
   style: PaperStyle,
-  conditions: PaperStrategyConditions,
+  conditions: TradeConditions,
   position: HeldPositionRow,
   underlying: UnderlyingScreeningStatus | null,
   now: Date

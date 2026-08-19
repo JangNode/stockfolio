@@ -1,0 +1,32 @@
+name: Validate Paper Strategy Files
+
+# "AI 모의투자 전략 재생성" Routine이 매일 여는 PR에 실제로 눈에 보이는 체크를
+# 달아주기 위한 워크플로. Routine 자신도 커밋 전에 같은 검증 스크립트를 돌리지만,
+# PR 화면에서 사람이 머지 전에 한 번 더 확인할 수 있는 신호가 필요해서 별도로 둔다.
+on:
+  pull_request:
+    paths:
+      - "data/paper-strategies/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate aggressive.json
+        run: npx tsx --conditions=react-server scripts/validate-paper-strategy.ts data/paper-strategies/aggressive.json
+
+      - name: Validate conservative.json
+        run: npx tsx --conditions=react-server scripts/validate-paper-strategy.ts data/paper-strategies/conservative.json

@@ -20,12 +20,20 @@ const GROUP_CODE_PATTERN = /^(.*?)(ST|MF|RT|SR|EF|SW|EN|FS)\d/;
 // 값에서 실제 종목(삼성전자 19750611, SK하이닉스 19961226, 에스엠 20000427,
 // 펄어비스 20170914 등)으로 검증해 1바이트 보정했다 — 스펙 그대로 계산한 값은 항상
 // 마지막 한 글자가 잘리고 앞에 0이 붙어 나왔다(예: 19750611 대신 01975061).
+// statusFlagsOffset부터 1바이트씩 순서대로 거래정지/정리매매/관리종목 여부('Y'/'N')가
+// 온다. KIS 공식 스펙(github.com/koreainvestment/open-trading-api의
+// kis_kospi_code_mst.py, kis_kosdaq_code_mst.py)의 필드 순서를 기준으로 위치를 계산했는데,
+// 상장일자 필드와 마찬가지로 스펙 그대로 계산한 값이 실제로는 밀려 있어 실제 파일(2026-08-20
+// 다운로드본, KOSPI 2563종목·KOSDAQ 1822종목)로 후보 구간의 문자 분포를 찍어 검증했다 —
+// 관리종목 비율(KOSPI 1.5%, KOSDAQ 6.8%로 KOSDAQ이 훨씬 높음)과 정리매매 비율(둘 다 0%에
+// 가까움)이 실제 시장 특성과 맞아떨어지는 지점을 찾아 확정했다
+// (scripts/verify-kr-status-flags.ts로 검증, 확인 후 삭제).
 const MARKET_LAYOUT: Record<
   Market,
-  { tailLength: number; listedDateOffset: number; listedDateWidth: number }
+  { tailLength: number; listedDateOffset: number; listedDateWidth: number; statusFlagsOffset: number }
 > = {
-  KOSPI: { tailLength: 228, listedDateOffset: 106, listedDateWidth: 8 },
-  KOSDAQ: { tailLength: 222, listedDateOffset: 101, listedDateWidth: 8 },
+  KOSPI: { tailLength: 228, listedDateOffset: 106, listedDateWidth: 8, statusFlagsOffset: 61 },
+  KOSDAQ: { tailLength: 222, listedDateOffset: 101, listedDateWidth: 8, statusFlagsOffset: 56 },
 };
 
 export interface StockEntry {
@@ -36,6 +44,10 @@ export interface StockEntry {
   // 상장일자(YYYYMMDD). 필드를 못 찾거나 형식이 이상하면 null — 이 경우 신규상장 여부를
   // 판단할 수 없으므로 호출부에서 걸러내지 않고 통과시켜야 한다.
   listedDate: string | null;
+  // 상장폐지 위험 관련 상태 플래그. 스크리닝 배치의 잡주 필터링에 쓴다.
+  isTradingHalted: boolean; // 거래정지
+  isLiquidationTrading: boolean; // 정리매매(상장폐지 확정, 정리매매 기간)
+  isAdministrativeIssue: boolean; // 관리종목 지정
 }
 
 interface MasterCache {
@@ -61,6 +73,28 @@ function parseListedDate(line: string, market: Market): string | null {
   return /^\d{8}$/.test(raw) ? raw : null;
 }
 
+interface StatusFlags {
+  isTradingHalted: boolean;
+  isLiquidationTrading: boolean;
+  isAdministrativeIssue: boolean;
+}
+
+/** 거래정지/정리매매/관리종목 여부를 파싱한다. 필드를 못 찾으면(줄이 너무 짧음) 셋 다 false —
+ * 상장폐지 위험 여부를 알 수 없는 경우 걸러내지 않고 통과시킨다(listedDate와 같은 원칙). */
+function parseStatusFlags(line: string, market: Market): StatusFlags {
+  const { tailLength, statusFlagsOffset } = MARKET_LAYOUT[market];
+  if (line.length < tailLength) {
+    return { isTradingHalted: false, isLiquidationTrading: false, isAdministrativeIssue: false };
+  }
+
+  const tail = line.slice(-tailLength);
+  return {
+    isTradingHalted: tail[statusFlagsOffset] === "Y",
+    isLiquidationTrading: tail[statusFlagsOffset + 1] === "Y",
+    isAdministrativeIssue: tail[statusFlagsOffset + 2] === "Y",
+  };
+}
+
 function parseMasterFile(buffer: Buffer, market: Market): StockEntry[] {
   const text = iconv.decode(buffer, "euc-kr");
   const entries: StockEntry[] = [];
@@ -81,6 +115,7 @@ function parseMasterFile(buffer: Buffer, market: Market): StockEntry[] {
       name,
       productType: match[2],
       listedDate: parseListedDate(line, market),
+      ...parseStatusFlags(line, market),
     });
   }
 

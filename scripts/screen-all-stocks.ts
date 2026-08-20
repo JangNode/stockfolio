@@ -164,18 +164,19 @@ interface MasterFilterCounts {
   spac: number;
   reitEtfEtn: number;
   newlyListed: number;
+  delistingRisk: number;
 }
 
 /**
- * 종목마스터 정보만으로 판단 가능한 조건(스팩/리츠·ETF·ETN/신규상장)을 개별 시세 API
- * 호출 전에 걸러낸다. 상장일을 파싱하지 못한 종목은 신규상장 여부를 알 수 없으므로
- * 걸러내지 않고 통과시킨다 — 데이터가 없다고 잘못 제외하는 것보다 안전하다.
+ * 종목마스터 정보만으로 판단 가능한 조건(스팩/리츠·ETF·ETN/신규상장/상장폐지 위험)을
+ * 개별 시세 API 호출 전에 걸러낸다. 상장일을 파싱하지 못한 종목은 신규상장 여부를 알
+ * 수 없으므로 걸러내지 않고 통과시킨다 — 데이터가 없다고 잘못 제외하는 것보다 안전하다.
  */
 function filterByMaster(
   stocks: StockEntry[]
 ): { survivors: StockEntry[]; counts: MasterFilterCounts } {
   const now = new Date();
-  const counts: MasterFilterCounts = { spac: 0, reitEtfEtn: 0, newlyListed: 0 };
+  const counts: MasterFilterCounts = { spac: 0, reitEtfEtn: 0, newlyListed: 0, delistingRisk: 0 };
   const survivors: StockEntry[] = [];
 
   for (const stock of stocks) {
@@ -185,6 +186,10 @@ function filterByMaster(
     }
     if (EXCLUDED_PRODUCT_TYPES.has(stock.productType)) {
       counts.reitEtfEtn++;
+      continue;
+    }
+    if (stock.isTradingHalted || stock.isLiquidationTrading || stock.isAdministrativeIssue) {
+      counts.delistingRisk++;
       continue;
     }
 
@@ -510,6 +515,7 @@ async function scanAllStocks(
   console.log(
     `  마스터 필터: ${allStocks.length}개 → ${masterSurvivors.length}개 ` +
       `(스팩 ${masterCounts.spac}개, 리츠/ETF/ETN ${masterCounts.reitEtfEtn}개, ` +
+      `상장폐지 위험(거래정지/정리매매/관리종목) ${masterCounts.delistingRisk}개, ` +
       `신규상장 ${masterCounts.newlyListed}개 제외)`
   );
 

@@ -42,8 +42,11 @@ jobs:
       # 전략 JSON(data/paper-strategies/*.json)은 이 스텝이 만드는 게 아니라, 이보다
       # 앞선 시각(KST 14:10)에 도는 별도 Routine(Claude Code 세션)이 미리 커밋해둔다 —
       # Anthropic API 키 없이 이미 쓰는 Claude Code 접근을 재사용하기 위해서다.
-      - name: Run AI paper trading batch
+      # 국내 가상 계좌만 처리한다 — 미국 가상 계좌는 screening-us.yml이 미국 스크리닝
+      # 직후 별도로 처리한다(scripts/paper-trade.ts의 PAPER_TRADE_MARKET 참고).
+      - name: Run AI paper trading batch (KR)
         run: npm run paper:trade
         env:
+          PAPER_TRADE_MARKET: KR
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

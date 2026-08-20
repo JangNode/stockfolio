@@ -1,30 +1,38 @@
 /**
- * "AI 모의투자" 배치 스크립트. screening.yml에서 screen:all-stocks 다음 스텝으로
- * 실행된다(추가 KIS 시세 호출 없음 — screening_results.current_price를 그대로 재사용).
+ * "AI 모의투자" 배치 스크립트. 국내는 screening.yml에서 screen:all-stocks 다음
+ * 스텝으로, 미국은 screening-us.yml에서 screen:us-stocks 다음 스텝으로 실행된다
+ * (추가 KIS 시세 호출 없음 — screening_results.current_price를 그대로 재사용). 두
+ * 스케줄의 실행 시각이 서로 달라(국내 KST 14:30, 미국 KST 04:00/05:00) 한 번 실행에
+ * 한 시장만 처리한다 — PAPER_TRADE_MARKET 환경변수(KR|US, 필수)로 대상을 지정한다.
  *
  * 전략(JSON 조건)은 이 스크립트가 직접 생성하지 않는다. Anthropic API 과금 없이
- * 이미 쓰고 있는 Claude Code 접근을 재사용하기 위해, 별도 Routine(매일 KST 14:10,
- * 이 배치보다 앞선 시각)이 Claude Code 세션으로 data/paper-strategies/{style}.json을
- * lib/paperStrategy.ts의 PaperStrategyConditionsSchema에 맞춰 저장소에 직접 커밋해두고,
- * 이 스크립트는 그 파일을 읽기만 한다. 라우틴이 커밋 전 스스로 검증하는 데는
- * scripts/validate-paper-strategy.ts를 쓴다.
+ * 이미 쓰고 있는 Claude Code 접근을 재사용하기 위해, 별도 Routine(매일 KST 14:10)이
+ * Claude Code 세션으로 data/paper-strategies/{style}.json을 lib/paperStrategy.ts의
+ * PaperStrategyConditionsSchema에 맞춰 저장소에 직접 커밋해두고, 이 스크립트는 그
+ * 파일을 읽기만 한다. 전략은 시장 무관하게 스타일별로 공유되므로(퍼센트/개수 기반
+ * 조건이라 통화 단위가 없음) 어느 시장으로 실행되든 동일하게 반영을 시도한다 — 미국
+ * 배치가 국내보다 먼저(라우틴이 도는 KST 14:10보다도 이전에) 도는 날엔 그날 아직
+ * 갱신되지 않은 어제자 전략을 그대로 쓰고, 국내 배치가 그날 늦게 실행되며 새 버전을
+ * 반영한다. 라우틴이 커밋 전 스스로 검증하는 데는 scripts/validate-paper-strategy.ts를
+ * 쓴다.
  *
  * 매일 하는 일:
  * 1) data/paper-strategies/{style}.json이 오늘자로 갱신돼 있으면 새 전략 버전으로
  *    반영하고(기존 활성 버전은 retire), 없으면(라우틴 미실행/실패) 기존 활성 전략을
  *    그대로 유지한다 — 이 배치가 전략 없이 멈추는 일은 없다.
- * 2) 두 가상 계좌의 보유 포지션을 전략의 청산조건으로 평가해 매도
+ * 2) 대상 시장 가상 계좌들의 보유 포지션을 전략의 청산조건으로 평가해 매도
  *    (원 스크리닝 신호가 이미 손절/익절로 종료됐으면 그 가격 그대로 함께 청산)
  * 3) 남은 현금/슬롯 한도 안에서 전략의 진입조건에 맞는 스크리닝 결과를 매수
  * 4) 계좌별 일별 평가금액 스냅샷 기록
  *
- * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
- *   tsx --conditions=react-server scripts/paper-trade.ts
+ * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PAPER_TRADE_MARKET(KR|US)
+ *   PAPER_TRADE_MARKET=KR tsx --conditions=react-server scripts/paper-trade.ts
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadStrategyFile, type PaperStrategyConditions, type PaperStyle } from "@/lib/paperStrategy";
 import type { Market } from "@/lib/market";
+import { determineUsBatchSchedule } from "@/lib/usMarketCalendar";
 import {
   computeEquity,
   evaluateExit,
@@ -36,6 +44,14 @@ import {
 
 const STYLES: PaperStyle[] = ["aggressive", "conservative"];
 const MARKETS: Market[] = ["KR", "US"];
+
+function parseTargetMarket(): Market {
+  const raw = process.env.PAPER_TRADE_MARKET;
+  if (raw === "KR" || raw === "US") return raw;
+  throw new Error(
+    `PAPER_TRADE_MARKET 환경변수가 KR 또는 US여야 하는데 "${raw ?? ""}"입니다. 워크플로 env 설정을 확인하세요.`
+  );
+}
 
 function todayKstDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
@@ -63,11 +79,13 @@ async function loadPortfolios(): Promise<PortfolioRow[]> {
   return data as PortfolioRow[];
 }
 
-/** 오늘 배치가 이미 실행됐는지 확인한다(같은 날 수동 재실행 시 이중 매매를 막는 안전장치). */
-async function alreadyRanToday(): Promise<boolean> {
+/** 오늘 이 시장의 배치가 이미 실행됐는지 확인한다(같은 날 수동 재실행 시 이중 매매를
+ * 막는 안전장치). 국내/미국이 서로 다른 시각에 따로 실행되므로 시장별로 판단한다. */
+async function alreadyRanToday(market: Market): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("paper_runs")
     .select("finished_at")
+    .eq("market", market)
     .order("finished_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -174,13 +192,15 @@ function toConditions(row: ActiveStrategyRow): TradeConditions {
   };
 }
 
-async function loadCandidates(): Promise<ScreeningCandidateRow[]> {
-  // 국내/미국 스크리닝 결과를 함께 조회하고, 각 후보에 market을 태그해 이후
-  // runPortfolio에서 포트폴리오의 market과 일치하는 후보만 골라 쓰게 한다.
+async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> {
+  // 이번 실행의 대상 시장 스크리닝 결과만 조회한다. 각 후보에 market을 그대로
+  // 태그해두는 건 이후 코드가 ScreeningCandidateRow 형태를 그대로 신뢰할 수 있게
+  // 하기 위해서다(모든 후보가 이미 같은 시장이라 필터링이 실질적으로 더 필요하진 않다).
   const { data: results, error } = await supabaseAdmin
     .from("screening_results")
     .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange")
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("market", market);
   if (error) throw new Error(`스크리닝 결과 조회 실패: ${error.message}`);
   if (!results || results.length === 0) return [];
 
@@ -220,12 +240,13 @@ interface PositionDbRow {
   exchange: string | null;
 }
 
-async function loadPositions(): Promise<PositionDbRow[]> {
+async function loadPositions(market: Market): Promise<PositionDbRow[]> {
   const { data, error } = await supabaseAdmin
     .from("paper_positions")
     .select(
       "id, portfolio_id, stock_code, stock_name, quantity, avg_price, opened_at, screening_result_id, market, exchange"
-    );
+    )
+    .eq("market", market);
   if (error) throw new Error(`보유 포지션 조회 실패: ${error.message}`);
   return (data ?? []) as PositionDbRow[];
 }
@@ -348,13 +369,13 @@ async function runPortfolio(
     console.log(`    [${style}] ✕ 매도 ${position.stock_name}(${position.stock_code}) ${position.quantity}주 @${decision.price}`);
   }
 
-  // 2) 매수 판단
+  // 2) 매수 판단 (candidates는 이미 loadCandidates 단계에서 이번 실행의 대상 시장으로
+  // 한정돼 있다)
   const heldStockCodes = new Set(remainingPositions.map((p) => p.stock_code));
-  const marketCandidates = candidates.filter((c) => c.market === portfolio.market);
   const buyDecisions = selectBuyCandidates(
     style,
     conditions,
-    marketCandidates,
+    candidates,
     heldStockCodes,
     remainingPositions.length,
     cash
@@ -465,8 +486,15 @@ async function recordSnapshot(
   if (error) throw new Error(`일별 스냅샷 저장 실패: ${error.message}`);
 }
 
-async function recordRun(startedAt: Date, buyCount: number, sellCount: number, errorCount: number): Promise<void> {
+async function recordRun(
+  market: Market,
+  startedAt: Date,
+  buyCount: number,
+  sellCount: number,
+  errorCount: number
+): Promise<void> {
   const { error } = await supabaseAdmin.from("paper_runs").insert({
+    market,
     started_at: startedAt.toISOString(),
     finished_at: new Date().toISOString(),
     buy_count: buyCount,
@@ -478,14 +506,27 @@ async function recordRun(startedAt: Date, buyCount: number, sellCount: number, e
 
 async function main(): Promise<void> {
   const startedAt = new Date();
-  console.log(`AI 모의투자 배치 시작: ${startedAt.toISOString()}`);
+  const market = parseTargetMarket();
+  console.log(`AI 모의투자 배치 시작(대상 시장: ${market}): ${startedAt.toISOString()}`);
 
-  if (await alreadyRanToday()) {
-    console.log("오늘 이미 실행된 기록이 있어 건너뜁니다(중복 매매 방지).");
+  // 미국 배치는 국내와 마찬가지로 서머타임/표준시 두 크론이 매일 다 걸린다
+  // (screening-us.yml과 같은 이유·같은 판별 함수). 스케줄 트리거일 때만 적용하고
+  // workflow_dispatch 수동 실행은 가드 없이 항상 진행한다.
+  if (market === "US" && process.env.GITHUB_EVENT_NAME === "schedule") {
+    const schedule = determineUsBatchSchedule(startedAt);
+    console.log(schedule.reason);
+    if (!schedule.shouldRun) {
+      return;
+    }
+  }
+
+  if (await alreadyRanToday(market)) {
+    console.log(`오늘 ${market} 배치가 이미 실행된 기록이 있어 건너뜁니다(중복 매매 방지).`);
     return;
   }
 
-  const portfolios = await loadPortfolios();
+  const allPortfolios = await loadPortfolios();
+  const portfolios = allPortfolios.filter((p) => p.market === market);
 
   console.log("=== 1단계: 전략 반영 ===");
   const strategyByStyle = new Map<PaperStyle, ActiveStrategyRow>();
@@ -496,9 +537,9 @@ async function main(): Promise<void> {
   }
 
   console.log("=== 2단계: 매매 판단 ===");
-  const candidates = await loadCandidates();
+  const candidates = await loadCandidates(market);
   console.log(`  매수 후보(활성 스크리닝 결과): ${candidates.length}건`);
-  const allPositions = await loadPositions();
+  const allPositions = await loadPositions(market);
   const underlyingByScreeningId = await loadUnderlyingStatuses(allPositions, candidates);
 
   let totalBuy = 0;
@@ -529,11 +570,11 @@ async function main(): Promise<void> {
     }
   }
 
-  await recordRun(startedAt, totalBuy, totalSell, errorCount);
+  await recordRun(market, startedAt, totalBuy, totalSell, errorCount);
 
   const elapsedSec = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
   console.log(
-    `AI 모의투자 배치 종료: ${elapsedSec}초 소요 (매수 ${totalBuy}건, 매도 ${totalSell}건, 오류 ${errorCount}건)`
+    `AI 모의투자 배치 종료(${market}): ${elapsedSec}초 소요 (매수 ${totalBuy}건, 매도 ${totalSell}건, 오류 ${errorCount}건)`
   );
 }
 

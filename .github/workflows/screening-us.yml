@@ -19,7 +19,8 @@ on:
 jobs:
   screen:
     runs-on: ubuntu-latest
-    # 나스닥+뉴욕+아멕스 전종목 스캔이라 국내보다 유니버스가 훨씬 크다. 넉넉한 상한을 둔다.
+    # 당분간 나스닥만 스캔한다(lib/stockMasterOverseas.ts의 ACTIVE_EXCHANGES 참고).
+    # 그래도 KIS 호출 속도 제한이 국내와 공유되는 점을 감안해 넉넉한 상한을 둔다.
     timeout-minutes: 90
     steps:
       - name: Checkout repository

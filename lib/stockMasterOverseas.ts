@@ -49,6 +49,7 @@ export interface OverseasStockEntry {
 
 interface MasterCache {
   entries: OverseasStockEntry[];
+  codeToEntry: Map<string, OverseasStockEntry>;
   loadedAt: number;
 }
 
@@ -110,7 +111,14 @@ async function loadMaster(): Promise<MasterCache> {
     downloadAndParse("AMS"),
   ]);
 
-  return { entries: [...nas, ...nys, ...ams], loadedAt: Date.now() };
+  const entries = [...nas, ...nys, ...ams];
+  const codeToEntry = new Map<string, OverseasStockEntry>();
+  for (const entry of entries) {
+    // 같은 심볼이 여러 거래소에 걸쳐 있으면 먼저 등록된 항목(나스닥 우선)을 유지한다.
+    if (!codeToEntry.has(entry.code)) codeToEntry.set(entry.code, entry);
+  }
+
+  return { entries, codeToEntry, loadedAt: Date.now() };
 }
 
 async function getCache(): Promise<MasterCache> {
@@ -136,4 +144,36 @@ async function getCache(): Promise<MasterCache> {
 export async function getAllOverseasStocks(): Promise<OverseasStockEntry[]> {
   const { entries } = await getCache();
   return entries;
+}
+
+/**
+ * 티커(예: "AAPL")로 종목을 조회한다. 대소문자를 구분하지 않는다. 시세/차트 API가
+ * 거래소 코드(NAS/NYS/AMS)를 알아내는 데 쓴다 — KIS 해외 API는 심볼만으로는 조회할
+ * 수 없고 거래소 코드가 항상 필요하다.
+ */
+export async function findOverseasByCode(code: string): Promise<OverseasStockEntry | null> {
+  const { codeToEntry } = await getCache();
+  return codeToEntry.get(code.trim().toUpperCase()) ?? null;
+}
+
+/** 영문 종목명 완전일치로 조회한다(대소문자 무시). */
+export async function findOverseasByExactName(name: string): Promise<OverseasStockEntry | null> {
+  const { entries } = await getCache();
+  const lower = name.trim().toLowerCase();
+  if (!lower) return null;
+  return entries.find((e) => e.name.toLowerCase() === lower) ?? null;
+}
+
+/** 티커/영문명 부분일치로 검색한다(대소문자 무시). */
+export async function searchOverseasStocks(
+  query: string,
+  limit = 10
+): Promise<OverseasStockEntry[]> {
+  const { entries } = await getCache();
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  return entries
+    .filter((e) => e.code.toLowerCase().includes(q) || e.name.toLowerCase().includes(q))
+    .slice(0, limit);
 }

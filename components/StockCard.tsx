@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { formatNumber, formatPrice, type Market } from "@/lib/market";
 
 interface StockPrice {
   stockCode: string;
@@ -24,16 +25,17 @@ const fetcher = (url: string) => authJsonFetcher<StockPrice>(url);
 interface StockCardProps {
   code: string;
   name?: string;
+  market: Market;
   onRemove?: () => void;
 }
 
-export default function StockCard({ code, name: nameProp, onRemove }: StockCardProps) {
+export default function StockCard({ code, name: nameProp, market, onRemove }: StockCardProps) {
   const router = useRouter();
   const {
     data: price,
     error,
     isLoading,
-  } = useSWR(`/api/stock/${code}`, fetcher);
+  } = useSWR(`/api/stock/${code}?market=${market}`, fetcher);
 
   const name = nameProp ?? STOCK_NAMES[code] ?? code;
 
@@ -41,7 +43,7 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
     "w-full max-w-sm cursor-pointer rounded-xl border border-black/[.08] bg-white p-6 transition-colors hover:border-black/20 dark:border-white/[.145] dark:bg-zinc-950 dark:hover:border-white/30";
 
   const goToChart = () => {
-    router.push(`/stock/${code}?name=${encodeURIComponent(name)}`);
+    router.push(`/stock/${code}?name=${encodeURIComponent(name)}&market=${market}`);
   };
 
   const cardInteractionProps = {
@@ -123,12 +125,14 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
       </div>
 
       <p className={`mt-2 text-3xl font-semibold ${colorClass}`}>
-        {price.currentPrice.toLocaleString("ko-KR")}원
+        {formatPrice(price.currentPrice, market)}
+        {market === "KR" ? "원" : ""}
       </p>
 
       <p className={`mt-1 text-sm font-medium ${colorClass}`}>
         {sign}
-        {price.change.toLocaleString("ko-KR")}원 ({sign}
+        {formatPrice(price.change, market)}
+        {market === "KR" ? "원" : ""} ({sign}
         {price.changeRate.toFixed(2)}%)
       </p>
 
@@ -136,25 +140,25 @@ export default function StockCard({ code, name: nameProp, onRemove }: StockCardP
         <div>
           <dt className="text-zinc-500 dark:text-zinc-400">시가</dt>
           <dd className="text-black dark:text-zinc-50">
-            {price.openPrice.toLocaleString("ko-KR")}
+            {formatPrice(price.openPrice, market)}
           </dd>
         </div>
         <div>
           <dt className="text-zinc-500 dark:text-zinc-400">거래량</dt>
           <dd className="text-black dark:text-zinc-50">
-            {price.volume.toLocaleString("ko-KR")}
+            {formatNumber(price.volume, market)}
           </dd>
         </div>
         <div>
           <dt className="text-zinc-500 dark:text-zinc-400">고가</dt>
           <dd className="text-red-600 dark:text-red-400">
-            {price.highPrice.toLocaleString("ko-KR")}
+            {formatPrice(price.highPrice, market)}
           </dd>
         </div>
         <div>
           <dt className="text-zinc-500 dark:text-zinc-400">저가</dt>
           <dd className="text-blue-600 dark:text-blue-400">
-            {price.lowPrice.toLocaleString("ko-KR")}
+            {formatPrice(price.lowPrice, market)}
           </dd>
         </div>
       </dl>

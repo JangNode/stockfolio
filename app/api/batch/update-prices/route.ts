@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStockPrice } from "@/lib/kis";
+import { getStockPrice, getOverseasStockPrice, type OverseasExchangeCode } from "@/lib/kis";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const maxDuration = 60;
@@ -20,16 +20,34 @@ function isAuthorized(request: Request): boolean {
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-async function getWatchlistStockCodes(): Promise<string[]> {
+interface WatchlistStock {
+  stockCode: string;
+  market: "KR" | "US";
+  exchange: OverseasExchangeCode | null;
+}
+
+async function getWatchlistStocks(): Promise<WatchlistStock[]> {
   const { data, error } = await supabaseAdmin
     .from("watchlist")
-    .select("stock_code");
+    .select("stock_code, market, exchange");
 
   if (error) {
     throw new Error(`관심종목 조회 실패: ${error.message}`);
   }
 
-  return Array.from(new Set((data ?? []).map((row) => row.stock_code as string)));
+  const seen = new Set<string>();
+  const stocks: WatchlistStock[] = [];
+  for (const row of data ?? []) {
+    const key = `${row.market}:${row.stock_code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    stocks.push({
+      stockCode: row.stock_code as string,
+      market: row.market as "KR" | "US",
+      exchange: (row.exchange as OverseasExchangeCode | null) ?? null,
+    });
+  }
+  return stocks;
 }
 
 interface UpdateResult {
@@ -46,9 +64,9 @@ export async function GET(request: Request) {
     );
   }
 
-  let stockCodes: string[];
+  let stocks: WatchlistStock[];
   try {
-    stockCodes = await getWatchlistStockCodes();
+    stocks = await getWatchlistStocks();
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "알 수 없는 오류" },
@@ -58,26 +76,35 @@ export async function GET(request: Request) {
 
   const results: UpdateResult[] = [];
 
-  for (const stockCode of stockCodes) {
+  for (const stock of stocks) {
     try {
-      const price = await getStockPrice(stockCode);
+      const isUs = stock.market === "US";
+      if (isUs && !stock.exchange) {
+        throw new Error("거래소 코드가 없습니다.");
+      }
+
+      const price = isUs
+        ? await getOverseasStockPrice(stock.exchange as OverseasExchangeCode, stock.stockCode)
+        : await getStockPrice(stock.stockCode);
 
       const { error } = await supabaseAdmin.from("stock_prices").insert({
-        stock_code: price.stockCode,
+        stock_code: stock.stockCode,
         price: price.currentPrice,
         change: price.change,
         change_rate: price.changeRate,
         volume: price.volume,
+        market: stock.market,
+        exchange: stock.exchange,
       });
 
       if (error) {
         throw new Error(error.message);
       }
 
-      results.push({ stockCode, ok: true });
+      results.push({ stockCode: stock.stockCode, ok: true });
     } catch (error) {
       results.push({
-        stockCode,
+        stockCode: stock.stockCode,
         ok: false,
         error: error instanceof Error ? error.message : "알 수 없는 오류",
       });
@@ -89,9 +116,9 @@ export async function GET(request: Request) {
   const succeeded = results.filter((r) => r.ok).length;
 
   return NextResponse.json({
-    total: stockCodes.length,
+    total: stocks.length,
     succeeded,
-    failed: stockCodes.length - succeeded,
+    failed: stocks.length - succeeded,
     results,
   });
 }

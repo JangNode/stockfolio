@@ -1,16 +1,18 @@
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
 import RequireApproved from "@/components/RequireApproved";
+import type { Market } from "@/lib/market";
 
 export default async function StockPage({
   params,
   searchParams,
 }: {
   params: Promise<{ code: string }>;
-  searchParams: Promise<{ name?: string }>;
+  searchParams: Promise<{ name?: string; market?: string }>;
 }) {
   const { code } = await params;
-  const { name } = await searchParams;
+  const { name, market: marketParam } = await searchParams;
+  const market: Market = marketParam === "US" ? "US" : "KR";
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
@@ -32,7 +34,7 @@ export default async function StockPage({
       <main className="flex flex-1 justify-center p-4 sm:p-6">
         <div className="flex w-full max-w-4xl justify-center">
           <RequireApproved>
-            <StockChart code={code} />
+            <StockChart code={code} market={market} />
           </RequireApproved>
         </div>
       </main>

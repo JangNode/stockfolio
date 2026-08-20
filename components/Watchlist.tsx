@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import StockCard from "@/components/StockCard";
 import { authFetch } from "@/lib/authFetch";
+import { useMarket } from "@/components/MarketContext";
 
 interface WatchlistItem {
   id: string;
@@ -17,17 +18,31 @@ interface WatchlistItem {
 interface StockSuggestion {
   code: string;
   name: string;
+  exchange?: string;
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
 
 export default function Watchlist({ user }: { user: User }) {
+  const { market } = useMarket();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
   const [selected, setSelected] = useState<StockSuggestion | null>(null);
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 시장을 전환하면 입력 중이던 검색어/후보를 비운다 — 국내 검색 결과가 미국 탭에
+  // 남아있는 등 시장이 섞여 보이는 걸 막는다. 렌더 도중 이전 값과 비교해 조정한다
+  // (리액트가 권장하는 "prop이 바뀌면 상태 리셋" 패턴).
+  const [prevMarket, setPrevMarket] = useState(market);
+  if (market !== prevMarket) {
+    setPrevMarket(market);
+    setQuery("");
+    setSuggestions([]);
+    setSelected(null);
+    setFormError("");
+  }
 
   useEffect(() => {
     return () => {
@@ -50,7 +65,7 @@ export default function Watchlist({ user }: { user: User }) {
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await authFetch(
-          `/api/stock/search?q=${encodeURIComponent(trimmed)}`
+          `/api/stock/search?q=${encodeURIComponent(trimmed)}&market=${market}`
         );
         const data = await res.json();
         setSuggestions(res.ok && Array.isArray(data) ? data : []);
@@ -71,16 +86,20 @@ export default function Watchlist({ user }: { user: User }) {
     error,
     isLoading,
     mutate,
-  } = useSWR(["watchlist", user.id], async ([, userId]: [string, string]) => {
-    const { data, error } = await supabase
-      .from("watchlist")
-      .select("id, stock_code, stock_name, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: true });
+  } = useSWR(
+    ["watchlist", user.id, market],
+    async ([, userId, mkt]: [string, string, string]) => {
+      const { data, error } = await supabase
+        .from("watchlist")
+        .select("id, stock_code, stock_name, created_at")
+        .eq("user_id", userId)
+        .eq("market", mkt)
+        .order("created_at", { ascending: true });
 
-    if (error) throw error;
-    return data as WatchlistItem[];
-  });
+      if (error) throw error;
+      return data as WatchlistItem[];
+    }
+  );
 
   const handleAdd = async () => {
     setFormError("");
@@ -99,7 +118,7 @@ export default function Watchlist({ user }: { user: User }) {
       stock = selected;
     } else {
       const resolveRes = await authFetch(
-        `/api/stock/resolve?q=${encodeURIComponent(trimmed)}`
+        `/api/stock/resolve?q=${encodeURIComponent(trimmed)}&market=${market}`
       );
       const resolved = await resolveRes.json();
 
@@ -115,6 +134,8 @@ export default function Watchlist({ user }: { user: User }) {
       user_id: user.id,
       stock_code: stock.code,
       stock_name: stock.name,
+      market,
+      exchange: stock.exchange ?? null,
     });
     setSubmitting(false);
 
@@ -155,7 +176,7 @@ export default function Watchlist({ user }: { user: User }) {
             onBlur={() => {
               window.setTimeout(() => setSuggestions([]), 150);
             }}
-            placeholder="005930 또는 삼성전자"
+            placeholder={market === "KR" ? "005930 또는 삼성전자" : "AAPL 또는 Apple"}
             autoComplete="off"
             className="h-10 w-full min-w-[12rem] rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30"
           />
@@ -211,6 +232,7 @@ export default function Watchlist({ user }: { user: User }) {
               key={item.id}
               code={item.stock_code}
               name={item.stock_name}
+              market={market}
               onRemove={() => handleRemove(item.id)}
             />
           ))}

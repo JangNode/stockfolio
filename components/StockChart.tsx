@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { computeSMA } from "@/lib/sma";
+import { formatNumber, formatPrice, type Market } from "@/lib/market";
 import {
   createChart,
   CandlestickSeries,
@@ -139,6 +140,10 @@ function computeMovingAverage(bars: Bar[], length: number): LineData[] {
 
 const fetcher = (url: string) => authJsonFetcher<RawBar[]>(url);
 
+// 해외 기간별시세는 일/주/월봉만 지원한다(분봉·년봉 대응 API가 없음) —
+// lib/kis.ts의 getOverseasDailyPrices 주석 참고.
+const OVERSEAS_PERIODS: Period[] = ["D", "W", "M"];
+
 interface Tooltip {
   label: string;
   open: number;
@@ -149,9 +154,21 @@ interface Tooltip {
   ma: Partial<Record<(typeof MA_PERIODS)[number], number>>;
 }
 
-export default function StockChart({ code }: { code: string }) {
+export default function StockChart({ code, market }: { code: string; market: Market }) {
+  const availablePeriods = useMemo<Period[]>(
+    () => (market === "US" ? OVERSEAS_PERIODS : (Object.keys(PERIOD_LABELS) as Period[])),
+    [market]
+  );
+
   const [period, setPeriod] = useState<Period>("D");
   const periodRef = useRef(period);
+
+  // 시장을 전환했는데 지금 고른 봉 종류가 그 시장에서 지원되지 않으면(예: 미국으로
+  // 바꿨는데 분봉을 보고 있던 경우) 일봉으로 되돌린다. "D"는 두 시장 모두에서 항상
+  // 지원되므로 이 조정은 한 번이면 수렴한다(렌더 도중 조정하는 리액트 권장 패턴).
+  if (!availablePeriods.includes(period)) {
+    setPeriod("D");
+  }
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -167,7 +184,7 @@ export default function StockChart({ code }: { code: string }) {
   }, [period]);
 
   const isIntraday = period === "min";
-  const fetchKey = `/api/stock/${code}/history?period=${period}`;
+  const fetchKey = `/api/stock/${code}/history?period=${period}&market=${market}`;
 
   const { data: rawBars, error, isLoading } = useSWR(fetchKey, fetcher);
 
@@ -189,7 +206,7 @@ export default function StockChart({ code }: { code: string }) {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { borderColor: theme.grid },
       rightPriceScale: { borderColor: theme.grid },
-      localization: { locale: "ko-KR" },
+      localization: { locale: market === "KR" ? "ko-KR" : "en-US" },
       autoSize: true,
     });
 
@@ -258,7 +275,8 @@ export default function StockChart({ code }: { code: string }) {
       candleSeriesRef.current = null;
       maSeriesRefs.current = {};
     };
-  }, []);
+    // market이 바뀌면(드물지만) 축 로캘(ko-KR/en-US)이 반영되도록 차트를 다시 만든다.
+  }, [market]);
 
   // 테마(라이트/다크) 변경을 실시간으로 반영한다.
   useEffect(() => {
@@ -353,7 +371,7 @@ export default function StockChart({ code }: { code: string }) {
     <div className="w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1">
-          {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+          {availablePeriods.map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
@@ -403,25 +421,25 @@ export default function StockChart({ code }: { code: string }) {
             </p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400">
               <span>
-                시가 <span className="text-black dark:text-zinc-50">{tooltip.open.toLocaleString("ko-KR")}</span>
+                시가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.open, market)}</span>
               </span>
               <span>
-                고가 <span className="text-black dark:text-zinc-50">{tooltip.high.toLocaleString("ko-KR")}</span>
+                고가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.high, market)}</span>
               </span>
               <span>
-                저가 <span className="text-black dark:text-zinc-50">{tooltip.low.toLocaleString("ko-KR")}</span>
+                저가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.low, market)}</span>
               </span>
               <span>
-                종가 <span className="text-black dark:text-zinc-50">{tooltip.close.toLocaleString("ko-KR")}</span>
+                종가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.close, market)}</span>
               </span>
               <span className="col-span-2">
-                거래량 <span className="text-black dark:text-zinc-50">{tooltip.volume.toLocaleString("ko-KR")}</span>
+                거래량 <span className="text-black dark:text-zinc-50">{formatNumber(tooltip.volume, market)}</span>
               </span>
               {MA_PERIODS.map(
                 (ma) =>
                   tooltip.ma[ma] !== undefined && (
                     <span key={ma} style={{ color: THEME.light.ma[ma] }}>
-                      {ma} {tooltip.ma[ma]!.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
+                      {ma} {formatPrice(tooltip.ma[ma]!, market)}
                     </span>
                   )
               )}

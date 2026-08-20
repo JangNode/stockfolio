@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { describeStrategy, useStrategies, MARKET_LABELS, type Market } from "@/components/StrategyManager";
+import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { ScoreValue } from "@/components/ScoreValue";
+import { useMarket } from "@/components/MarketContext";
+import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 
 interface ScreeningResultRow {
   id: string;
@@ -20,15 +22,6 @@ interface ScreeningResultRow {
   status: "active" | "stopped" | "profited";
   matched_at: string;
   closed_at: string | null;
-}
-
-const MARKET_TABS: Market[] = ["KR", "US"];
-
-/** 원화는 정수 단위, 달러는 소수점 둘째 자리까지 표시한다. */
-function formatPrice(value: number, market: Market): string {
-  return market === "KR"
-    ? value.toLocaleString("ko-KR")
-    : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 type StatusTab = "active" | "closed";
@@ -70,8 +63,8 @@ function closedDateLabel(iso: string): string {
 }
 
 export default function Screening({ user }: { user: User }) {
+  const { market } = useMarket();
   const { data: strategies, isLoading: strategiesLoading } = useStrategies(user);
-  const [market, setMarket] = useState<Market>("KR");
   const [strategyId, setStrategyId] = useState("");
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
   const [closedDate, setClosedDate] = useState("");
@@ -80,6 +73,15 @@ export default function Screening({ user }: { user: User }) {
     () => strategies?.filter((s) => s.market === market) ?? [],
     [strategies, market]
   );
+
+  // 전역 시장 전환 시 이전 시장의 전략 선택/종료일 필터가 남아있지 않도록 비운다.
+  // 렌더 도중 이전 값과 비교해 조정한다(리액트가 권장하는 "prop이 바뀌면 상태 리셋" 패턴).
+  const [prevMarket, setPrevMarket] = useState(market);
+  if (market !== prevMarket) {
+    setPrevMarket(market);
+    setStrategyId("");
+    setClosedDate("");
+  }
 
   const { data: lastRun } = useSWR("screening-last-run", async () => {
     const { data, error } = await supabase
@@ -144,29 +146,6 @@ export default function Screening({ user }: { user: User }) {
   return (
     <div className="w-full max-w-4xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">시장</label>
-          <div className="flex gap-1">
-            {MARKET_TABS.map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  setMarket(m);
-                  setStrategyId("");
-                  setClosedDate("");
-                }}
-                className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
-                  market === m
-                    ? "bg-foreground text-background"
-                    : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
-                }`}
-              >
-                {MARKET_LABELS[m]}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
           <select

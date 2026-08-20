@@ -24,6 +24,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadStrategyFile, type PaperStrategyConditions, type PaperStyle } from "@/lib/paperStrategy";
+import type { Market } from "@/lib/market";
 import {
   computeEquity,
   evaluateExit,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/paperTrading";
 
 const STYLES: PaperStyle[] = ["aggressive", "conservative"];
+const MARKETS: Market[] = ["KR", "US"];
 
 function todayKstDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
@@ -42,6 +44,7 @@ function todayKstDate(): string {
 interface PortfolioRow {
   id: string;
   style: PaperStyle;
+  market: Market;
   initial_capital: number;
   cash: number;
 }
@@ -49,11 +52,12 @@ interface PortfolioRow {
 async function loadPortfolios(): Promise<PortfolioRow[]> {
   const { data, error } = await supabaseAdmin
     .from("paper_portfolios")
-    .select("id, style, initial_capital, cash");
+    .select("id, style, market, initial_capital, cash");
   if (error) throw new Error(`가상 계좌 조회 실패: ${error.message}`);
-  if (!data || data.length !== STYLES.length) {
+  const expected = STYLES.length * MARKETS.length;
+  if (!data || data.length !== expected) {
     throw new Error(
-      `가상 계좌가 ${STYLES.length}개(스타일별 1개)여야 하는데 ${data?.length ?? 0}개입니다. 마이그레이션 시드를 확인하세요.`
+      `가상 계좌가 ${expected}개(스타일 x 시장별 1개)여야 하는데 ${data?.length ?? 0}개입니다. 마이그레이션 시드를 확인하세요.`
     );
   }
   return data as PortfolioRow[];
@@ -171,13 +175,12 @@ function toConditions(row: ActiveStrategyRow): TradeConditions {
 }
 
 async function loadCandidates(): Promise<ScreeningCandidateRow[]> {
-  // AI 모의투자는 아직 국내주식 전용이다 — screening_results에 미국주식 행이 섞여도
-  // (scripts/screen-us-stocks.ts) 매매 후보에 들어오지 않도록 명시적으로 국내만 조회한다.
+  // 국내/미국 스크리닝 결과를 함께 조회하고, 각 후보에 market을 태그해 이후
+  // runPortfolio에서 포트폴리오의 market과 일치하는 후보만 골라 쓰게 한다.
   const { data: results, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, stock_code, stock_name, strategy_id, return_pct, current_price")
-    .eq("status", "active")
-    .eq("market", "KR");
+    .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange")
+    .eq("status", "active");
   if (error) throw new Error(`스크리닝 결과 조회 실패: ${error.message}`);
   if (!results || results.length === 0) return [];
 
@@ -199,6 +202,8 @@ async function loadCandidates(): Promise<ScreeningCandidateRow[]> {
       ruleType: ruleTypeById.get(r.strategy_id) as ScreeningCandidateRow["ruleType"],
       returnPct: r.return_pct,
       currentPrice: r.current_price,
+      market: r.market as Market,
+      exchange: (r.exchange as string | null) ?? null,
     }));
 }
 
@@ -211,12 +216,16 @@ interface PositionDbRow {
   avg_price: number;
   opened_at: string;
   screening_result_id: string | null;
+  market: Market;
+  exchange: string | null;
 }
 
 async function loadPositions(): Promise<PositionDbRow[]> {
   const { data, error } = await supabaseAdmin
     .from("paper_positions")
-    .select("id, portfolio_id, stock_code, stock_name, quantity, avg_price, opened_at, screening_result_id");
+    .select(
+      "id, portfolio_id, stock_code, stock_name, quantity, avg_price, opened_at, screening_result_id, market, exchange"
+    );
   if (error) throw new Error(`보유 포지션 조회 실패: ${error.message}`);
   return (data ?? []) as PositionDbRow[];
 }
@@ -291,6 +300,7 @@ async function runPortfolio(
         avgPrice: position.avg_price,
         openedAt: position.opened_at,
         screeningResultId: position.screening_result_id,
+        market: position.market,
       },
       underlying,
       now
@@ -316,6 +326,8 @@ async function runPortfolio(
       realized_pnl: realizedPnl,
       rationale: decision.rationale,
       screening_result_id: position.screening_result_id,
+      market: position.market,
+      exchange: position.exchange,
     });
     if (tradeError) {
       console.error(`    [${style}] ${position.stock_code} 매도 기록 실패: ${tradeError.message}`);
@@ -338,10 +350,11 @@ async function runPortfolio(
 
   // 2) 매수 판단
   const heldStockCodes = new Set(remainingPositions.map((p) => p.stock_code));
+  const marketCandidates = candidates.filter((c) => c.market === portfolio.market);
   const buyDecisions = selectBuyCandidates(
     style,
     conditions,
-    candidates,
+    marketCandidates,
     heldStockCodes,
     remainingPositions.length,
     cash
@@ -359,6 +372,8 @@ async function runPortfolio(
       amount: decision.amount,
       rationale: decision.rationale,
       screening_result_id: decision.candidate.screeningResultId,
+      market: decision.candidate.market,
+      exchange: decision.candidate.exchange,
     });
     if (tradeError) {
       console.error(`    [${style}] ${decision.candidate.stockCode} 매수 기록 실패: ${tradeError.message}`);
@@ -373,6 +388,8 @@ async function runPortfolio(
       avg_price: decision.candidate.currentPrice,
       screening_result_id: decision.candidate.screeningResultId,
       opened_strategy_id: strategyRow.id,
+      market: decision.candidate.market,
+      exchange: decision.candidate.exchange,
     });
     if (positionError) {
       console.error(`    [${style}] ${decision.candidate.stockCode} 포지션 저장 실패: ${positionError.message}`);

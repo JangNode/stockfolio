@@ -32,7 +32,7 @@ import {
   type DailyPrice,
   type StrategyRule,
 } from "@/lib/backtest";
-import { computeSignalScore } from "@/lib/screeningScore";
+import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 
 // ===== 잡주 필터링 조건 =====
 // 영문 종목명에 이 패턴이 매치되면 제외한다(SPAC). 국내와 달리 미국 마스터파일엔 SPAC
@@ -355,11 +355,12 @@ async function runStrategyScan(
   priceByCode: Map<string, StockPriceEntry>,
   activeKeys: Set<string>,
   marketCapByCode: Map<string, number>
-): Promise<{ matched: number; errors: number }> {
+): Promise<{ matched: number; lowScore: number; errors: number }> {
   const label = `${strategy.name ?? strategy.rule_type}(${strategy.rule_type})`;
   console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
 
   let matched = 0;
+  let lowScore = 0;
   let errors = 0;
 
   for (const [stockCode, { name: stockName, exchange, prices }] of priceByCode) {
@@ -377,6 +378,11 @@ async function runStrategyScan(
         strategy,
         marketCapUsd === null ? null : marketCapUsd / MARKET_CAP_SCORE_FULL_USD
       );
+
+      if (score <= MIN_SCREENING_SCORE) {
+        lowScore++;
+        continue;
+      }
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
         strategy_id: strategy.id,
@@ -412,8 +418,10 @@ async function runStrategyScan(
     }
   }
 
-  console.log(`  --- [${label}] 판정 완료: 신규 매칭 ${matched}건, 오류 ${errors}건 ---`);
-  return { matched, errors };
+  console.log(
+    `  --- [${label}] 판정 완료: 신규 매칭 ${matched}건, 저점수 제외 ${lowScore}건, 오류 ${errors}건 ---`
+  );
+  return { matched, lowScore, errors };
 }
 
 async function scanAllStocks(
@@ -468,17 +476,19 @@ async function scanAllStocks(
   console.log(`=== 4단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
 
   let totalMatched = 0;
+  let totalLowScore = 0;
   let totalErrors = fetchErrors + quoteFetchErrors;
 
   for (const strategy of strategies) {
     try {
-      const { matched, errors } = await runStrategyScan(
+      const { matched, lowScore, errors } = await runStrategyScan(
         strategy,
         priceByCode,
         activeKeys,
         marketCapByCode
       );
       totalMatched += matched;
+      totalLowScore += lowScore;
       totalErrors += errors;
     } catch (error) {
       totalErrors++;
@@ -489,7 +499,9 @@ async function scanAllStocks(
     }
   }
 
-  console.log(`스캔 완료: 신규 매칭 ${totalMatched}건, 오류 ${totalErrors}건`);
+  console.log(
+    `스캔 완료: 신규 매칭 ${totalMatched}건, 저점수(${MIN_SCREENING_SCORE}점 이하) 제외 ${totalLowScore}건, 오류 ${totalErrors}건`
+  );
   return { scanned: finalStocks.length, matched: totalMatched, errors: totalErrors };
 }
 

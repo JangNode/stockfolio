@@ -104,10 +104,10 @@ async function downloadAndParse(exchange: OverseasExchangeCode): Promise<Oversea
   return parseMasterFile(entry.getData(), exchange);
 }
 
-// 당분간 나스닥만 스캔한다(뉴욕/아멕스는 범위 밖) — MASTER_URLS/downloadAndParse는
-// 거래소별로 이미 일반화돼 있어, 나중에 범위를 넓힐 땐 이 배열에 "NYS"/"AMS"만
+// 당분간 나스닥+뉴욕만 스캔한다(아멕스는 범위 밖) — MASTER_URLS/downloadAndParse는
+// 거래소별로 이미 일반화돼 있어, 나중에 범위를 넓힐 땐 이 배열에 "AMS"만
 // 추가하면 된다.
-const ACTIVE_EXCHANGES: OverseasExchangeCode[] = ["NAS"];
+const ACTIVE_EXCHANGES: OverseasExchangeCode[] = ["NAS", "NYS"];
 
 async function loadMaster(): Promise<MasterCache> {
   const results = await Promise.all(ACTIVE_EXCHANGES.map((exchange) => downloadAndParse(exchange)));
@@ -142,7 +142,7 @@ async function getCache(): Promise<MasterCache> {
   return loading;
 }
 
-/** 나스닥 전 종목(Stock 타입만, ETF/지수/워런트 제외) 목록을 반환한다(ACTIVE_EXCHANGES 참고). */
+/** 나스닥+뉴욕 전 종목(Stock 타입만, ETF/지수/워런트 제외) 목록을 반환한다(ACTIVE_EXCHANGES 참고). */
 export async function getAllOverseasStocks(): Promise<OverseasStockEntry[]> {
   const { entries } = await getCache();
   return entries;

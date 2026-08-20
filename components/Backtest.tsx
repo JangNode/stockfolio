@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
 import { authFetch } from "@/lib/authFetch";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
+import { useMarket } from "@/components/MarketContext";
+import { formatPrice } from "@/lib/market";
 
 const WINDOW_OPTIONS = [
   { months: 3, label: "3개월" },
@@ -27,7 +29,12 @@ function windowStartDate(months: number): string {
 }
 
 export default function Backtest({ user }: { user: User }) {
+  const { market } = useMarket();
   const { data: strategies, isLoading: strategiesLoading } = useStrategies(user);
+  const marketStrategies = useMemo(
+    () => strategies?.filter((s) => s.market === market) ?? [],
+    [strategies, market]
+  );
 
   const [strategyId, setStrategyId] = useState("");
   const [stockQuery, setStockQuery] = useState("");
@@ -40,13 +47,27 @@ export default function Backtest({ user }: { user: User }) {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 시장을 전환하면 이전 시장의 전략/검색어/결과가 남아있지 않도록 비운다. 이펙트
+  // 대신 렌더 도중 이전 값과 비교해 조정하는 방식(리액트가 권장하는 "prop이 바뀌면
+  // 상태 리셋" 패턴)을 쓴다 — 화면이 잘못된 시장 데이터로 한 프레임 깜빡이는 것도 막는다.
+  const [prevMarket, setPrevMarket] = useState(market);
+  if (market !== prevMarket) {
+    setPrevMarket(market);
+    setStrategyId("");
+    setStockQuery("");
+    setSuggestions([]);
+    setSelectedStock(null);
+    setResult(null);
+    setErrorMsg("");
+  }
+
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
-  const selectedStrategy = strategies?.find((s) => s.id === strategyId);
+  const selectedStrategy = marketStrategies.find((s) => s.id === strategyId);
 
   const handleQueryChange = (value: string) => {
     setStockQuery(value);
@@ -62,7 +83,9 @@ export default function Backtest({ user }: { user: User }) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await authFetch(`/api/stock/search?q=${encodeURIComponent(trimmed)}`);
+        const res = await authFetch(
+          `/api/stock/search?q=${encodeURIComponent(trimmed)}&market=${market}`
+        );
         const data = await res.json();
         setSuggestions(res.ok && Array.isArray(data) ? data : []);
       } catch {
@@ -98,7 +121,9 @@ export default function Backtest({ user }: { user: User }) {
       if (selectedStock && selectedStock.name === trimmed) {
         resolved = selectedStock;
       } else {
-        const resolveRes = await authFetch(`/api/stock/resolve?q=${encodeURIComponent(trimmed)}`);
+        const resolveRes = await authFetch(
+          `/api/stock/resolve?q=${encodeURIComponent(trimmed)}&market=${market}`
+        );
         const data = await resolveRes.json();
         if (!resolveRes.ok) {
           setErrorMsg(data.error ?? "종목을 찾을 수 없습니다.");
@@ -108,7 +133,9 @@ export default function Backtest({ user }: { user: User }) {
       }
 
       // 모든 전략이 일봉 기준으로 계산되므로 항상 일봉을 가져온다.
-      const historyRes = await authFetch(`/api/stock/${resolved.code}/history?period=D`);
+      const historyRes = await authFetch(
+        `/api/stock/${resolved.code}/history?period=D&market=${market}`
+      );
       const prices: DailyPrice[] | { error: string } = await historyRes.json();
       if (!historyRes.ok) {
         setErrorMsg(
@@ -146,12 +173,17 @@ export default function Backtest({ user }: { user: User }) {
             className={selectClassName}
           >
             <option value="">전략 선택</option>
-            {strategies?.map((s) => (
+            {marketStrategies.map((s) => (
               <option key={s.id} value={s.id}>
                 {describeStrategy(s)}
               </option>
             ))}
           </select>
+          {!strategiesLoading && marketStrategies.length === 0 && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              등록된 전략이 없습니다.
+            </p>
+          )}
         </div>
         <div className="relative flex flex-1 min-w-[10rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">종목코드 또는 종목명</label>
@@ -165,7 +197,7 @@ export default function Backtest({ user }: { user: User }) {
             onBlur={() => {
               window.setTimeout(() => setSuggestions([]), 150);
             }}
-            placeholder="005930 또는 삼성전자"
+            placeholder={market === "KR" ? "005930 또는 삼성전자" : "AAPL 또는 Apple"}
             autoComplete="off"
             className={selectClassName}
           />
@@ -281,11 +313,11 @@ export default function Backtest({ user }: { user: User }) {
                       <tr key={i} className="border-t border-black/[.08] dark:border-white/[.145]">
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.buyDate}</td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {trade.buyPrice.toLocaleString("ko-KR")}
+                          {formatPrice(trade.buyPrice, market)}
                         </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.sellDate}</td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                          {trade.sellPrice.toLocaleString("ko-KR")}
+                          {formatPrice(trade.sellPrice, market)}
                         </td>
                         <td
                           className={

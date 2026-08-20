@@ -954,20 +954,39 @@ interface OverseasDailyPriceResponse extends KisResponse {
 
 const OVERSEAS_CHART_TARGET_ROWS_DEFAULT = 300;
 const OVERSEAS_MAX_CHART_PAGES = 8;
+const OVERSEAS_CHART_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// 해외 기간별시세는 GUBN(0:일 1:주 2:월)으로 봉 종류를 고른다. KIS 문서상 "년봉"에
+// 대응하는 GUBN 값이 없어(국내 FID_PERIOD_DIV_CODE="Y"의 해외 대응이 없음), 지원 범위를
+// 일/주/월로만 한정한다 — 화면(예: StockChart)에서도 미국 종목엔 년봉/분봉 옵션을 감춘다.
+export type OverseasChartPeriod = "D" | "W" | "M";
+const OVERSEAS_GUBN: Record<OverseasChartPeriod, string> = { D: "0", W: "1", M: "2" };
+
+const overseasChartCache = new Map<string, { prices: DailyPrice[]; fetchedAt: number }>();
 
 /**
- * 해외주식 기간별(일봉) 시세를 조회한다. 응답 형태(DailyPrice)는 국내 getDailyPrices와
+ * 해외주식 기간별(일/주/월봉) 시세를 조회한다. 응답 형태(DailyPrice)는 국내 getDailyPrices와
  * 동일해서 lib/backtest.ts의 전략 판정·lib/screeningScore.ts의 점수 계산을 시장 구분
  * 없이 그대로 재사용할 수 있다. 페이지당 실제로 몇 건을 주는지 문서로 확인하지 못해,
  * 국내처럼 "100건 미만이면 마지막 페이지"로 가정하지 않고 응답이 완전히 비었을 때만
- * 멈춘다(더 안전한 쪽으로) — 대신 MAX_CHART_PAGES로 상한을 둔다.
+ * 멈춘다(더 안전한 쪽으로) — 대신 MAX_CHART_PAGES로 상한을 둔다. 국내와 동일하게 5분
+ * 캐시를 둔다(스크리닝 배치처럼 실시간성이 필요 없는 호출도 있고, 이 함수엔 원래
+ * 캐시가 없어서 워치리스트/차트처럼 사람이 자주 호출하는 경로에 그대로 쓰면 호출량이
+ * 불필요하게 늘어난다).
  */
 export async function getOverseasDailyPrices(
   excd: OverseasExchangeCode,
   symb: string,
+  period: OverseasChartPeriod = "D",
   targetRows: number = OVERSEAS_CHART_TARGET_ROWS_DEFAULT,
   priority: "user" | "batch" = "user"
 ): Promise<DailyPrice[]> {
+  const cacheKey = `${excd}:${symb}:${period}:${targetRows}`;
+  const cached = overseasChartCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < OVERSEAS_CHART_CACHE_TTL_MS) {
+    return cached.prices;
+  }
+
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
 
@@ -979,7 +998,7 @@ export async function getOverseasDailyPrices(
     url.searchParams.set("AUTH", "");
     url.searchParams.set("EXCD", excd);
     url.searchParams.set("SYMB", symb);
-    url.searchParams.set("GUBN", "0"); // 0: 일봉
+    url.searchParams.set("GUBN", OVERSEAS_GUBN[period]);
     url.searchParams.set("BYMD", bymd);
     url.searchParams.set("MODP", "0"); // 0: 수정주가 미반영(국내 getDailyPrices와 동일 정책)
 
@@ -1002,7 +1021,7 @@ export async function getOverseasDailyPrices(
   }
 
   // KIS는 최신 순으로 내려주므로 과거→최신 순으로 뒤집는다(국내 getDailyPrices와 동일 규약).
-  return collected
+  const prices = collected
     .map((row) => ({
       date: `${row.xymd.slice(0, 4)}-${row.xymd.slice(4, 6)}-${row.xymd.slice(6, 8)}`,
       open: Number(row.open),
@@ -1012,4 +1031,8 @@ export async function getOverseasDailyPrices(
       volume: Number(row.tvol),
     }))
     .reverse();
+
+  overseasChartCache.set(cacheKey, { prices, fetchedAt: Date.now() });
+
+  return prices;
 }

@@ -323,7 +323,7 @@ async function collectDailyPrices(
   await runWithConcurrency(stocks, BATCH_CONCURRENCY, async (stock) => {
     try {
       const prices = await withRetry(
-        () => getOverseasDailyPrices(stock.exchange, stock.code, dailyTargetRows, "batch"),
+        () => getOverseasDailyPrices(stock.exchange, stock.code, "D", dailyTargetRows, "batch"),
         `${stock.code}(${stock.name}) 일봉 조회`
       );
       if (prices.length > 0) {

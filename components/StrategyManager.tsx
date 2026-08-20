@@ -4,19 +4,14 @@ import useSWR from "swr";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
-
-export type Market = "KR" | "US";
+import { useMarket } from "@/components/MarketContext";
+import { MARKET_LABELS, type Market } from "@/lib/market";
 
 export type StrategyRow = StrategyRule & {
   id: string;
   name: string | null;
   market: Market;
   created_at: string;
-};
-
-export const MARKET_LABELS: Record<Market, string> = {
-  KR: "국내",
-  US: "미국",
 };
 
 const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
@@ -58,7 +53,9 @@ export function useStrategies(user: User) {
 }
 
 export default function StrategyManager({ user }: { user: User }) {
+  const { market } = useMarket();
   const { data: strategies, error, isLoading } = useStrategies(user);
+  const marketStrategies = strategies?.filter((s) => s.market === market) ?? [];
 
   return (
     <div className="w-full max-w-3xl">
@@ -66,9 +63,9 @@ export default function StrategyManager({ user }: { user: User }) {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">전략을 불러오지 못했습니다.</p>
-      ) : strategies && strategies.length > 0 ? (
+      ) : marketStrategies.length > 0 ? (
         <div className="flex flex-wrap gap-4">
-          {strategies.map((strategy) => (
+          {marketStrategies.map((strategy) => (
             <div
               key={strategy.id}
               className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
@@ -89,7 +86,9 @@ export default function StrategyManager({ user }: { user: User }) {
           ))}
         </div>
       ) : (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">등록된 전략이 없습니다.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          등록된 {MARKET_LABELS[market]} 전략이 없습니다.
+        </p>
       )}
     </div>
   );

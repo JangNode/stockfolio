@@ -1,21 +1,21 @@
 {
-  "label": "초기 시드: 모멘텀 추종형",
-  "rationale": "공격형 전략의 초기 시드 값입니다. 상승 모멘텀이 확인된 신호를 폭넓게 받아들이고 소수 종목에 집중 투자해 높은 변동성을 감수합니다. 손절/익절 폭을 넓게 잡아 단기 노이즈에 흔들리지 않도록 했습니다. 이후 매일 Routine이 전날 조건을 참고해 재조정합니다.",
-  "generated_at": "2026-08-19T00:00:00Z",
+  "label": "모멘텀 집중 추종형",
+  "rationale": "전날(8/19) 초기 시드값을 이어받아 방향은 유지하되 폭을 소폭 좁혀 재조정했습니다. 아직 실제 체결/수익 이력이 쌓이지 않은 첫 재생성이라 큰 폭의 변경 대신, 신호 직후 이미 하락 반전 조짐이 있는 종목을 걸러내도록 최소 수익률 하한을 -5%에서 -3%로 올렸습니다. 대신 상단은 30%에서 35%로 넓혀 강한 상승 모멘텀 종목을 더 오래 후보로 잡을 수 있게 했습니다. 집중 투자 기조를 유지하면서 회당 투입 비중을 25%에서 28%로 소폭 늘려 소수 종목에 대한 베팅을 강화했고, 후보 풀은 15개에서 12개로 좁혀 상위 모멘텀 종목에 더 집중하도록 했습니다. 보유 기간은 30일에서 25일로 줄여 모멘텀이 꺾이기 전에 더 빠르게 회전하도록 했습니다.",
+  "generated_at": "2026-08-20T07:37:08Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
-    "min_signal_return_pct": -5,
-    "max_signal_return_pct": 30,
+    "min_signal_return_pct": -3,
+    "max_signal_return_pct": 35,
     "max_positions": 5,
-    "position_size_pct": 25
+    "position_size_pct": 28
   },
   "exit_conditions": {
-    "take_profit_pct": 25,
+    "take_profit_pct": 28,
     "stop_loss_pct": 12,
-    "max_holding_days": 30
+    "max_holding_days": 25
   },
   "stock_selection_criteria": {
     "prefer_higher_return_pct": true,
-    "max_candidates_to_consider": 15
+    "max_candidates_to_consider": 12
   }
 }

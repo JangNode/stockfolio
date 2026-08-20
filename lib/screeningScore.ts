@@ -158,3 +158,7 @@ export function computeSignalScore(
 
   return Math.round(Math.min(100, Math.max(0, total)));
 }
+
+/** 이 점수 이하인 매칭은 신호 품질이 낮다고 보고 screening_results에 저장하지 않는다
+ * (국내/미국 배치 공통 기준). */
+export const MIN_SCREENING_SCORE = 50;

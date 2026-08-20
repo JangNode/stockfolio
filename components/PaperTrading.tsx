@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import { ScoreValue } from "@/components/ScoreValue";
+import { useMarket } from "@/components/MarketContext";
+import { formatPrice, type Market } from "@/lib/market";
 
 type PaperStyle = "aggressive" | "conservative";
 type SubScreen = "overview" | "detail" | "trades" | "history";
@@ -24,6 +26,7 @@ const SUB_SCREENS: { value: SubScreen; label: string }[] = [
 interface PortfolioRow {
   id: string;
   style: PaperStyle;
+  market: Market;
   initial_capital: number;
   cash: number;
 }
@@ -136,7 +139,7 @@ function usePortfolios() {
   return useSWR("paper-portfolios", async () => {
     const { data, error } = await supabase
       .from("paper_portfolios")
-      .select("id, style, initial_capital, cash");
+      .select("id, style, market, initial_capital, cash");
     if (error) throw error;
     return data as PortfolioRow[];
   });
@@ -270,10 +273,12 @@ function OverviewScreen({
   portfolios,
   snapshots,
   positions,
+  market,
 }: {
   portfolios: PortfolioRow[];
   snapshots: SnapshotRow[];
   positions: PositionRow[];
+  market: Market;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -297,7 +302,7 @@ function OverviewScreen({
             ) : (
               <>
                 <p className="mt-2 text-2xl font-semibold text-black dark:text-zinc-50">
-                  {Math.round(latest.equity).toLocaleString("ko-KR")}원
+                  {formatPrice(latest.equity, market)}
                 </p>
                 <div className="mt-1 flex gap-4 text-sm">
                   <span className={returnColorClass(latest.cumulative_return_pct)}>
@@ -308,7 +313,7 @@ function OverviewScreen({
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  현금 {Math.round(latest.cash).toLocaleString("ko-KR")}원 · 보유 {holdingCount}종목
+                  현금 {formatPrice(latest.cash, market)} · 보유 {holdingCount}종목
                 </p>
                 <Sparkline
                   values={styleSnapshots.map((s) => s.equity)}
@@ -372,10 +377,12 @@ function DetailScreen({
   portfolios,
   strategies,
   positions,
+  market,
 }: {
   portfolios: PortfolioRow[];
   strategies: StrategyRow[];
   positions: PositionRow[];
+  market: Market;
 }) {
   const [style, setStyle] = useState<PaperStyle>("aggressive");
   const portfolio = portfolios.find((p) => p.style === style);
@@ -436,10 +443,10 @@ function DetailScreen({
                       </td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">{h.quantity.toLocaleString("ko-KR")}</td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                        {h.avg_price.toLocaleString("ko-KR")}
+                        {formatPrice(h.avg_price, market)}
                       </td>
                       <td className="py-2 pr-4 text-black dark:text-zinc-50">
-                        {currentPrice.toLocaleString("ko-KR")}
+                        {formatPrice(currentPrice, market)}
                       </td>
                       <td className={`py-2 pr-4 font-medium ${returnColorClass(pnlPct)}`}>{signedPct(pnlPct)}</td>
                       <td className="py-2 text-zinc-500 dark:text-zinc-400">{formatDate(h.opened_at)}</td>
@@ -457,7 +464,15 @@ function DetailScreen({
 
 type TradeFilter = "all" | PaperStyle;
 
-function TradesScreen({ portfolios, trades }: { portfolios: PortfolioRow[]; trades: TradeRow[] }) {
+function TradesScreen({
+  portfolios,
+  trades,
+  market,
+}: {
+  portfolios: PortfolioRow[];
+  trades: TradeRow[];
+  market: Market;
+}) {
   const [filter, setFilter] = useState<TradeFilter>("all");
   const styleByPortfolioId = useMemo(
     () => new Map(portfolios.map((p) => [p.id, p.style])),
@@ -506,13 +521,13 @@ function TradesScreen({ portfolios, trades }: { portfolios: PortfolioRow[]; trad
                     )}
                     <span className="font-medium text-black dark:text-zinc-50">
                       {t.side === "buy" ? "매수" : "매도"} {t.stock_name}({t.stock_code}) {t.quantity.toLocaleString("ko-KR")}주 @
-                      {t.price.toLocaleString("ko-KR")}
+                      {formatPrice(t.price, market)}
                     </span>
                   </div>
                   {t.side === "sell" && t.realized_pnl !== null && (
                     <span className={`font-medium ${returnColorClass(t.realized_pnl)}`}>
                       {t.realized_pnl > 0 ? "+" : ""}
-                      {Math.round(t.realized_pnl).toLocaleString("ko-KR")}원
+                      {formatPrice(t.realized_pnl, market)}
                     </span>
                   )}
                 </div>
@@ -585,12 +600,27 @@ function HistoryScreen({
 
 export default function PaperTrading() {
   const [subScreen, setSubScreen] = useState<SubScreen>("overview");
+  const { market } = useMarket();
 
-  const { data: portfolios, error: portfoliosError, isLoading: portfoliosLoading } = usePortfolios();
+  const { data: allPortfolios, error: portfoliosError, isLoading: portfoliosLoading } = usePortfolios();
   const { data: snapshots } = useSnapshots();
   const { data: strategies } = useStrategies();
   const { data: positions } = usePositions();
   const { data: trades } = useTrades();
+
+  const portfolios = useMemo(
+    () => (allPortfolios ?? []).filter((p) => p.market === market),
+    [allPortfolios, market]
+  );
+  const portfolioIds = useMemo(() => new Set(portfolios.map((p) => p.id)), [portfolios]);
+  const scopedPositions = useMemo(
+    () => (positions ?? []).filter((p) => portfolioIds.has(p.portfolio_id)),
+    [positions, portfolioIds]
+  );
+  const scopedTrades = useMemo(
+    () => (trades ?? []).filter((t) => portfolioIds.has(t.portfolio_id)),
+    [trades, portfolioIds]
+  );
 
   return (
     <div className="w-full max-w-4xl">
@@ -614,19 +644,21 @@ export default function PaperTrading() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
       ) : portfoliosError ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">데이터를 불러오지 못했습니다.</p>
-      ) : !portfolios || portfolios.length === 0 ? (
+      ) : portfolios.length === 0 ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           가상 계좌가 아직 준비되지 않았습니다. 마이그레이션이 적용됐는지 확인해주세요.
         </p>
       ) : (
         <>
           {subScreen === "overview" && (
-            <OverviewScreen portfolios={portfolios} snapshots={snapshots ?? []} positions={positions ?? []} />
+            <OverviewScreen portfolios={portfolios} snapshots={snapshots ?? []} positions={scopedPositions} market={market} />
           )}
           {subScreen === "detail" && (
-            <DetailScreen portfolios={portfolios} strategies={strategies ?? []} positions={positions ?? []} />
+            <DetailScreen portfolios={portfolios} strategies={strategies ?? []} positions={scopedPositions} market={market} />
           )}
-          {subScreen === "trades" && <TradesScreen portfolios={portfolios} trades={trades ?? []} />}
+          {subScreen === "trades" && (
+            <TradesScreen portfolios={portfolios} trades={scopedTrades} market={market} />
+          )}
           {subScreen === "history" && (
             <HistoryScreen strategies={strategies ?? []} portfolios={portfolios} snapshots={snapshots ?? []} />
           )}

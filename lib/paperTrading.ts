@@ -1,4 +1,5 @@
 import type { PaperStrategyConditions, PaperStyle } from "@/lib/paperStrategy";
+import type { Market } from "@/lib/market";
 
 // 매매 판단에는 조건 3종만 있으면 되고 label/rationale/generated_at은 필요 없다 —
 // DB에 저장된 활성 전략 행(ActiveStrategyRow)에는 그 필드들이 없으므로 여기서 따로 뺀다.
@@ -16,6 +17,8 @@ export interface ScreeningCandidateRow {
   ruleType: "ma_cross" | "minervini_trend_template";
   returnPct: number;
   currentPrice: number;
+  market: Market;
+  exchange: string | null;
 }
 
 export interface HeldPositionRow {
@@ -26,6 +29,14 @@ export interface HeldPositionRow {
   avgPrice: number;
   openedAt: string; // ISO
   screeningResultId: string | null;
+  market: Market;
+}
+
+/** 판단 근거 문구에 쓰는 통화 표기. 국내는 "1,000,000원", 미국은 "$1,000.00" 형태다. */
+function formatMoney(value: number, market: Market): string {
+  return market === "KR"
+    ? `${Math.round(value).toLocaleString("ko-KR")}원`
+    : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // 포지션이 매달린 screening_results 원본 행의 현재 상태. 이 값으로 청산가/청산
@@ -103,9 +114,9 @@ export function selectBuyCandidates(
         `[${STYLE_LABEL[style]}] ${candidate.ruleType} 신호 종목 중 신호 대비 수익률 ` +
         `${candidate.returnPct.toFixed(2)}%(조건 ${entry.min_signal_return_pct}~` +
         `${entry.max_signal_return_pct}%, ${rankOrder} 우선)로 매수 후보 선정. ` +
-        `보유 현금 ${Math.round(cash + amount).toLocaleString("ko-KR")}원의 ` +
-        `${entry.position_size_pct}%인 ${Math.round(amount).toLocaleString("ko-KR")}원 투입 ` +
-        `(${quantity}주 @ ${candidate.currentPrice.toLocaleString("ko-KR")}원).`,
+        `보유 현금 ${formatMoney(cash + amount, candidate.market)}의 ` +
+        `${entry.position_size_pct}%인 ${formatMoney(amount, candidate.market)} 투입 ` +
+        `(${quantity}주 @ ${formatMoney(candidate.currentPrice, candidate.market)}).`,
     });
   }
 
@@ -151,7 +162,7 @@ export function evaluateExit(
       price: underlying.currentPrice,
       rationale:
         `[${label}] 청산조건(익절 ${exit.take_profit_pct}%) 도달: ` +
-        `매입가 ${position.avgPrice.toLocaleString("ko-KR")}원 대비 +${pct.toFixed(2)}%.`,
+        `매입가 ${formatMoney(position.avgPrice, position.market)} 대비 +${pct.toFixed(2)}%.`,
     };
   }
 
@@ -160,7 +171,7 @@ export function evaluateExit(
       price: underlying.currentPrice,
       rationale:
         `[${label}] 청산조건(손절 ${exit.stop_loss_pct}%) 도달: ` +
-        `매입가 ${position.avgPrice.toLocaleString("ko-KR")}원 대비 ${pct.toFixed(2)}%.`,
+        `매입가 ${formatMoney(position.avgPrice, position.market)} 대비 ${pct.toFixed(2)}%.`,
     };
   }
 

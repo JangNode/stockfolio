@@ -9,7 +9,8 @@
     "lint": "eslint",
     "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts",
     "screen:us-stocks": "tsx --conditions=react-server scripts/screen-us-stocks.ts",
-    "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts"
+    "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts",
+    "verify:kr-status-flags": "tsx --conditions=react-server scripts/verify-kr-status-flags.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

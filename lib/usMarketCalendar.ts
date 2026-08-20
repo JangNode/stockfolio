@@ -139,34 +139,40 @@ export function isUsEasternDst(date: Date): boolean {
   return date >= dstStart && date < dstEnd;
 }
 
-// 미국 정규장 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 맞춘 UTC 시각.
+// 미국 정규장 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 맞춘 cron 표현식.
 // 서머타임(EDT, UTC-4)이면 UTC 19시, 표준시(EST, UTC-5)면 UTC 20시.
-const DST_TRIGGER_UTC_HOUR = 19;
-const STANDARD_TRIGGER_UTC_HOUR = 20;
+export const DST_TRIGGER_CRON = "0 19 * * 1-5";
+export const STANDARD_TRIGGER_CRON = "0 20 * * 1-5";
 
 export interface UsBatchScheduleDecision {
   shouldRun: boolean;
   isDst: boolean;
-  expectedUtcHour: number;
-  currentUtcHour: number;
+  expectedCron: string;
+  triggeringCron: string | undefined;
   reason: string;
 }
 
 /**
- * GitHub Actions cron은 고정 UTC 시각만 지원해 서머타임용(UTC 19시)·표준시용(UTC 20시)
- * 두 스케줄을 모두 등록해둔다. 매 실행마다 이 함수로 오늘이 서머타임인지 판별해 예정된
- * 시각에 걸린 실행만 통과시키고, 나머지 하나는 스킵한다.
+ * GitHub Actions cron은 고정 UTC 시각만 지원해 서머타임용·표준시용 두 크론을 모두
+ * 등록해둔다. 어느 크론이 이번 실행을 발화시켰는지는 "지금 UTC 몇 시인지"를 벽시계로
+ * 재는 대신, github.event.schedule 컨텍스트 값(워크플로 시작 시점에 고정되고 이후
+ * 스텝이 아무리 오래 걸려도 바뀌지 않음)을 그대로 비교해 판별한다 — 이 배치의 스크리닝
+ * 스텝이 20분 넘게 걸리는 날, 뒤이은 paper-trade 스텝이 시작될 때는 이미 다음 UTC
+ * 시간대로 넘어가 있어 벽시계 비교로는 같은 트리거인데도 스스로를 잘못 스킵하는 문제가
+ * 실제로 발생했다(2026-08-20).
  */
-export function determineUsBatchSchedule(now: Date): UsBatchScheduleDecision {
+export function determineUsBatchSchedule(
+  now: Date,
+  triggeringCron: string | undefined
+): UsBatchScheduleDecision {
   const isDst = isUsEasternDst(now);
-  const expectedUtcHour = isDst ? DST_TRIGGER_UTC_HOUR : STANDARD_TRIGGER_UTC_HOUR;
-  const currentUtcHour = now.getUTCHours();
-  const shouldRun = currentUtcHour === expectedUtcHour;
+  const expectedCron = isDst ? DST_TRIGGER_CRON : STANDARD_TRIGGER_CRON;
+  const shouldRun = triggeringCron === expectedCron;
 
   const dstLabel = isDst ? "서머타임(EDT) 적용 기간" : "표준시(EST) 적용 기간";
   const reason = shouldRun
-    ? `오늘은 ${dstLabel}이고 실행 시각(UTC ${currentUtcHour}시)이 예정 시각(UTC ${expectedUtcHour}시)과 일치해 실행합니다.`
-    : `오늘은 ${dstLabel}이라 예정 실행 시각은 UTC ${expectedUtcHour}시인데 지금은 UTC ${currentUtcHour}시라 건너뜁니다.`;
+    ? `오늘은 ${dstLabel}이고 이번 실행을 발화시킨 크론("${triggeringCron}")이 예정 크론과 일치해 실행합니다.`
+    : `오늘은 ${dstLabel}이라 예정 크론은 "${expectedCron}"인데 이번 실행을 발화시킨 크론은 "${triggeringCron ?? "(없음)"}"이라 건너뜁니다.`;
 
-  return { shouldRun, isDst, expectedUtcHour, currentUtcHour, reason };
+  return { shouldRun, isDst, expectedCron, triggeringCron, reason };
 }

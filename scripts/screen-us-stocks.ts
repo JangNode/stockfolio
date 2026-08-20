@@ -534,7 +534,7 @@ async function main(): Promise<void> {
   // 걸러 즉시 종료한다. workflow_dispatch로 수동 실행할 때는 이 가드를 적용하지 않는다.
   const isScheduledRun = process.env.GITHUB_EVENT_NAME === "schedule";
   if (isScheduledRun) {
-    const schedule = determineUsBatchSchedule(startedAt);
+    const schedule = determineUsBatchSchedule(startedAt, process.env.GITHUB_EVENT_SCHEDULE);
     console.log(schedule.reason);
     if (!schedule.shouldRun) {
       return;

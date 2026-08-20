@@ -513,7 +513,7 @@ async function main(): Promise<void> {
   // (screening-us.yml과 같은 이유·같은 판별 함수). 스케줄 트리거일 때만 적용하고
   // workflow_dispatch 수동 실행은 가드 없이 항상 진행한다.
   if (market === "US" && process.env.GITHUB_EVENT_NAME === "schedule") {
-    const schedule = determineUsBatchSchedule(startedAt);
+    const schedule = determineUsBatchSchedule(startedAt, process.env.GITHUB_EVENT_SCHEDULE);
     console.log(schedule.reason);
     if (!schedule.shouldRun) {
       return;

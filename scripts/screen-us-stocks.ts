@@ -1,5 +1,6 @@
 /**
- * 미국 주식(나스닥+뉴욕+아멕스)을 대상으로 저장된 전략(strategies.market='US')들을 스캔해
+ * 미국 주식(당분간 나스닥만, lib/stockMasterOverseas.ts의 ACTIVE_EXCHANGES 참고)을 대상으로
+ * 저장된 전략(strategies.market='US')들을 스캔해
  * screening_results 테이블을 갱신하는 배치 스크립트. scripts/screen-all-stocks.ts와 같은
  * 전략 판정 엔진(lib/backtest.ts)·점수 계산(lib/screeningScore.ts)을 그대로 재사용하지만,
  * 시세/종목마스터 조회가 완전히 다르고 스케줄(뉴욕 마감 기준, DST 반영)도 달라 별도

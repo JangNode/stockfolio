@@ -101,20 +101,42 @@ interface TradeRow {
   traded_at: string;
 }
 
+interface PaperRunRow {
+  market: Market;
+  started_at: string;
+  finished_at: string;
+  buy_count: number;
+  sell_count: number;
+  error_count: number;
+}
+
 const TRADE_HISTORY_LIMIT = 200;
+const PAPER_RUN_HISTORY_LIMIT = 30;
 
 function toKstDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function todayKstDate(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+/** 오늘(KST) 배치가 이 시장에서 실행됐는지(매매 발생 여부와 무관) — "조건 미충족으로
+ * 매매 없음"과 "배치 자체가 안 돎"을 구분하는 데 쓴다. */
+function hasRunToday(runs: PaperRunRow[]): boolean {
+  const today = todayKstDate();
+  return runs.some((r) => toKstDate(r.finished_at) === today);
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** dateKey(YYYY-MM-DD)를 "8월 20일 (목)" 형태로 표시한다. 정오(KST)로 고정해 타임존
+ * 경계에서 날짜가 하루 밀리는 걸 방지한다. */
+function formatDateHeader(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00+09:00`);
+  return date.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
 }
 
 function formatDate(iso: string): string {
@@ -123,6 +145,19 @@ function formatDate(iso: string): string {
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+/** traded_at 내림차순으로 이미 정렬된 목록을 KST 날짜별로 묶는다(Map은 삽입 순서를
+ * 보존하므로 그룹 순서도 최신 날짜가 먼저 온다). */
+function groupByDate(trades: TradeRow[]): [string, TradeRow[]][] {
+  const map = new Map<string, TradeRow[]>();
+  for (const t of trades) {
+    const key = toKstDate(t.traded_at);
+    const list = map.get(key);
+    if (list) list.push(t);
+    else map.set(key, [t]);
+  }
+  return Array.from(map.entries());
 }
 
 function returnColorClass(pct: number): string {
@@ -215,6 +250,18 @@ function useTrades() {
   });
 }
 
+function usePaperRuns() {
+  return useSWR("paper-runs", async () => {
+    const { data, error } = await supabase
+      .from("paper_runs")
+      .select("market, started_at, finished_at, buy_count, sell_count, error_count")
+      .order("finished_at", { ascending: false })
+      .limit(PAPER_RUN_HISTORY_LIMIT);
+    if (error) throw error;
+    return data as PaperRunRow[];
+  });
+}
+
 /** 전략 버전 하나가 활성이었던 기간(created_at~retired_at, 없으면 지금까지)의
  * 평가금액 변화율. 그 기간에 스냅샷이 없으면(당일 재생성 등) null. */
 function computePeriodReturnPct(
@@ -269,17 +316,46 @@ function Sparkline({ values, className }: { values: number[]; className?: string
   );
 }
 
+/** 오늘 이 포트폴리오의 매매 상태를 배치 미실행/조건 미충족/체결 3단계로 구분해 보여준다. */
+function TodayBadge({ todayTradeCount, ranToday }: { todayTradeCount: number; ranToday: boolean }) {
+  if (todayTradeCount > 0) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+        오늘 {todayTradeCount}건 체결
+      </span>
+    );
+  }
+  if (ranToday) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-black/[.04] px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
+        오늘 조건 미충족으로 매매 없음
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+      ⚠ 오늘 배치 미실행
+    </span>
+  );
+}
+
 function OverviewScreen({
   portfolios,
   snapshots,
   positions,
+  trades,
+  ranToday,
   market,
 }: {
   portfolios: PortfolioRow[];
   snapshots: SnapshotRow[];
   positions: PositionRow[];
+  trades: TradeRow[];
+  ranToday: boolean;
   market: Market;
 }) {
+  const today = todayKstDate();
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {STYLES.map((style) => {
@@ -287,13 +363,19 @@ function OverviewScreen({
         const styleSnapshots = snapshots.filter((s) => s.portfolio_id === portfolio?.id);
         const latest = styleSnapshots[styleSnapshots.length - 1];
         const holdingCount = positions.filter((p) => p.portfolio_id === portfolio?.id).length;
+        const todayTradeCount = portfolio
+          ? trades.filter((t) => t.portfolio_id === portfolio.id && toKstDate(t.traded_at) === today).length
+          : 0;
 
         return (
           <div
             key={style}
             className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
           >
-            <p className="text-sm font-medium text-black dark:text-zinc-50">{STYLE_LABEL[style]}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-black dark:text-zinc-50">{STYLE_LABEL[style]}</p>
+              <TodayBadge todayTradeCount={todayTradeCount} ranToday={ranToday} />
+            </div>
 
             {!portfolio || !latest ? (
               <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
@@ -464,14 +546,76 @@ function DetailScreen({
 
 type TradeFilter = "all" | PaperStyle;
 
+/** 날짜 그룹 사이 구분선+헤더. 오늘 그룹은 강조 표시한다. */
+function DateGroupHeader({ label, highlight = false }: { label: string; highlight?: boolean }) {
+  return (
+    <div className="mb-2 flex items-center gap-2">
+      <span
+        className={`text-xs font-semibold ${
+          highlight ? "text-black dark:text-zinc-50" : "text-zinc-500 dark:text-zinc-400"
+        }`}
+      >
+        {label}
+      </span>
+      <span className="h-px flex-1 bg-black/[.08] dark:bg-white/[.145]" />
+    </div>
+  );
+}
+
+/** 시각을 좌측에 고정폭으로 크게 보여줘 "언제" 체결됐는지 한눈에 들어오게 한다. 날짜는
+ * 상위 DateGroupHeader가 담당하므로 항목 자체엔 반복하지 않는다. */
+function TradeItem({
+  trade,
+  style,
+  market,
+}: {
+  trade: TradeRow;
+  style: PaperStyle | undefined;
+  market: Market;
+}) {
+  return (
+    <li className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="flex items-start gap-3">
+        <span className="w-12 shrink-0 pt-0.5 text-sm font-semibold tabular-nums text-black dark:text-zinc-50">
+          {formatTime(trade.traded_at)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="flex items-center gap-2">
+              {style && (
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  [{STYLE_LABEL[style]}]
+                </span>
+              )}
+              <span className="font-medium text-black dark:text-zinc-50">
+                {trade.side === "buy" ? "매수" : "매도"} {trade.stock_name}({trade.stock_code}){" "}
+                {trade.quantity.toLocaleString("ko-KR")}주 @{formatPrice(trade.price, market)}
+              </span>
+            </div>
+            {trade.side === "sell" && trade.realized_pnl !== null && (
+              <span className={`font-medium ${returnColorClass(trade.realized_pnl)}`}>
+                {trade.realized_pnl > 0 ? "+" : ""}
+                {formatPrice(trade.realized_pnl, market)}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">└ 판단 근거: {trade.rationale}</p>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 function TradesScreen({
   portfolios,
   trades,
   market,
+  ranToday,
 }: {
   portfolios: PortfolioRow[];
   trades: TradeRow[];
   market: Market;
+  ranToday: boolean;
 }) {
   const [filter, setFilter] = useState<TradeFilter>("all");
   const styleByPortfolioId = useMemo(
@@ -481,6 +625,10 @@ function TradesScreen({
 
   const filtered =
     filter === "all" ? trades : trades.filter((t) => styleByPortfolioId.get(t.portfolio_id) === filter);
+
+  const today = todayKstDate();
+  const todayTrades = filtered.filter((t) => toKstDate(t.traded_at) === today);
+  const historicalGroups = groupByDate(filtered.filter((t) => toKstDate(t.traded_at) !== today));
 
   return (
     <div>
@@ -500,42 +648,39 @@ function TradesScreen({
         ))}
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">매매 내역이 없습니다.</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {filtered.map((t) => {
-            const style = styleByPortfolioId.get(t.portfolio_id);
-            return (
-              <li
-                key={t.id}
-                className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{formatDateTime(t.traded_at)}</span>
-                    {style && (
-                      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                        [{STYLE_LABEL[style]}]
-                      </span>
-                    )}
-                    <span className="font-medium text-black dark:text-zinc-50">
-                      {t.side === "buy" ? "매수" : "매도"} {t.stock_name}({t.stock_code}) {t.quantity.toLocaleString("ko-KR")}주 @
-                      {formatPrice(t.price, market)}
-                    </span>
-                  </div>
-                  {t.side === "sell" && t.realized_pnl !== null && (
-                    <span className={`font-medium ${returnColorClass(t.realized_pnl)}`}>
-                      {t.realized_pnl > 0 ? "+" : ""}
-                      {formatPrice(t.realized_pnl, market)}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">└ 판단 근거: {t.rationale}</p>
-              </li>
-            );
-          })}
-        </ul>
+      <div>
+        <DateGroupHeader label={`오늘 · ${formatDateHeader(today)}`} highlight />
+        {todayTrades.length > 0 ? (
+          <ul className="flex flex-col gap-3">
+            {todayTrades.map((t) => (
+              <TradeItem key={t.id} trade={t} style={styleByPortfolioId.get(t.portfolio_id)} market={market} />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {ranToday ? "조건 미충족으로 매매 없음" : "⚠ 오늘 배치가 아직 실행되지 않았습니다"}
+          </p>
+        )}
+      </div>
+
+      {historicalGroups.length > 0 && (
+        <div className="mt-6 flex flex-col gap-6">
+          {historicalGroups.map(([dateKey, dayTrades]) => (
+            <div key={dateKey}>
+              <DateGroupHeader label={formatDateHeader(dateKey)} />
+              <ul className="flex flex-col gap-3">
+                {dayTrades.map((t) => (
+                  <TradeItem
+                    key={t.id}
+                    trade={t}
+                    style={styleByPortfolioId.get(t.portfolio_id)}
+                    market={market}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -607,6 +752,7 @@ export default function PaperTrading() {
   const { data: strategies } = useStrategies();
   const { data: positions } = usePositions();
   const { data: trades } = useTrades();
+  const { data: paperRuns } = usePaperRuns();
 
   const portfolios = useMemo(
     () => (allPortfolios ?? []).filter((p) => p.market === market),
@@ -620,6 +766,10 @@ export default function PaperTrading() {
   const scopedTrades = useMemo(
     () => (trades ?? []).filter((t) => portfolioIds.has(t.portfolio_id)),
     [trades, portfolioIds]
+  );
+  const ranToday = useMemo(
+    () => hasRunToday((paperRuns ?? []).filter((r) => r.market === market)),
+    [paperRuns, market]
   );
 
   return (
@@ -651,13 +801,20 @@ export default function PaperTrading() {
       ) : (
         <>
           {subScreen === "overview" && (
-            <OverviewScreen portfolios={portfolios} snapshots={snapshots ?? []} positions={scopedPositions} market={market} />
+            <OverviewScreen
+              portfolios={portfolios}
+              snapshots={snapshots ?? []}
+              positions={scopedPositions}
+              trades={scopedTrades}
+              ranToday={ranToday}
+              market={market}
+            />
           )}
           {subScreen === "detail" && (
             <DetailScreen portfolios={portfolios} strategies={strategies ?? []} positions={scopedPositions} market={market} />
           )}
           {subScreen === "trades" && (
-            <TradesScreen portfolios={portfolios} trades={scopedTrades} market={market} />
+            <TradesScreen portfolios={portfolios} trades={scopedTrades} market={market} ranToday={ranToday} />
           )}
           {subScreen === "history" && (
             <HistoryScreen strategies={strategies ?? []} portfolios={portfolios} snapshots={snapshots ?? []} />

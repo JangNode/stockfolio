@@ -23,7 +23,7 @@ import {
   type OverseasExchangeCode,
 } from "@/lib/kis";
 import { getAllOverseasStocks, type OverseasStockEntry } from "@/lib/stockMasterOverseas";
-import { getUsBatchTradingDate } from "@/lib/usMarketCalendar";
+import { determineUsBatchSchedule, getUsBatchTradingDate } from "@/lib/usMarketCalendar";
 import {
   computeEntryPlan,
   evaluateTrackingStatus,
@@ -515,9 +515,20 @@ async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`미국주식 스크리닝 배치 시작: ${startedAt.toISOString()}`);
 
-  // 이 배치는 뉴욕 정규장이 EDT/EST 어느 쪽이든 이미 마감된 뒤(KST 06:30 고정)에만
-  // 돌게 스케줄돼 있다 — 그래도 주말/휴장일에 워크플로가 잘못 걸리거나 workflow_dispatch로
-  // 수동 실행될 경우를 대비해 여기서 한 번 더 가드한다.
+  // .github/workflows/screening-us.yml은 서머타임용(UTC 19시)·표준시용(UTC 20시) 크론을
+  // 둘 다 등록해뒀다(정규장 마감 1시간 전인 동부시간 15:00을 노린 것). 그래서 평일마다
+  // 이 배치가 하루 두 번 트리거되는데, 그중 오늘 서머타임 여부에 맞지 않는 한 번은 여기서
+  // 걸러 즉시 종료한다. workflow_dispatch로 수동 실행할 때는 이 가드를 적용하지 않는다.
+  const isScheduledRun = process.env.GITHUB_EVENT_NAME === "schedule";
+  if (isScheduledRun) {
+    const schedule = determineUsBatchSchedule(startedAt);
+    console.log(schedule.reason);
+    if (!schedule.shouldRun) {
+      return;
+    }
+  }
+
+  // 그래도 주말/휴장일에 워크플로가 잘못 걸릴 경우를 대비해 여기서 한 번 더 가드한다.
   const { dateKey, isTradingDay } = getUsBatchTradingDate();
   if (!isTradingDay) {
     console.log(`오늘(뉴욕 기준 ${dateKey})은 미국 증시 휴장일입니다. 배치를 건너뜁니다.`);

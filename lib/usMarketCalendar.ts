@@ -1,7 +1,10 @@
 /**
- * 미국 정규장(나스닥/뉴욕/아멕스, 09:30~16:00 ET) 관련 날짜 계산. 서머타임(DST) 전환은
- * 매년 손으로 크론을 바꾸는 대신, Node에 내장된 IANA 타임존 DB(America/New_York)를 통해
- * 자동으로 반영되게 한다 — DST 시작/종료 규칙이 바뀌어도 이 파일을 고칠 필요가 없다.
+ * 미국 정규장(나스닥/뉴욕/아멕스, 09:30~16:00 ET) 관련 날짜 계산. "지금 뉴욕 날짜가
+ * 며칠인지"는 Node에 내장된 IANA 타임존 DB(America/New_York)를 통해 서머타임을 자동
+ * 반영시킨다(getCurrentNyDateKey). 반면 "지금이 배치를 돌려야 할 예정 시각인지"는
+ * GitHub Actions cron이 UTC 고정 시각만 지원하는 제약 때문에 별도로 날짜 계산
+ * 규칙(3월 둘째 일요일~11월 첫째 일요일)을 직접 구현해 판별한다(isUsEasternDst,
+ * determineUsBatchSchedule) — 목적이 다른 두 개의 DST 처리 방식이 공존한다.
  *
  * 휴장일은 KIS API에서 미국 시장 휴장일 조회 엔드포인트를 찾지 못해(문서 접근 제한),
  * NYSE 공식 휴장일 규칙을 직접 계산한다 — 연도별로 날짜를 하드코딩하지 않고 매년 자동
@@ -113,10 +116,57 @@ export function getCurrentNyDateKey(): string {
 
 /**
  * 배치가 참조해야 할 미국 거래일과 그 날이 실제 거래일이었는지를 함께 반환한다. 이 배치는
- * 정규장이 EDT/EST 어느 쪽이든 이미 마감된 이후(KST 06:30 고정)에만 돌게 스케줄되므로,
- * "지금 뉴욕 날짜"가 곧 확정된 종가를 가진 거래일이다 — 날짜를 하루 밀 필요가 없다.
+ * 정규장 마감 1시간 전(동부시간 15:00)에 돌게 스케줄돼 있어, "지금 뉴욕 날짜"가 곧 오늘의
+ * 거래일이다 — 날짜를 하루 밀 필요가 없다.
  */
 export function getUsBatchTradingDate(): { dateKey: string; isTradingDay: boolean } {
   const dateKey = getCurrentNyDateKey();
   return { dateKey, isTradingDay: isNyseTradingDay(dateKey) };
+}
+
+/**
+ * 미국 동부시간이 서머타임(EDT)인지 날짜 계산으로 직접 판별한다(3월 둘째 일요일
+ * 00:00 ~ 11월 첫째 일요일 00:00 전, UTC 기준 날짜 단위 비교). Intl 타임존 변환에
+ * 기대는 대신 이 배치 전용으로 재사용 가능한 순수 함수로 분리해뒀다 — GitHub Actions
+ * cron이 서머타임/표준시 두 스케줄을 모두 등록해두고 이 함수로 오늘 어느 쪽이 맞는
+ * 스케줄인지 걸러내는 데 쓴다. 실제 전환 시각(현지 새벽 2시)까지 정밀하게 따지지 않는
+ * 이유는, 이 배치가 평일에만 도는데 전환일 자체가 항상 일요일이라 걸릴 일이 없어서다.
+ */
+export function isUsEasternDst(date: Date): boolean {
+  const year = date.getUTCFullYear();
+  const dstStart = nthWeekdayOfMonth(year, 2, 0, 2); // 3월(2) 둘째(2) 일요일(0)
+  const dstEnd = nthWeekdayOfMonth(year, 10, 0, 1); // 11월(10) 첫째(1) 일요일(0)
+  return date >= dstStart && date < dstEnd;
+}
+
+// 미국 정규장 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 맞춘 UTC 시각.
+// 서머타임(EDT, UTC-4)이면 UTC 19시, 표준시(EST, UTC-5)면 UTC 20시.
+const DST_TRIGGER_UTC_HOUR = 19;
+const STANDARD_TRIGGER_UTC_HOUR = 20;
+
+export interface UsBatchScheduleDecision {
+  shouldRun: boolean;
+  isDst: boolean;
+  expectedUtcHour: number;
+  currentUtcHour: number;
+  reason: string;
+}
+
+/**
+ * GitHub Actions cron은 고정 UTC 시각만 지원해 서머타임용(UTC 19시)·표준시용(UTC 20시)
+ * 두 스케줄을 모두 등록해둔다. 매 실행마다 이 함수로 오늘이 서머타임인지 판별해 예정된
+ * 시각에 걸린 실행만 통과시키고, 나머지 하나는 스킵한다.
+ */
+export function determineUsBatchSchedule(now: Date): UsBatchScheduleDecision {
+  const isDst = isUsEasternDst(now);
+  const expectedUtcHour = isDst ? DST_TRIGGER_UTC_HOUR : STANDARD_TRIGGER_UTC_HOUR;
+  const currentUtcHour = now.getUTCHours();
+  const shouldRun = currentUtcHour === expectedUtcHour;
+
+  const dstLabel = isDst ? "서머타임(EDT) 적용 기간" : "표준시(EST) 적용 기간";
+  const reason = shouldRun
+    ? `오늘은 ${dstLabel}이고 실행 시각(UTC ${currentUtcHour}시)이 예정 시각(UTC ${expectedUtcHour}시)과 일치해 실행합니다.`
+    : `오늘은 ${dstLabel}이라 예정 실행 시각은 UTC ${expectedUtcHour}시인데 지금은 UTC ${currentUtcHour}시라 건너뜁니다.`;
+
+  return { shouldRun, isDst, expectedUtcHour, currentUtcHour, reason };
 }

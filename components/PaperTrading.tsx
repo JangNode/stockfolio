@@ -467,6 +467,7 @@ function DetailScreen({
   market: Market;
 }) {
   const [style, setStyle] = useState<PaperStyle>("aggressive");
+  const [showConditions, setShowConditions] = useState(false);
   const portfolio = portfolios.find((p) => p.style === style);
   const active = strategies.find((s) => s.style === style && s.is_active);
   const holdings = positions.filter((p) => p.portfolio_id === portfolio?.id);
@@ -485,9 +486,18 @@ function DetailScreen({
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{formatDate(active.created_at)} 생성</p>
           <p className="mt-3 text-sm text-black dark:text-zinc-50">{active.rationale}</p>
 
-          <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-            <ConditionsSummary strategy={active} />
-          </div>
+          <button
+            onClick={() => setShowConditions((v) => !v)}
+            className="mt-3 text-xs font-medium text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            {showConditions ? "접기 ▲" : "조건 상세보기 ▼"}
+          </button>
+
+          {showConditions && (
+            <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+              <ConditionsSummary strategy={active} />
+            </div>
+          )}
         </div>
       )}
 
@@ -588,8 +598,11 @@ function TradeItem({
                 </span>
               )}
               <span className="font-medium text-black dark:text-zinc-50">
-                {trade.side === "buy" ? "매수" : "매도"} {trade.stock_name}({trade.stock_code}){" "}
-                {trade.quantity.toLocaleString("ko-KR")}주 @{formatPrice(trade.price, market)}
+                <span className={trade.side === "buy" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"}>
+                  {trade.side === "buy" ? "매수" : "매도"}
+                </span>{" "}
+                {trade.stock_name}({trade.stock_code}) {trade.quantity.toLocaleString("ko-KR")}주 @
+                {formatPrice(trade.price, market)}
               </span>
             </div>
             {trade.side === "sell" && trade.realized_pnl !== null && (

@@ -517,7 +517,6 @@ async function recordRun(
     scanned_count: scanned,
     matched_count: matched,
     error_count: errors,
-    market: "US",
   });
 
   if (error) {
@@ -525,39 +524,9 @@ async function recordRun(
   }
 }
 
-function todayKstDate(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
-}
-
-/** 오늘(KST) 이미 완료된 미국 스크리닝 실행 기록이 있는지 확인한다. 미실행 감지
- * Routine의 수동 재실행과 지연된 정규 스케줄 실행이 겹칠 때 중복 전종목 스캔(KIS
- * API 낭비)을 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와 동일한 패턴,
- * 날짜 기준도 그와 동일하게 KST 기준으로 맞춘다. */
-async function alreadyRanToday(): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("screening_runs")
-    .select("finished_at")
-    .eq("market", "US")
-    .order("finished_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`배치 실행 이력 조회 실패: ${error.message}`);
-  if (!data) return false;
-
-  const lastRunDate = new Date(data.finished_at).toLocaleDateString("en-CA", {
-    timeZone: "Asia/Seoul",
-  });
-  return lastRunDate === todayKstDate();
-}
-
 async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`미국주식 스크리닝 배치 시작: ${startedAt.toISOString()}`);
-
-  if (await alreadyRanToday()) {
-    console.log("오늘 미국 스크리닝 배치가 이미 실행된 기록이 있어 건너뜁니다(중복 스캔 방지).");
-    return;
-  }
 
   // .github/workflows/screening-us.yml은 서머타임용(UTC 19시)·표준시용(UTC 20시) 크론을
   // 둘 다 등록해뒀다(정규장 마감 1시간 전인 동부시간 15:00을 노린 것). 그래서 평일마다

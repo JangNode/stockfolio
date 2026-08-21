@@ -517,11 +517,38 @@ async function recordRun(
     scanned_count: scanned,
     matched_count: matched,
     error_count: errors,
+    market: "US",
   });
 
   if (error) {
     console.error(`실행 기록 저장 실패: ${error.message}`);
   }
+}
+
+function todayKstDate(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+/** 오늘(KST) 이미 완료된 미국 스크리닝 실행 기록이 있는지 확인한다. 지연 도착한 정규
+ * 스케줄(schedule) 트리거가 당일 이미 끝난 실행과 중복으로 전종목을 재스캔(KIS API
+ * 낭비)하는 걸 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와 동일한 패턴,
+ * 날짜 기준도 그와 동일하게 KST 기준으로 맞춘다. workflow_dispatch(수동 실행)는 이
+ * 가드의 영향을 받지 않는다 — 호출부에서 isScheduledRun일 때만 이 함수를 부른다. */
+async function alreadyRanToday(): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("screening_runs")
+    .select("finished_at")
+    .eq("market", "US")
+    .order("finished_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`배치 실행 이력 조회 실패: ${error.message}`);
+  if (!data) return false;
+
+  const lastRunDate = new Date(data.finished_at).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Seoul",
+  });
+  return lastRunDate === todayKstDate();
 }
 
 async function main(): Promise<void> {
@@ -537,6 +564,15 @@ async function main(): Promise<void> {
     const schedule = determineUsBatchSchedule(startedAt, process.env.GITHUB_EVENT_SCHEDULE);
     console.log(schedule.reason);
     if (!schedule.shouldRun) {
+      return;
+    }
+
+    // 지연 도착한 스케줄 트리거가 당일 이미 끝난(수동 포함) 실행과 중복으로 돌지 않도록
+    // 한 번 더 가드한다. workflow_dispatch는 이 블록 자체를 타지 않으므로 항상 진행된다.
+    if (await alreadyRanToday()) {
+      console.log(
+        "오늘 미국 스크리닝 배치가 이미 실행된 기록이 있어 건너뜁니다(중복 스캔 방지)."
+      );
       return;
     }
   }

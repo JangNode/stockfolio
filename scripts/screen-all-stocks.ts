@@ -603,7 +603,6 @@ async function recordRun(
     scanned_count: scanned,
     matched_count: matched,
     error_count: errors,
-    market: "KR",
   });
 
   if (error) {
@@ -611,38 +610,9 @@ async function recordRun(
   }
 }
 
-function todayKstDate(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
-}
-
-/** 오늘(KST) 이미 완료된 국내 스크리닝 실행 기록이 있는지 확인한다. 미실행 감지
- * Routine의 수동 재실행과 지연된 정규 스케줄 실행이 겹칠 때 중복 전종목 스캔(KIS
- * API 낭비)을 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와 동일한 패턴. */
-async function alreadyRanToday(): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("screening_runs")
-    .select("finished_at")
-    .eq("market", "KR")
-    .order("finished_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`배치 실행 이력 조회 실패: ${error.message}`);
-  if (!data) return false;
-
-  const lastRunDate = new Date(data.finished_at).toLocaleDateString("en-CA", {
-    timeZone: "Asia/Seoul",
-  });
-  return lastRunDate === todayKstDate();
-}
-
 async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`스크리닝 배치 시작: ${startedAt.toISOString()}`);
-
-  if (await alreadyRanToday()) {
-    console.log("오늘 국내 스크리닝 배치가 이미 실행된 기록이 있어 건너뜁니다(중복 스캔 방지).");
-    return;
-  }
 
   const strategies = await loadStrategies();
   console.log(`등록된 전략 수: ${strategies.length}`);

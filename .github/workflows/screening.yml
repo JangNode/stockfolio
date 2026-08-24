@@ -50,3 +50,13 @@ jobs:
           PAPER_TRADE_MARKET: KR
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 로그성 배치 실행 기록(screening_runs, paper_runs) 정리. screening_runs는 국내/미국
+      # 공용 테이블이라 하루 한 번(이 워크플로에서)만 정리하면 충분하다 — screening-us.yml에는
+      # 중복으로 추가하지 않는다. 며칠 늦게 돌아도 해가 없는 작업이라 이 스텝 자체의
+      # 실패/미실행에 대한 별도 감지는 두지 않는다.
+      - name: Clean up old batch run logs
+        run: npm run cleanup:logs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

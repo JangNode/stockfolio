@@ -1,0 +1,38 @@
+name: Custom Backtest
+
+# "실험실" 탭 API 라우트(app/api/lab/backtest/route.ts)가 GITHUB_ACTIONS_DISPATCH_TOKEN으로
+# 이 워크플로를 트리거한다. 스케줄은 없다 — 사용자가 백테스트를 요청할 때마다 1회 실행.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "custom_backtest_runs.id"
+        required: true
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # 전체 종목 풀 조회 + 백테스트라 일간 스크리닝 배치와 비슷한 시간이 걸릴 수 있다.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run custom backtest
+        run: npm run run:custom-backtest
+        env:
+          CUSTOM_BACKTEST_RUN_ID: ${{ inputs.run_id }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

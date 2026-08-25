@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/useSession";
 import Watchlist from "@/components/Watchlist";
 import MarketSummary from "@/components/MarketSummary";
-import NavBar from "@/components/NavBar";
+import AppHeader from "@/components/AppHeader";
 import ApprovalNotice from "@/components/ApprovalNotice";
 
 export default function Home() {
@@ -20,7 +19,6 @@ export default function Home() {
     user,
     status,
     isApproved,
-    isAdmin,
     profileError,
     loading: sessionLoading,
   } = useSession();
@@ -48,52 +46,9 @@ export default function Home() {
     setLoading(false);
   };
 
-  const handleSignOut = async () => {
-    setLoading(true);
-    setMessage("");
-    const { error } = await supabase.auth.signOut();
-    setMessage(error ? error.message : "");
-    setLoading(false);
-  };
-
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="flex flex-col gap-3 border-b border-black/[.08] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 dark:border-white/[.145]">
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 sm:justify-start">
-          <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
-            Stockfolio
-          </h1>
-          <NavBar />
-        </div>
-        {user && (
-          <div className="flex items-center justify-between gap-3 sm:justify-end">
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
-              >
-                관리자
-              </Link>
-            )}
-            <Link
-              href="/settings"
-              className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
-            >
-              설정
-            </Link>
-            <span className="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400">
-              {user.email}
-            </span>
-            <button
-              onClick={handleSignOut}
-              disabled={loading}
-              className="h-9 shrink-0 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
-            >
-              로그아웃
-            </button>
-          </div>
-        )}
-      </header>
+      <AppHeader />
 
       <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
         {sessionLoading ? (

@@ -327,6 +327,29 @@ export function computeMaxDrawdownPct(trades: BacktestTrade[]): number {
   return maxDrawdown * 100;
 }
 
+export interface TradeAggregate {
+  totalReturnPct: number;
+  tradeCount: number;
+  winRate: number;
+  mddPct: number;
+}
+
+/**
+ * 거래 목록의 요약 통계(전체 수익률/거래 수/승률/MDD)를 계산한다. buyDate 순으로 복리
+ * 체결한다고 가정한다. runBacktest(단일 종목)와 전체 종목 풀 백테스트(여러 종목의 거래를
+ * 하나로 합쳐 같은 방식으로 집계) 양쪽에서 재사용한다.
+ */
+export function aggregateTrades(trades: BacktestTrade[]): TradeAggregate {
+  const tradeCount = trades.length;
+  const wins = trades.filter((t) => t.returnPct > 0).length;
+  const winRate = tradeCount > 0 ? wins / tradeCount : 0;
+  const sorted = [...trades].sort((a, b) => a.buyDate.localeCompare(b.buyDate));
+  const totalReturnPct = (sorted.reduce((acc, t) => acc * (1 + t.returnPct), 1) - 1) * 100;
+  const mddPct = computeMaxDrawdownPct(trades);
+
+  return { totalReturnPct, tradeCount, winRate, mddPct };
+}
+
 /**
  * 조건을 만족하기 시작하는 시점마다 매수, 더 이상 만족하지 않게 되는 시점마다 매도하는
  * 단일 포지션 시뮬레이션. ma_cross는 골든/데드크로스, minervini_trend_template은 7개
@@ -367,15 +390,7 @@ export function runBacktest(
     }
   }
 
-  const tradeCount = trades.length;
-  const wins = trades.filter((t) => t.returnPct > 0).length;
-  const winRate = tradeCount > 0 ? wins / tradeCount : 0;
-  const totalReturnPct =
-    (trades.reduce((acc, t) => acc * (1 + t.returnPct), 1) - 1) * 100;
-
-  const mddPct = computeMaxDrawdownPct(trades);
-
-  return { trades, totalReturnPct, tradeCount, winRate, mddPct, insufficientData: false };
+  return { trades, ...aggregateTrades(trades), insufficientData: false };
 }
 
 /**

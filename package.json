@@ -10,7 +10,8 @@
     "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts",
     "screen:us-stocks": "tsx --conditions=react-server scripts/screen-us-stocks.ts",
     "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts",
-    "cleanup:logs": "tsx --conditions=react-server scripts/cleanup-logs.ts"
+    "cleanup:logs": "tsx --conditions=react-server scripts/cleanup-logs.ts",
+    "run:custom-backtest": "tsx --conditions=react-server scripts/run-custom-backtest.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

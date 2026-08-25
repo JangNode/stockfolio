@@ -3,8 +3,10 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { z } from "zod";
 
-export type PaperStyle = "aggressive" | "conservative";
-export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative"];
+// 'custom'은 라우틴이 아니라 실험실 탭의 채택 플로우(app/api/lab/backtest/[id]/adopt)가
+// 직접 채워 넣는다 — data/paper-strategies/custom.json 파일은 존재하지 않는다.
+export type PaperStyle = "aggressive" | "conservative" | "custom";
+export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
 
 // 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite)이 만들어내는
 // rule_type과 동일한 값. 새 원 전략이 추가되면 여기도 같이 늘어난다. custom_composite는

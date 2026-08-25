@@ -14,7 +14,7 @@ export interface ScreeningCandidateRow {
   screeningResultId: string;
   stockCode: string;
   stockName: string;
-  ruleType: "ma_cross" | "minervini_trend_template";
+  ruleType: "ma_cross" | "minervini_trend_template" | "custom_composite";
   returnPct: number;
   currentPrice: number;
   market: Market;
@@ -56,6 +56,7 @@ export interface BuyDecision {
 const STYLE_LABEL: Record<PaperStyle, string> = {
   aggressive: "공격형",
   conservative: "안정형",
+  custom: "커스텀",
 };
 
 /**

@@ -114,7 +114,19 @@ function MatchedStockTrades({ trades, market }: { trades: BacktestTrade[]; marke
   );
 }
 
-function RunResultPanel({ run, result }: { run: RunRow; result: { matchedStocks: MatchedStock[] } | null }) {
+function RunResultPanel({
+  run,
+  result,
+  onAdopt,
+  adopting,
+  adoptError,
+}: {
+  run: RunRow;
+  result: { matchedStocks: MatchedStock[] } | null;
+  onAdopt: () => void;
+  adopting: boolean;
+  adoptError: string;
+}) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
 
   if (run.status === "pending" || run.status === "running") {
@@ -169,6 +181,23 @@ function RunResultPanel({ run, result }: { run: RunRow; result: { matchedStocks:
           <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{run.trade_count ?? 0}건</dd>
         </div>
       </dl>
+
+      <div className="flex flex-wrap items-center gap-3 border-b border-black/[.08] py-4 dark:border-white/[.145]">
+        {run.adopted_at ? (
+          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
+            AI 모의투자(커스텀)로 채택됨
+          </span>
+        ) : (
+          <button
+            onClick={onAdopt}
+            disabled={adopting}
+            className="h-9 rounded-full bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
+          >
+            {adopting ? "채택 중..." : "이 조건을 AI 모의투자(커스텀)로 채택"}
+          </button>
+        )}
+        {adoptError && <p className="text-sm text-blue-600 dark:text-blue-400">{adoptError}</p>}
+      </div>
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -238,13 +267,15 @@ export default function StrategyLab({}: { user: User }) {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [viewRunId, setViewRunId] = useState<string | null>(null);
+  const [adopting, setAdopting] = useState(false);
+  const [adoptError, setAdoptError] = useState("");
 
   const { data: runsData, mutate: mutateRuns } = useSWR(
     ["lab-backtest-runs"],
     () => authJsonFetcher<{ runs: RunRow[] }>("/api/lab/backtest")
   );
 
-  const { data: viewData, isLoading: viewLoading } = useSWR(
+  const { data: viewData, isLoading: viewLoading, mutate: mutateView } = useSWR(
     viewRunId ? ["lab-backtest-run", viewRunId] : null,
     () => authJsonFetcher<RunDetailResponse>(`/api/lab/backtest/${viewRunId}`),
     {
@@ -255,6 +286,26 @@ export default function StrategyLab({}: { user: User }) {
       },
     }
   );
+
+  const handleAdopt = async () => {
+    if (!viewRunId) return;
+    setAdoptError("");
+    setAdopting(true);
+    try {
+      const res = await authFetch(`/api/lab/backtest/${viewRunId}/adopt`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdoptError(data.error ?? "채택에 실패했습니다.");
+        return;
+      }
+      mutateView();
+      mutateRuns();
+    } catch {
+      setAdoptError("채택 요청 중 오류가 발생했습니다.");
+    } finally {
+      setAdopting(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setErrorMsg("");
@@ -453,7 +504,13 @@ export default function StrategyLab({}: { user: User }) {
           {viewLoading && !viewData ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
           ) : viewData ? (
-            <RunResultPanel run={viewData.run} result={viewData.result} />
+            <RunResultPanel
+              run={viewData.run}
+              result={viewData.result}
+              onAdopt={handleAdopt}
+              adopting={adopting}
+              adoptError={adoptError}
+            />
           ) : null}
         </div>
       )}

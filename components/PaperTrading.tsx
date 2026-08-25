@@ -7,13 +7,14 @@ import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice, type Market } from "@/lib/market";
 
-type PaperStyle = "aggressive" | "conservative";
+type PaperStyle = "aggressive" | "conservative" | "custom";
 type SubScreen = "overview" | "detail" | "trades" | "history";
 
-const STYLES: PaperStyle[] = ["aggressive", "conservative"];
+const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
 const STYLE_LABEL: Record<PaperStyle, string> = {
   aggressive: "공격형",
   conservative: "안정형",
+  custom: "커스텀",
 };
 
 const SUB_SCREENS: { value: SubScreen; label: string }[] = [
@@ -357,7 +358,7 @@ function OverviewScreen({
   const today = todayKstDate();
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {STYLES.map((style) => {
         const portfolio = portfolios.find((p) => p.style === style);
         const styleSnapshots = snapshots.filter((s) => s.portfolio_id === portfolio?.id);

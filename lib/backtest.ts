@@ -300,7 +300,31 @@ export interface BacktestResult {
   totalReturnPct: number;
   tradeCount: number;
   winRate: number;
+  mddPct: number;
   insufficientData: boolean;
+}
+
+/**
+ * 최대 낙폭(MDD, %). buyDate 기준 순서대로 거래를 복리 체결한다고 가정한 자산 곡선에서
+ * 고점 대비 최대 하락폭을 구한다. 종목 여러 개의 거래를 합쳐서 넘겨도(전체 종목 풀
+ * 백테스트) buyDate로 정렬해 하나의 자산 곡선으로 취급하므로 그대로 재사용할 수 있다.
+ */
+export function computeMaxDrawdownPct(trades: BacktestTrade[]): number {
+  if (trades.length === 0) return 0;
+
+  const sorted = [...trades].sort((a, b) => a.buyDate.localeCompare(b.buyDate));
+  let equity = 1;
+  let peak = 1;
+  let maxDrawdown = 0;
+
+  for (const trade of sorted) {
+    equity *= 1 + trade.returnPct;
+    if (equity > peak) peak = equity;
+    const drawdown = (peak - equity) / peak;
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+  }
+
+  return maxDrawdown * 100;
 }
 
 /**
@@ -319,7 +343,7 @@ export function runBacktest(
   const states = computeStates(prices, rule);
 
   if (states.every((s) => s === undefined)) {
-    return { trades: [], totalReturnPct: 0, tradeCount: 0, winRate: 0, insufficientData: true };
+    return { trades: [], totalReturnPct: 0, tradeCount: 0, winRate: 0, mddPct: 0, insufficientData: true };
   }
 
   const signals = detectStateTransitions(prices, states).filter((s) => s.date >= windowStartDate);
@@ -349,7 +373,9 @@ export function runBacktest(
   const totalReturnPct =
     (trades.reduce((acc, t) => acc * (1 + t.returnPct), 1) - 1) * 100;
 
-  return { trades, totalReturnPct, tradeCount, winRate, insufficientData: false };
+  const mddPct = computeMaxDrawdownPct(trades);
+
+  return { trades, totalReturnPct, tradeCount, winRate, mddPct, insufficientData: false };
 }
 
 /**

@@ -629,11 +629,20 @@ export async function getIntradayBars(
       rows.set(`${row.stck_bsop_date}${row.stck_cntg_hour}`, row);
     }
 
-    const earliest = batch[batch.length - 1];
-    if (earliest.stck_cntg_hour <= MARKET_OPEN_HHMMSS) break;
+    // 일봉 API(inquire-daily-itemchartprice)는 "최신→과거" 순서가 문서로 확인됐지만,
+    // 분봉 API(inquire-time-itemchartprice)는 라이브 계정으로 검증할 방법이 없어 같은
+    // 가정을 재사용할 수 없다. batch[batch.length - 1]을 가장 과거로 가정했더니(구 로직)
+    // 실제 응답이 과거→최신 순일 경우 커서가 전진하지 못하고 최근 30분만 반복 조회되는
+    // 버그가 있었다("관심종목 10분봉에서 13시 이전 데이터가 안 보임"). 정렬 방향과
+    // 무관하게 안전하도록 배치 안에서 가장 이른 시각을 직접 계산한다.
+    const earliestHour = batch.reduce(
+      (min, row) => (row.stck_cntg_hour < min ? row.stck_cntg_hour : min),
+      batch[0].stck_cntg_hour
+    );
+    if (earliestHour <= MARKET_OPEN_HHMMSS) break;
     if (batch.length < 30) break; // 30건 미만이면 그날의 첫 데이터까지 다 받은 것
 
-    cursor = earliest.stck_cntg_hour;
+    cursor = earliestHour;
   }
 
   // 장 시작 근처의 마지막 페이지는 그날 데이터가 30건이 안 될 때 KIS가 전날

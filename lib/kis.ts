@@ -528,6 +528,12 @@ interface InquireTimeChartPriceResponse extends KisResponse {
 }
 
 const MARKET_OPEN_HHMMSS = "090000";
+// 시간외 단일가 마감 근처. 이 시각 이후로는 KIS가 직전 종가를 그대로 채운
+// 의미 없는 데이터를 내려준다 — 조회 시작 커서를 여기서 더 늦추지 않는다
+// (아래 MAX_MINUTE_PAGES 산정 근거이기도 하다: 밤에 조회해도 여기서 캡을
+// 씌우지 않으면 09:00~18:00 실거래 구간에 쓸 페이지가 부족해져, 그날 늦은
+// 시각에 조회할수록 장 초반 데이터가 누락되는 버그가 있었다).
+const MARKET_DAY_END_HHMMSS = "180000";
 // 페이지당 30분씩, 장 시작(09:00)부터 시간외 단일가(~18:00)까지 총 9시간을
 // 전부 모으려면 최소 18페이지가 필요하다. 여유를 두고 20으로 잡는다 — 그보다
 // 일찍 끝나는 건 문제없다(장 시작이나 그날의 첫 데이터에서 자연히 멈춘다).
@@ -613,7 +619,12 @@ export async function getIntradayBars(
   const accessToken = await getAccessToken();
 
   const rows = new Map<string, InquireTimeChartPriceResponse["output2"][number]>();
+  // 시간외 단일가 마감(18:00) 이후 조회하면, 그 이후 시각은 KIS가 직전 종가를
+  // 그대로 채운 의미 없는 데이터라 시작 커서를 18:00으로 캡을 씌운다 — 안 그러면
+  // 그 무의미한 구간에도 페이지를 소모해 정작 09:00~18:00 실거래 구간을 다
+  // 못 모으고 페이지 한도(MAX_MINUTE_PAGES)에 먼저 도달해버린다.
   let cursor = getCurrentKstHHMMSS();
+  if (cursor > MARKET_DAY_END_HHMMSS) cursor = MARKET_DAY_END_HHMMSS;
 
   for (let page = 0; page < MAX_MINUTE_PAGES; page++) {
     const batch = await fetchMinuteBarPage(

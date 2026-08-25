@@ -27,10 +27,27 @@ export interface MinerviniParams {
   take_profit_pct?: number;
 }
 
+/**
+ * 사용자가 직접 고른 조건들을 AND로 조합하는 커스텀 전략. 각 필드는 선택 사항이며,
+ * 지정된 필드끼리만 모두 만족해야 참으로 판정한다(최소 1개 이상 지정돼야 의미가 있다 —
+ * 검증은 이 값을 만드는 쪽(스키마/UI)의 책임이다).
+ */
+export interface CustomCompositeParams {
+  // 골든크로스 상태: 단기 이평선이 장기 이평선 위에 있는 동안 참(교차 "순간"이 아니라
+  // 상태 조건으로 다뤄야 다른 조건과 매일 AND로 조합할 수 있다).
+  ma_cross?: { short_period: number; long_period: number };
+  rsi?: { period: number; threshold: number; direction: "above" | "below" };
+  // 당일 거래량이 최근 period일 평균 거래량의 multiplier배 이상이면 참.
+  volume_surge?: { period: number; multiplier: number };
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+}
+
 /** rule_type과 rule_params를 항상 짝으로 다루기 위한 판별 유니언. */
 export type StrategyRule =
   | { rule_type: "ma_cross"; rule_params: MaCrossParams }
-  | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams };
+  | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams }
+  | { rule_type: "custom_composite"; rule_params: CustomCompositeParams };
 
 export type StrategyRuleType = StrategyRule["rule_type"];
 
@@ -146,6 +163,99 @@ function computeMinerviniStates(
   });
 }
 
+/** Wilder's smoothing 방식 RSI(0~100). length - period 이전 인덱스는 undefined. */
+export function computeRSI(closes: number[], period: number): (number | undefined)[] {
+  const result: (number | undefined)[] = new Array(closes.length).fill(undefined);
+  if (closes.length <= period) return result;
+
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gainSum += diff;
+    else lossSum += -diff;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  result[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    result[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+
+  return result;
+}
+
+/**
+ * custom_composite: 지정된 조건들(ma_cross/rsi/volume_surge)을 매일 재평가해 모두
+ * 만족하면 참인 상태 조건. 지정되지 않은 조건은 판정에서 제외된다. 조건이 하나도
+ * 지정되지 않으면 항상 undefined(데이터 부족과 동일하게 취급 — 매칭 없음).
+ */
+function computeCustomCompositeStates(
+  prices: DailyPrice[],
+  params: CustomCompositeParams
+): (boolean | undefined)[] {
+  const closes = prices.map((p) => p.close);
+  const volumes = prices.map((p) => p.volume);
+  const activeStates: (boolean | undefined)[][] = [];
+
+  if (params.ma_cross) {
+    const { short_period, long_period } = params.ma_cross;
+    const shortSMA = computeSMA(closes, short_period);
+    const longSMA = computeSMA(closes, long_period);
+    activeStates.push(
+      prices.map((_, i) => {
+        const s = shortSMA[i];
+        const l = longSMA[i];
+        if (s === undefined || l === undefined) return undefined;
+        return s > l;
+      })
+    );
+  }
+
+  if (params.rsi) {
+    const { period, threshold, direction } = params.rsi;
+    const rsi = computeRSI(closes, period);
+    activeStates.push(
+      rsi.map((v) => {
+        if (v === undefined) return undefined;
+        return direction === "above" ? v >= threshold : v <= threshold;
+      })
+    );
+  }
+
+  if (params.volume_surge) {
+    const { period, multiplier } = params.volume_surge;
+    const avgVolume = computeSMA(volumes, period);
+    activeStates.push(
+      prices.map((_, i) => {
+        const avg = avgVolume[i];
+        if (avg === undefined) return undefined;
+        return volumes[i] >= avg * multiplier;
+      })
+    );
+  }
+
+  if (activeStates.length === 0) {
+    return prices.map(() => undefined);
+  }
+
+  return prices.map((_, i) => {
+    let allTrue = true;
+    for (const state of activeStates) {
+      const v = state[i];
+      if (v === undefined) return undefined;
+      if (!v) allTrue = false;
+    }
+    return allTrue;
+  });
+}
+
 /**
  * 전략의 판정 방식.
  * - "event": 교차처럼 순간적으로 발생하는 신호. 오늘 막 발생했는지(직전엔 거짓 → 오늘 참)만 인정.
@@ -155,6 +265,7 @@ function computeMinerviniStates(
 const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   ma_cross: "event",
   minervini_trend_template: "state",
+  custom_composite: "state",
 };
 
 /**
@@ -171,6 +282,8 @@ function computeStates(prices: DailyPrice[], rule: StrategyRule): (boolean | und
       return computeMinerviniStates(prices, rule.rule_params);
     case "ma_cross":
       return computeMaCrossStates(prices, rule.rule_params);
+    case "custom_composite":
+      return computeCustomCompositeStates(prices, rule.rule_params);
   }
 }
 
@@ -287,6 +400,14 @@ function computeMinerviniEntryPrice(prices: DailyPrice[]): number {
 }
 
 /**
+ * custom_composite도 minervini와 마찬가지로 상태 조건(이미 조건을 만족한 채로 매칭될 수
+ * 있음)이라 같은 방식(최근 20거래일 고점 돌파가)을 진입가로 쓴다.
+ */
+function computeCustomCompositeEntryPrice(prices: DailyPrice[]): number {
+  return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
+}
+
+/**
  * 신호가 발생한 시점의 진입/손절/익절가를 계산한다. 손절가/익절가는 rule_params의
  * stop_loss_pct/take_profit_pct(기본 7%/20%)를 진입가 위에 적용한다. 진입가 자체는
  * 전략마다 성격이 달라 computeXEntryPrice로 분리돼 있다 (위 computeStates 디스패치와
@@ -303,6 +424,9 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       break;
     case "ma_cross":
       entryPrice = computeMaCrossEntryPrice(prices);
+      break;
+    case "custom_composite":
+      entryPrice = computeCustomCompositeEntryPrice(prices);
       break;
   }
 

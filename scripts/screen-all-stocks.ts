@@ -131,8 +131,12 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
   for (const strategy of strategies) {
     if (strategy.rule_type === "minervini_trend_template") {
       target = Math.max(target, MINERVINI_DAILY_TARGET_ROWS);
-    } else {
+    } else if (strategy.rule_type === "ma_cross") {
       target = Math.max(target, strategy.rule_params.long_period + 20);
+    } else {
+      const { ma_cross, rsi, volume_surge } = strategy.rule_params;
+      const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
+      target = Math.max(target, maxPeriod + 20);
     }
   }
 

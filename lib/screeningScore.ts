@@ -1,5 +1,6 @@
 import { computeSMA } from "@/lib/sma";
-import type { DailyPrice, StrategyRule } from "@/lib/backtest";
+import { computeRSI } from "@/lib/backtest";
+import type { CustomCompositeParams, DailyPrice, StrategyRule } from "@/lib/backtest";
 
 // 배점: 조건 충족도(40) + 추세 강도(25) + 거래량 신뢰도(20) + 안정성(15) = 100.
 const CONDITION_WEIGHT = 40;
@@ -18,10 +19,53 @@ const MA_CROSS_GAP_FULL_SCORE_PCT = 3; // 단기·장기 이평선이 3% 이상 
 const MINERVINI_MARGIN_FULL_SCORE_PCT = 5; // 현재가가 이평선들보다 평균 5% 이상 높으면 만점
 const TREND_SLOPE_FULL_SCORE_PCT = 10; // 장기 이평선이 20거래일 전보다 10% 이상 올랐으면 만점
 const VOLATILITY_FULL_PENALTY_PCT = 5; // 최근 일간 변동성 표준편차가 5% 이상이면 안정성 0점
+const RSI_MARGIN_FULL_SCORE = 10; // RSI가 임계값보다 10 이상 여유 있으면 해당 조건 만점
+const VOLUME_SURGE_MARGIN_FULL_SCORE = 1; // 실제 거래량 배율이 요구 배율보다 1배 이상 더 크면 해당 조건 만점
+const CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS = 20; // 어떤 조건도 지정되지 않았을 때 쓸 최소 기준 봉 수
 
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * custom_composite 조건 충족도: 지정된 조건(ma_cross/rsi/volume_surge)별로 "얼마나 여유
+ * 있게 만족하는지"를 0~1로 정규화한 뒤 평균한다. 지정되지 않은 조건은 평균에서 제외한다.
+ */
+function computeCustomCompositeConditionScore(prices: DailyPrice[], params: CustomCompositeParams): number {
+  const closes = prices.map((p) => p.close);
+  const volumes = prices.map((p) => p.volume);
+  const i = prices.length - 1;
+  const subScores: number[] = [];
+
+  if (params.ma_cross) {
+    const shortSMA = computeSMA(closes, params.ma_cross.short_period)[i];
+    const longSMA = computeSMA(closes, params.ma_cross.long_period)[i];
+    if (shortSMA !== undefined && longSMA !== undefined && longSMA !== 0) {
+      const gapPct = ((shortSMA - longSMA) / longSMA) * 100;
+      subScores.push(clamp01(gapPct / MA_CROSS_GAP_FULL_SCORE_PCT));
+    }
+  }
+
+  if (params.rsi) {
+    const rsiValue = computeRSI(closes, params.rsi.period)[i];
+    if (rsiValue !== undefined) {
+      const marginPct = params.rsi.direction === "above" ? rsiValue - params.rsi.threshold : params.rsi.threshold - rsiValue;
+      subScores.push(clamp01(marginPct / RSI_MARGIN_FULL_SCORE));
+    }
+  }
+
+  if (params.volume_surge) {
+    const avgVolume = computeSMA(volumes, params.volume_surge.period)[i];
+    if (avgVolume !== undefined && avgVolume > 0) {
+      const actualRatio = volumes[i] / avgVolume;
+      subScores.push(clamp01((actualRatio - params.volume_surge.multiplier) / VOLUME_SURGE_MARGIN_FULL_SCORE));
+    }
+  }
+
+  if (subScores.length === 0) return 0;
+  const avgScore = subScores.reduce((a, b) => a + b, 0) / subScores.length;
+  return avgScore * CONDITION_WEIGHT;
 }
 
 /** 조건 충족도: ma_cross는 골든크로스 직후 단기·장기 이평선 격차, minervini는 현재가와 이평선들 사이 이격도. */
@@ -39,6 +83,10 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
     return clamp01(gapPct / MA_CROSS_GAP_FULL_SCORE_PCT) * CONDITION_WEIGHT;
   }
 
+  if (rule.rule_type === "custom_composite") {
+    return computeCustomCompositeConditionScore(prices, rule.rule_params);
+  }
+
   // minervini_trend_template: 현재가가 단/중/장기 이평선을 얼마나 여유 있게 웃도는지 평균 이격도.
   const { ma_short, ma_mid, ma_long } = rule.rule_params;
   const price = closes[i];
@@ -54,7 +102,16 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
 }
 
 function referenceLongPeriod(rule: StrategyRule): number {
-  return rule.rule_type === "ma_cross" ? rule.rule_params.long_period : rule.rule_params.ma_long;
+  if (rule.rule_type === "ma_cross") return rule.rule_params.long_period;
+  if (rule.rule_type === "minervini_trend_template") return rule.rule_params.ma_long;
+
+  const { ma_cross, rsi, volume_surge } = rule.rule_params;
+  return Math.max(
+    ma_cross?.long_period ?? 0,
+    rsi?.period ?? 0,
+    volume_surge?.period ?? 0,
+    CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS
+  );
 }
 
 /** 52주(250거래일) 신고가 근접도(60%) + 장기 이평선 상승 기울기(40%). */

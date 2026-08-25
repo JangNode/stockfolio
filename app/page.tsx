@@ -75,6 +75,12 @@ export default function Home() {
                 관리자
               </Link>
             )}
+            <Link
+              href="/settings"
+              className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+            >
+              설정
+            </Link>
             <span className="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400">
               {user.email}
             </span>

@@ -12,8 +12,8 @@ import { MARKET_LABELS, type Market } from "@/lib/market";
 const LINKS = [
   { href: "/", label: "관심종목", activePaths: ["/"] },
   { href: "/strategies", label: "전략 관리", activePaths: ["/strategies", "/backtest"] },
-  { href: "/lab", label: "실험실", activePaths: ["/lab", "/paper-trading"] },
   { href: "/screening", label: "스크리닝", activePaths: ["/screening"] },
+  { href: "/paper-trading", label: "실험실", activePaths: ["/lab", "/paper-trading"] },
 ] as const;
 
 const MARKET_TABS: Market[] = ["KR", "US"];

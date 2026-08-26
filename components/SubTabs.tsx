@@ -42,6 +42,6 @@ export const STRATEGY_BACKTEST_TABS: SubTab[] = [
 ];
 
 export const LAB_PAPER_TRADING_TABS: SubTab[] = [
-  { href: "/lab", label: "커스텀 백테스트" },
   { href: "/paper-trading", label: "AI 모의투자" },
+  { href: "/lab", label: "커스텀 백테스트" },
 ];

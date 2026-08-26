@@ -36,6 +36,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 유통주식수(stockTotqySttus)/지배주주순이익(fnlttSinglAcntAll)은 다중회사 조회를
+// 지원하지 않아 종목당 개별 호출이 필요하다 — 순차 처리하면 대형주 300개 기준으로
+// 배치가 30분 타임아웃을 넘겨버린 전례가 있어(2026-08-26), scripts/*.ts의 KIS
+// 동시성 호출과 같은 패턴으로 병렬 처리한다.
+const SHARES_AND_INCOME_CONCURRENCY = 10;
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let nextIndex = 0;
+
+  async function runOne(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      await worker(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runOne));
+}
+
 function getDartApiKey(): string {
   const key = process.env.DART_API_KEY;
   if (!key) throw new Error("DART_API_KEY 환경 변수가 설정되지 않았습니다.");
@@ -599,13 +619,20 @@ export async function syncFinancialStatements(
 
     const rowsToUpsert: Record<string, unknown>[] = [];
     const stillMissing: StockCorpPair[] = [];
+    const toProcess: StockCorpPair[] = [];
 
     for (const stock of remaining) {
       const items = byCorp.get(stock.corpCode);
       if (!items || items.length === 0) {
         stillMissing.push(stock);
-        continue;
+      } else {
+        toProcess.push(stock);
       }
+    }
+
+    await runWithConcurrency(toProcess, SHARES_AND_INCOME_CONCURRENCY, async (stock) => {
+      const items = byCorp.get(stock.corpCode);
+      if (!items) return;
 
       const shares = await resolveSharesOutstanding(stock, bsnsYear, sharesOutstandingStats);
       const controllingNetIncome = await fetchControllingNetIncome(stock.corpCode, bsnsYear);
@@ -638,7 +665,7 @@ export async function syncFinancialStatements(
           fetched_at: new Date().toISOString(),
         });
       }
-    }
+    });
 
     if (rowsToUpsert.length > 0) {
       await supabaseAdmin

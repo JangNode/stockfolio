@@ -12,9 +12,11 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # 전종목 시가총액 조회(KIS) + 대형주 재무제표/배당 이력 조회(DART)를 합쳐도 대형주
-    # 규모(수백 개)를 감안하면 넉넉한 상한.
-    timeout-minutes: 30
+    # 유통주식수/지배주주순이익을 DART에서 종목당 개별(비동시성) 호출로 새로 받아오면서
+    # (2026-08-26) 30분으로는 부족해져 늘렸다 — 실측: 300개 종목 시가총액 필터링에만
+    # 3.5분, 그 뒤 재무제표 갱신 단계가 30분을 넘겨도 안 끝나 타임아웃으로 취소된 전례가
+    # 있다(다음 배치 실행 로그로 실제 소요 시간을 확인해 더 조정할 수 있음).
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

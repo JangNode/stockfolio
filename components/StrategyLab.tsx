@@ -129,7 +129,6 @@ function RunResultPanel({
   adoptError: string;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
-  const { setMarket } = useMarket();
 
   if (run.status === "pending" || run.status === "running") {
     return (
@@ -186,18 +185,9 @@ function RunResultPanel({
 
       <div className="flex flex-wrap items-center gap-3 border-b border-black/[.08] py-4 dark:border-white/[.145]">
         {run.adopted_at ? (
-          <>
-            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
-              AI 모의투자(커스텀)로 채택됨
-            </span>
-            <Link
-              href="/paper-trading"
-              onClick={() => setMarket(run.market)}
-              className="h-9 flex items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
-            >
-              AI 모의투자에서 확인하기
-            </Link>
-          </>
+          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
+            AI 모의투자(커스텀)로 채택됨
+          </span>
         ) : (
           <button
             onClick={onAdopt}
@@ -357,6 +347,16 @@ export default function StrategyLab({}: { user: User }) {
 
   return (
     <div className="w-full max-w-4xl">
+      <div className="mb-4 flex items-center gap-4 text-sm">
+        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">커스텀 백테스트</span>
+        <Link
+          href="/paper-trading"
+          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          AI 모의투자
+        </Link>
+      </div>
+
       <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
           조건을 직접 구성해 {MARKET_LABELS[market]} 전체 종목 풀을 대상으로 백테스트합니다. 조건은 모두

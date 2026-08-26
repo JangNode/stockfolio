@@ -14,9 +14,8 @@ import NavBar from "@/components/NavBar";
  *
  * 좁은 화면(기본, ~639px)에서는 이메일을 아예 숨겨(hidden) 자리 자체를 차지하지
  * 않게 해서, 타이틀과 버튼 두 개가 한 줄에 나란히(justify-between) 들어가게 한다.
- * sm(640px) 이상에서는 이메일을 다시 보여주되, 행 전체의 정중앙이 아니라 타이틀
- * 바로 옆에 붙여서 보여준다(정중앙 정렬은 타이틀-버튼 사이 여백이 비대칭이라
- * 오히려 버튼 쪽에 더 가깝게 보이는 문제가 있었다).
+ * sm(640px) 이상에서는 이메일을 다시 보여주되, 설정/로그아웃 버튼 바로 옆(왼쪽)에
+ * 붙여서 오른쪽 그룹으로 묶는다.
  */
 export default function AppHeader() {
   const { user } = useSession();
@@ -31,19 +30,15 @@ export default function AppHeader() {
   return (
     <header className="flex flex-col gap-3 border-b border-black/[.08] px-4 py-3 sm:px-6 sm:py-4 dark:border-white/[.145]">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-baseline gap-x-3">
-          <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
-            Stockfolio
-          </h1>
-          {user && (
+        <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
+          Stockfolio
+        </h1>
+
+        {user && (
+          <div className="flex min-w-0 items-center gap-3">
             <span className="hidden min-w-0 truncate text-sm text-zinc-500 sm:inline dark:text-zinc-400">
               {user.email}
             </span>
-          )}
-        </div>
-
-        {user && (
-          <div className="flex shrink-0 items-center gap-3">
             <Link
               href="/settings"
               className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"

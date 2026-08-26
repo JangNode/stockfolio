@@ -722,39 +722,64 @@ function HistoryScreen({
         <p className="text-sm text-zinc-500 dark:text-zinc-400">전략 이력이 없습니다.</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {versions.map((v) => {
-            const periodReturnPct = portfolio
-              ? computePeriodReturnPct(snapshots, portfolio.id, v.created_at, v.retired_at)
-              : null;
-
-            return (
-              <li
-                key={v.id}
-                className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium text-black dark:text-zinc-50">
-                    v{v.version} {v.label}{" "}
-                    <span className="text-xs font-normal text-zinc-400 dark:text-zinc-500">
-                      {formatDate(v.created_at)} ~ {v.retired_at ? formatDate(v.retired_at) : "진행 중"}
-                    </span>
-                  </p>
-                  {periodReturnPct !== null && (
-                    <span className={`text-sm font-medium ${returnColorClass(periodReturnPct)}`}>
-                      기간 수익률 {signedPct(periodReturnPct)}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-sm text-black dark:text-zinc-50">{v.rationale}</p>
-                <div className="mt-3 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
-                  <ConditionsSummary strategy={v} />
-                </div>
-              </li>
-            );
-          })}
+          {versions.map((v) => (
+            <HistoryItem
+              key={v.id}
+              strategy={v}
+              periodReturnPct={
+                portfolio ? computePeriodReturnPct(snapshots, portfolio.id, v.created_at, v.retired_at) : null
+              }
+            />
+          ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/** 항목별로 독립적으로 펼쳐지는 아코디언 — 여러 개를 동시에 열어둘 수 있도록 펼침
+ * 상태를 이 컴포넌트 안에 로컬로 둔다(부모가 하나의 id만 기억하는 방식이 아님). */
+function HistoryItem({
+  strategy,
+  periodReturnPct,
+}: {
+  strategy: StrategyRow;
+  periodReturnPct: number | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <li className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-medium text-black dark:text-zinc-50">
+          v{strategy.version} {strategy.label}{" "}
+          <span className="text-xs font-normal text-zinc-400 dark:text-zinc-500">
+            {formatDate(strategy.created_at)} ~ {strategy.retired_at ? formatDate(strategy.retired_at) : "진행 중"}
+          </span>
+        </p>
+        {periodReturnPct !== null && (
+          <span className={`text-sm font-medium ${returnColorClass(periodReturnPct)}`}>
+            기간 수익률 {signedPct(periodReturnPct)}
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-2 text-xs font-medium text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+      >
+        {expanded ? "접기 ▲" : "상세보기 ▼"}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
+          <p className="text-sm text-black dark:text-zinc-50">{strategy.rationale}</p>
+          <div className="mt-3">
+            <ConditionsSummary strategy={strategy} />
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 

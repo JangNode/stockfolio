@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
 import { authFetch } from "@/lib/authFetch";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice } from "@/lib/market";
+import SubTabs, { STRATEGY_BACKTEST_TABS } from "@/components/SubTabs";
 
 const WINDOW_OPTIONS = [
   { months: 3, label: "3개월" },
@@ -165,15 +165,7 @@ export default function Backtest({ user }: { user: User }) {
 
   return (
     <div className="w-full max-w-3xl">
-      <div className="mb-4 flex items-center gap-4 text-sm">
-        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">백테스트</span>
-        <Link
-          href="/strategies"
-          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          전략 관리
-        </Link>
-      </div>
+      <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
       <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <div className="flex flex-1 min-w-[10rem] flex-col gap-1">

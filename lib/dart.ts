@@ -2,6 +2,7 @@ import "server-only";
 import AdmZip from "adm-zip";
 import { XMLParser } from "fast-xml-parser";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getStockPrice } from "@/lib/kis";
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 
@@ -53,7 +54,7 @@ function isFiscalYearFinal(year: number): boolean {
 }
 
 async function logDartCall(
-  endpoint: "corpCode" | "fnlttMultiAcnt" | "alotMatter",
+  endpoint: "corpCode" | "fnlttMultiAcnt" | "alotMatter" | "stockTotqySttus",
   status: "success" | "error",
   options: { corpCode?: string; chunkSize?: number; dartStatusCode?: string } = {}
 ): Promise<void> {
@@ -135,6 +136,10 @@ export async function fetchCorpCodeMap(): Promise<DartCorpCodeEntry[]> {
 export interface StockCorpPair {
   stockCode: string;
   corpCode: string;
+  // 이미 알고 있으면(예: 대형주 배치가 시가총액 필터링 단계에서 이미 KIS로 조회해둔
+  // 값) 넘겨서 resolveSharesOutstanding이 KIS를 다시 호출하지 않게 한다. undefined면
+  // 모르는 상태(자체적으로 조회), null이면 "KIS엔 없었다"는 뜻으로 곧장 DART 폴백으로 간다.
+  sharesOutstanding?: number | null;
 }
 
 export interface FinancialStatementYear {
@@ -145,9 +150,23 @@ export interface FinancialStatementYear {
   totalAssets: number | null;
   totalLiabilities: number | null;
   totalEquity: number | null;
+  // 실적 정보(증감률/이익률)·가치평가지표(EPS/BPS/ROE) 섹션을 위한 파생 지표.
+  // 최근 3개년 안에서만 계산 가능한 값(YoY 증감률)은 비교 대상 연도가 배열 밖에 있는
+  // 최초 연도(가장 오래된 연도)에서는 null이다.
+  revenueGrowthPct: number | null;
+  operatingIncomeGrowthPct: number | null;
+  netIncomeGrowthPct: number | null;
+  operatingMarginPct: number | null;
+  netMarginPct: number | null;
+  roePct: number | null;
+  eps: number | null;
+  bps: number | null;
+  sharesOutstanding: number | null;
 }
 
-type MetricKey = Exclude<keyof FinancialStatementYear, "year">;
+// 재무제표 원천 6개 계정만 가리킨다 — FinancialStatementYear의 파생 지표(증감률/이익률/
+// EPS 등)는 이 계정들로부터 별도 계산되는 값이라 여기 포함하지 않는다.
+type MetricKey = "revenue" | "operatingIncome" | "netIncome" | "totalAssets" | "totalLiabilities" | "totalEquity";
 
 // fnlttMultiAcnt("다중회사 주요계정")는 fnlttSinglAcnt와 동일하게 전 종목 공통으로
 // 정규화된 소수의 표준 계정만 돌려주는 API라(전체 XBRL 상세가 아님) account_nm이
@@ -195,10 +214,15 @@ function findMetricItem(items: FnlttMultiAcntItem[], metric: MetricKey): FnlttMu
   return candidates.find((item) => item.fs_div === "CFS") ?? candidates.find((item) => item.fs_div === "OFS") ?? null;
 }
 
+type BaseFinancialYear = Pick<
+  FinancialStatementYear,
+  "year" | "revenue" | "operatingIncome" | "netIncome" | "totalAssets" | "totalLiabilities" | "totalEquity"
+>;
+
 /** 한 회사의 사업보고서 응답 항목들에서 최근 3개년(당기/전기/전전기) 주요 지표를 뽑는다. */
-function extractFinancialYears(items: FnlttMultiAcntItem[], bsnsYear: number): FinancialStatementYear[] {
+function extractFinancialYears(items: FnlttMultiAcntItem[], bsnsYear: number): BaseFinancialYear[] {
   const metrics = Object.keys(ACCOUNT_NAME_ALIASES) as MetricKey[];
-  const byYear: Record<number, Partial<FinancialStatementYear>> = {
+  const byYear: Record<number, Partial<BaseFinancialYear>> = {
     [bsnsYear]: {},
     [bsnsYear - 1]: {},
     [bsnsYear - 2]: {},
@@ -221,6 +245,40 @@ function extractFinancialYears(items: FnlttMultiAcntItem[], bsnsYear: number): F
     totalLiabilities: byYear[year].totalLiabilities ?? null,
     totalEquity: byYear[year].totalEquity ?? null,
   }));
+}
+
+/** 매출·영업이익·순이익 증감률(전년대비), 영업이익률/순이익률, ROE, EPS/BPS를 계산해
+ * 붙인다. years는 연도 오름차순(오래된 것부터)이어야 증감률 계산이 맞다 —
+ * extractFinancialYears의 반환 순서를 그대로 따른다. */
+function computeDerivedMetrics(years: BaseFinancialYear[], sharesOutstanding: number | null): FinancialStatementYear[] {
+  const growthPct = (curr: number | null, prev: number | null): number | null => {
+    if (curr === null || prev === null || prev === 0) return null;
+    return ((curr - prev) / Math.abs(prev)) * 100;
+  };
+  const ratioPct = (numerator: number | null, denominator: number | null): number | null => {
+    if (numerator === null || denominator === null || denominator === 0) return null;
+    return (numerator / denominator) * 100;
+  };
+  const perShare = (amount: number | null): number | null => {
+    if (amount === null || sharesOutstanding === null || sharesOutstanding <= 0) return null;
+    return amount / sharesOutstanding;
+  };
+
+  return years.map((y, i) => {
+    const prev = i > 0 ? years[i - 1] : null;
+    return {
+      ...y,
+      revenueGrowthPct: growthPct(y.revenue, prev?.revenue ?? null),
+      operatingIncomeGrowthPct: growthPct(y.operatingIncome, prev?.operatingIncome ?? null),
+      netIncomeGrowthPct: growthPct(y.netIncome, prev?.netIncome ?? null),
+      operatingMarginPct: ratioPct(y.operatingIncome, y.revenue),
+      netMarginPct: ratioPct(y.netIncome, y.revenue),
+      roePct: ratioPct(y.netIncome, y.totalEquity),
+      eps: perShare(y.netIncome),
+      bps: perShare(y.totalEquity),
+      sharesOutstanding,
+    };
+  });
 }
 
 interface ChunkResult {
@@ -316,14 +374,104 @@ async function fetchMultiCompanyFinancials(
   return { byCorp, maxChunkSize };
 }
 
+// ===== 상장주식수 (EPS/BPS/PER/PBR 계산용) =====
+// 1순위는 KIS 현재가 조회(getStockPrice) 응답의 lstn_stcn(상장주식수) — 이미 대형주
+// 배치가 시가총액 필터링 단계에서 이 API를 호출하므로 대부분 추가 호출 없이 확보된다.
+// 이 필드가 실제로 오는지 이 환경(KIS 라이브 계정 없음)에서 확인하지 못해, 없을 경우
+// 2순위로 DART "주식의 총수 현황"(stockTotqySttus)에 폴백한다.
+
+interface StockTotqySttusItem {
+  se: string;
+  now_to_isu_stock_totqy?: string;
+}
+
+/** DART 주식의 총수 현황에서 보통주 발행주식총수를 가져온다. alotMatter와 마찬가지로
+ * 단일회사·단일연도만 조회 가능하고 다중회사 조회는 지원하지 않는다. 이 환경에선
+ * 실응답으로 필드명(se/now_to_isu_stock_totqy)을 확인하지 못해 느슨하게 매칭한다. */
+async function fetchSharesOutstandingFromDart(corpCode: string, bsnsYear: number): Promise<number | null> {
+  const url =
+    `${DART_BASE_URL}/stockTotqySttus.json?crtfc_key=${encodeURIComponent(getDartApiKey())}` +
+    `&corp_code=${encodeURIComponent(corpCode)}&bsns_year=${bsnsYear}&reprt_code=${REPRT_CODE_ANNUAL}`;
+
+  let body: { status: string; message?: string; list?: StockTotqySttusItem[] };
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    body = await res.json();
+  } catch (error) {
+    await logDartCall("stockTotqySttus", "error", { corpCode });
+    console.warn(
+      `  DART 주식총수 조회 실패(corp_code=${corpCode}, bsns_year=${bsnsYear}): ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return null;
+  }
+
+  if (body.status !== DART_STATUS_OK) {
+    await logDartCall("stockTotqySttus", body.status === DART_STATUS_NO_DATA ? "success" : "error", {
+      corpCode,
+      dartStatusCode: body.status,
+    });
+    return null;
+  }
+
+  await logDartCall("stockTotqySttus", "success", { corpCode, dartStatusCode: body.status });
+
+  const items = body.list ?? [];
+  const commonRow = items.find((i) => i.se.includes("보통주"));
+  return commonRow ? parseAmount(commonRow.now_to_isu_stock_totqy) : null;
+}
+
+export interface SharesOutstandingStats {
+  kis: number;
+  dart: number;
+  unavailable: number;
+}
+
+/** 종목 하나의 상장주식수를 확보한다: 미리 알고 있으면(prefetched) 그대로 쓰고, 아니면
+ * KIS를 부른 뒤(없으면) DART로 폴백한다. stats는 배치가 "KIS 몇 건 / DART 폴백 몇 건 /
+ * 확보 실패 몇 건"을 집계해 보고할 수 있도록 호출부가 넘기는 누적 카운터다. */
+async function resolveSharesOutstanding(
+  stock: StockCorpPair,
+  bsnsYear: number,
+  stats: SharesOutstandingStats
+): Promise<number | null> {
+  let kisShares = stock.sharesOutstanding;
+
+  if (kisShares === undefined) {
+    try {
+      const price = await getStockPrice(stock.stockCode, "batch");
+      kisShares = price.sharesOutstanding;
+    } catch {
+      kisShares = null;
+    }
+  }
+
+  if (kisShares !== null && kisShares !== undefined) {
+    stats.kis++;
+    return kisShares;
+  }
+
+  const dartShares = await fetchSharesOutstandingFromDart(stock.corpCode, bsnsYear);
+  if (dartShares !== null) {
+    stats.dart++;
+    return dartShares;
+  }
+
+  stats.unavailable++;
+  return null;
+}
+
 /** stocks 목록에 대해 다중회사 주요계정을 조회해 최근 3개년 재무제표를 갱신한다. 이미
  * 확정(is_final)된 최신 연도가 캐시에 있는 종목은 완전히 건너뛴다. 사업보고서가 아직
  * 안 나온 종목(신규상장 등)은 연도를 낮춰가며 재시도하되, 이미 응답을 받은 종목은
  * 다음 시도 대상에서 빠진다. */
 export async function syncFinancialStatements(
   stocks: StockCorpPair[]
-): Promise<{ updatedYears: number; maxSuccessfulChunkSize: number }> {
-  if (stocks.length === 0) return { updatedYears: 0, maxSuccessfulChunkSize: 0 };
+): Promise<{ updatedYears: number; maxSuccessfulChunkSize: number; sharesOutstandingStats: SharesOutstandingStats }> {
+  const sharesOutstandingStats: SharesOutstandingStats = { kis: 0, dart: 0, unavailable: 0 };
+  if (stocks.length === 0) return { updatedYears: 0, maxSuccessfulChunkSize: 0, sharesOutstandingStats };
 
   const targetYear = currentKstYear() - 1;
 
@@ -359,7 +507,11 @@ export async function syncFinancialStatements(
         stillMissing.push(stock);
         continue;
       }
-      for (const y of extractFinancialYears(items, bsnsYear)) {
+
+      const shares = await resolveSharesOutstanding(stock, bsnsYear, sharesOutstandingStats);
+      const years = computeDerivedMetrics(extractFinancialYears(items, bsnsYear), shares);
+
+      for (const y of years) {
         rowsToUpsert.push({
           stock_code: stock.stockCode,
           year: y.year,
@@ -370,6 +522,15 @@ export async function syncFinancialStatements(
           total_assets: y.totalAssets,
           total_liabilities: y.totalLiabilities,
           total_equity: y.totalEquity,
+          revenue_growth_pct: y.revenueGrowthPct,
+          operating_income_growth_pct: y.operatingIncomeGrowthPct,
+          net_income_growth_pct: y.netIncomeGrowthPct,
+          operating_margin_pct: y.operatingMarginPct,
+          net_margin_pct: y.netMarginPct,
+          roe_pct: y.roePct,
+          eps: y.eps,
+          bps: y.bps,
+          shares_outstanding: y.sharesOutstanding,
           is_final: isFiscalYearFinal(y.year),
           fetched_at: new Date().toISOString(),
         });
@@ -386,7 +547,7 @@ export async function syncFinancialStatements(
     remaining = stillMissing;
   }
 
-  return { updatedYears, maxSuccessfulChunkSize };
+  return { updatedYears, maxSuccessfulChunkSize, sharesOutstandingStats };
 }
 
 /** 종목코드 하나에 대해 최근 3개년 재무제표를 가져온다(종목 상세 화면 온디맨드 경로).
@@ -405,7 +566,9 @@ export async function getFinancialStatements(stockCode: string): Promise<Financi
 
   const { data: rows } = await supabaseAdmin
     .from("dart_financial_statement_years")
-    .select("year, revenue, operating_income, net_income, total_assets, total_liabilities, total_equity")
+    .select(
+      "year, revenue, operating_income, net_income, total_assets, total_liabilities, total_equity, revenue_growth_pct, operating_income_growth_pct, net_income_growth_pct, operating_margin_pct, net_margin_pct, roe_pct, eps, bps, shares_outstanding"
+    )
     .eq("stock_code", stockCode)
     .order("year", { ascending: true });
 
@@ -419,6 +582,15 @@ export async function getFinancialStatements(stockCode: string): Promise<Financi
     totalAssets: r.total_assets,
     totalLiabilities: r.total_liabilities,
     totalEquity: r.total_equity,
+    revenueGrowthPct: r.revenue_growth_pct,
+    operatingIncomeGrowthPct: r.operating_income_growth_pct,
+    netIncomeGrowthPct: r.net_income_growth_pct,
+    operatingMarginPct: r.operating_margin_pct,
+    netMarginPct: r.net_margin_pct,
+    roePct: r.roe_pct,
+    eps: r.eps,
+    bps: r.bps,
+    sharesOutstanding: r.shares_outstanding,
   }));
 }
 
@@ -545,4 +717,29 @@ export async function syncDividends(stocks: StockCorpPair[]): Promise<number> {
   }
 
   return updated;
+}
+
+export interface DividendYearRow {
+  year: number;
+  cashDividendPerShareCommon: number | null;
+  dividendYieldPct: number | null;
+  payoutRatioPct: number | null;
+}
+
+/** 캐싱된 배당 이력을 최근 연도부터 읽어온다. 새로 DART를 호출하지 않는다 — 가치평가
+ * 지표 화면(대형주 전용 배치가 미리 채워둔 데이터)에서 그대로 표시하는 용도. */
+export async function getDividendHistory(stockCode: string): Promise<DividendYearRow[]> {
+  const { data: rows } = await supabaseAdmin
+    .from("dart_dividends")
+    .select("year, cash_dividend_per_share_common, dividend_yield_pct, payout_ratio_pct")
+    .eq("stock_code", stockCode)
+    .order("year", { ascending: false })
+    .limit(DIVIDEND_YEARS_TO_TRACK);
+
+  return (rows ?? []).map((r) => ({
+    year: r.year,
+    cashDividendPerShareCommon: r.cash_dividend_per_share_common,
+    dividendYieldPct: r.dividend_yield_pct,
+    payoutRatioPct: r.payout_ratio_pct,
+  }));
 }

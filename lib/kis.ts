@@ -325,6 +325,11 @@ export interface StockPrice {
   volume: number;
   // 시가총액(억원). 스크리닝 배치의 잡주 필터링(저시가총액 제외)에 쓴다.
   marketCapEok: number;
+  // 상장주식수(EPS/BPS 계산용, lib/dart.ts의 가치평가지표 파생 지표에서 씀). 이 환경엔
+  // 라이브 KIS 계정이 없어 응답에 lstn_stcn 필드가 실제로 오는지 확인하지 못했다 —
+  // 없거나 파싱 안 되면 null. null이면 호출부가 DART "주식의 총수 현황" API로
+  // 폴백한다(lib/dart.ts의 resolveSharesOutstanding 참고).
+  sharesOutstanding: number | null;
 }
 
 interface InquirePriceResponse extends KisResponse {
@@ -337,6 +342,7 @@ interface InquirePriceResponse extends KisResponse {
     stck_lwpr: string;
     acml_vol: string;
     hts_avls: string;
+    lstn_stcn?: string;
   };
 }
 
@@ -371,6 +377,8 @@ export async function getStockPrice(
 
   const { output } = data;
 
+  const rawShares = output.lstn_stcn !== undefined ? Number(output.lstn_stcn) : NaN;
+
   return {
     stockCode,
     currentPrice: Number(output.stck_prpr),
@@ -381,6 +389,7 @@ export async function getStockPrice(
     lowPrice: Number(output.stck_lwpr),
     volume: Number(output.acml_vol),
     marketCapEok: Number(output.hts_avls),
+    sharesOutstanding: Number.isFinite(rawShares) && rawShares > 0 ? rawShares : null,
   };
 }
 

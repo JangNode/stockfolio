@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
 import { authFetch } from "@/lib/authFetch";
@@ -164,6 +165,16 @@ export default function Backtest({ user }: { user: User }) {
 
   return (
     <div className="w-full max-w-3xl">
+      <div className="mb-4 flex items-center gap-4 text-sm">
+        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">백테스트</span>
+        <Link
+          href="/strategies"
+          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          전략 관리
+        </Link>
+      </div>
+
       <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <div className="flex flex-1 min-w-[10rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>

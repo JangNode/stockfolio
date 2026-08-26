@@ -54,7 +54,7 @@ function isFiscalYearFinal(year: number): boolean {
 }
 
 async function logDartCall(
-  endpoint: "corpCode" | "fnlttMultiAcnt" | "alotMatter" | "stockTotqySttus",
+  endpoint: "corpCode" | "fnlttMultiAcnt" | "alotMatter" | "stockTotqySttus" | "fnlttSinglAcntAll",
   status: "success" | "error",
   options: { corpCode?: string; chunkSize?: number; dartStatusCode?: string } = {}
 ): Promise<void> {
@@ -162,6 +162,11 @@ export interface FinancialStatementYear {
   eps: number | null;
   bps: number | null;
   sharesOutstanding: number | null;
+  // 지배기업 소유주지분 당기순이익(있으면) — EPS/ROE 계산의 분자로 이 값을 우선 쓴다.
+  // fnlttMultiAcnt("다중회사 주요계정")엔 이 세부 항목이 없어(연결 전체 당기순이익만
+  // 제공) 별도로 fnlttSinglAcntAll(전체 재무제표, 단일회사 전용)을 호출해 얻는다 — 못
+  // 구하면 null이고, 이 경우 EPS/ROE는 netIncome(전체)로 폴백한다.
+  controllingNetIncome: number | null;
 }
 
 // 재무제표 원천 6개 계정만 가리킨다 — FinancialStatementYear의 파생 지표(증감률/이익률/
@@ -249,8 +254,18 @@ function extractFinancialYears(items: FnlttMultiAcntItem[], bsnsYear: number): B
 
 /** 매출·영업이익·순이익 증감률(전년대비), 영업이익률/순이익률, ROE, EPS/BPS를 계산해
  * 붙인다. years는 연도 오름차순(오래된 것부터)이어야 증감률 계산이 맞다 —
- * extractFinancialYears의 반환 순서를 그대로 따른다. */
-function computeDerivedMetrics(years: BaseFinancialYear[], sharesOutstanding: number | null): FinancialStatementYear[] {
+ * extractFinancialYears의 반환 순서를 그대로 따른다.
+ *
+ * controllingNetIncomeByYear: EPS/ROE 분자로 쓸 지배주주순이익(있는 연도만). 증권사
+ * PER/ROE는 보통 이 값을 쓰므로 있으면 우선 쓰고, 없는 연도(과거 연도는 재조회하지
+ * 않으므로 보통 비어 있음)는 전체 당기순이익(netIncome)으로 폴백한다. 실적 정보
+ * 섹션의 증감률/이익률(revenueGrowthPct 등)은 공시상 표준 지표인 전체 당기순이익
+ * 기준을 그대로 유지한다 — 지배주주순이익 대체는 EPS/ROE에만 적용한다. */
+function computeDerivedMetrics(
+  years: BaseFinancialYear[],
+  sharesOutstanding: number | null,
+  controllingNetIncomeByYear: Partial<Record<number, number>> = {}
+): FinancialStatementYear[] {
   const growthPct = (curr: number | null, prev: number | null): number | null => {
     if (curr === null || prev === null || prev === 0) return null;
     return ((curr - prev) / Math.abs(prev)) * 100;
@@ -266,6 +281,8 @@ function computeDerivedMetrics(years: BaseFinancialYear[], sharesOutstanding: nu
 
   return years.map((y, i) => {
     const prev = i > 0 ? years[i - 1] : null;
+    const controllingNetIncome = controllingNetIncomeByYear[y.year] ?? null;
+    const epsBasisNetIncome = controllingNetIncome ?? y.netIncome;
     return {
       ...y,
       revenueGrowthPct: growthPct(y.revenue, prev?.revenue ?? null),
@@ -273,10 +290,11 @@ function computeDerivedMetrics(years: BaseFinancialYear[], sharesOutstanding: nu
       netIncomeGrowthPct: growthPct(y.netIncome, prev?.netIncome ?? null),
       operatingMarginPct: ratioPct(y.operatingIncome, y.revenue),
       netMarginPct: ratioPct(y.netIncome, y.revenue),
-      roePct: ratioPct(y.netIncome, y.totalEquity),
-      eps: perShare(y.netIncome),
+      roePct: ratioPct(epsBasisNetIncome, y.totalEquity),
+      eps: perShare(epsBasisNetIncome),
       bps: perShare(y.totalEquity),
       sharesOutstanding,
+      controllingNetIncome,
     };
   });
 }
@@ -375,19 +393,25 @@ async function fetchMultiCompanyFinancials(
 }
 
 // ===== 상장주식수 (EPS/BPS/PER/PBR 계산용) =====
-// 1순위는 KIS 현재가 조회(getStockPrice) 응답의 lstn_stcn(상장주식수) — 이미 대형주
-// 배치가 시가총액 필터링 단계에서 이 API를 호출하므로 대부분 추가 호출 없이 확보된다.
-// 이 필드가 실제로 오는지 이 환경(KIS 라이브 계정 없음)에서 확인하지 못해, 없을 경우
-// 2순위로 DART "주식의 총수 현황"(stockTotqySttus)에 폴백한다.
+// 증권사 PER/EPS는 보통 자사주 제외 "유통주식수" 기준을 쓴다. KIS 현재가 응답의
+// lstn_stcn은 "상장주식수"(자사주 포함 발행총수로 추정 — 자사주 제외 여부가 KIS
+// 공식 스펙에 없어 확정 불가)라 정확도가 떨어질 수 있어, 1순위를 DART "주식의 총수
+// 현황"(stockTotqySttus)의 유통주식수 항목으로 바꾼다. 못 구하면 2순위로 KIS
+// lstn_stcn(이미 대형주 배치가 시가총액 필터링 때 호출하므로 추가 호출 없음)에
+// 폴백한다. DART가 항상 1순위가 되므로(기존엔 KIS가 1순위라 DART를 거의 안 불렀음)
+// 대형주 배치당 DART 호출이 종목 수만큼(현재 약 300건/주) 늘어난다 — 다중회사 조회를
+// 지원하지 않는 API라 종목당 1콜씩 개별 호출해야 한다.
 
 interface StockTotqySttusItem {
   se: string;
   now_to_isu_stock_totqy?: string;
 }
 
-/** DART 주식의 총수 현황에서 보통주 발행주식총수를 가져온다. alotMatter와 마찬가지로
- * 단일회사·단일연도만 조회 가능하고 다중회사 조회는 지원하지 않는다. 이 환경에선
- * 실응답으로 필드명(se/now_to_isu_stock_totqy)을 확인하지 못해 느슨하게 매칭한다. */
+/** DART 주식의 총수 현황에서 유통주식수(자사주 제외)를 가져온다. 못 찾으면 발행주식
+ * 총수(자사주 포함)로 폴백한다. alotMatter와 마찬가지로 단일회사·단일연도만 조회
+ * 가능하고 다중회사 조회는 지원하지 않는다. 이 환경에선 실응답으로 필드명(se/
+ * now_to_isu_stock_totqy)과 "유통주식수" 행의 se 표기를 확인하지 못해 느슨하게
+ * 매칭한다 — 배포 후 실응답으로 재확인 필요. */
 async function fetchSharesOutstandingFromDart(corpCode: string, bsnsYear: number): Promise<number | null> {
   const url =
     `${DART_BASE_URL}/stockTotqySttus.json?crtfc_key=${encodeURIComponent(getDartApiKey())}` +
@@ -419,26 +443,36 @@ async function fetchSharesOutstandingFromDart(corpCode: string, bsnsYear: number
   await logDartCall("stockTotqySttus", "success", { corpCode, dartStatusCode: body.status });
 
   const items = body.list ?? [];
-  const commonRow = items.find((i) => i.se.includes("보통주"));
-  return commonRow ? parseAmount(commonRow.now_to_isu_stock_totqy) : null;
+  const floatingRow = items.find((i) => i.se.includes("유통주식수") && i.se.includes("보통주"));
+  const totalIssuedRow = items.find((i) => i.se.includes("보통주"));
+  const row = floatingRow ?? totalIssuedRow;
+  return row ? parseAmount(row.now_to_isu_stock_totqy) : null;
 }
 
 export interface SharesOutstandingStats {
-  kis: number;
+  // DART "주식의 총수 현황"에서 유통주식수(1순위)를 확보한 건수.
   dart: number;
+  // DART가 실패했을 때 KIS lstn_stcn(2순위, 발행총수 추정치)으로 대체한 건수.
+  kis: number;
   unavailable: number;
 }
 
-/** 종목 하나의 상장주식수를 확보한다: 미리 알고 있으면(prefetched) 그대로 쓰고, 아니면
- * KIS를 부른 뒤(없으면) DART로 폴백한다. stats는 배치가 "KIS 몇 건 / DART 폴백 몇 건 /
- * 확보 실패 몇 건"을 집계해 보고할 수 있도록 호출부가 넘기는 누적 카운터다. */
+/** 종목 하나의 상장주식수를 확보한다: DART 유통주식수를 우선 시도하고, 실패하면
+ * (미리 알고 있으면 그 값을 그대로 쓰는) KIS 상장주식수로 폴백한다. stats는 배치가
+ * "DART 몇 건 / KIS 폴백 몇 건 / 확보 실패 몇 건"을 집계해 보고할 수 있도록 호출부가
+ * 넘기는 누적 카운터다. */
 async function resolveSharesOutstanding(
   stock: StockCorpPair,
   bsnsYear: number,
   stats: SharesOutstandingStats
 ): Promise<number | null> {
-  let kisShares = stock.sharesOutstanding;
+  const dartShares = await fetchSharesOutstandingFromDart(stock.corpCode, bsnsYear);
+  if (dartShares !== null) {
+    stats.dart++;
+    return dartShares;
+  }
 
+  let kisShares = stock.sharesOutstanding;
   if (kisShares === undefined) {
     try {
       const price = await getStockPrice(stock.stockCode, "batch");
@@ -453,14 +487,79 @@ async function resolveSharesOutstanding(
     return kisShares;
   }
 
-  const dartShares = await fetchSharesOutstandingFromDart(stock.corpCode, bsnsYear);
-  if (dartShares !== null) {
-    stats.dart++;
-    return dartShares;
-  }
-
   stats.unavailable++;
   return null;
+}
+
+// ===== 지배주주순이익 (EPS/ROE 계산용) =====
+// fnlttMultiAcnt("다중회사 주요계정")는 표준 소수 계정만 제공해 지배기업소유주지분/
+// 비지배지분 분리 항목이 없다(2026-08-26 실응답으로 확인). 이 분리 항목은 DART
+// "단일회사 전체 재무제표"(fnlttSinglAcntAll)에만 있고, 이 API는 다중회사 조회를
+// 지원하지 않을 뿐 아니라 fs_div(CFS|OFS)를 쿼리 파라미터로 반드시 명시해야 한다
+// (fnlttMultiAcnt처럼 응답에 CFS/OFS가 함께 안 온다) — 연결(CFS) 먼저 시도하고 없으면
+// (013) 개별(OFS)로 재시도한다.
+
+interface FnlttSinglAcntAllItem {
+  sj_div: string;
+  account_nm: string;
+  thstrm_amount: string;
+}
+
+async function fetchFnlttSinglAcntAll(
+  corpCode: string,
+  bsnsYear: number,
+  fsDiv: "CFS" | "OFS"
+): Promise<FnlttSinglAcntAllItem[] | null> {
+  const url =
+    `${DART_BASE_URL}/fnlttSinglAcntAll.json?crtfc_key=${encodeURIComponent(getDartApiKey())}` +
+    `&corp_code=${encodeURIComponent(corpCode)}&bsns_year=${bsnsYear}&reprt_code=${REPRT_CODE_ANNUAL}&fs_div=${fsDiv}`;
+
+  let body: { status: string; message?: string; list?: FnlttSinglAcntAllItem[] };
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    body = await res.json();
+  } catch (error) {
+    await logDartCall("fnlttSinglAcntAll", "error", { corpCode });
+    console.warn(
+      `  DART 전체 재무제표(지배주주순이익용) 조회 실패(corp_code=${corpCode}, bsns_year=${bsnsYear}, fs_div=${fsDiv}): ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return null;
+  }
+
+  if (body.status === DART_STATUS_NO_DATA) {
+    await logDartCall("fnlttSinglAcntAll", "success", { corpCode, dartStatusCode: body.status });
+    return null;
+  }
+  if (body.status !== DART_STATUS_OK) {
+    await logDartCall("fnlttSinglAcntAll", "error", { corpCode, dartStatusCode: body.status });
+    return null;
+  }
+
+  await logDartCall("fnlttSinglAcntAll", "success", { corpCode, dartStatusCode: body.status });
+  return body.list ?? [];
+}
+
+/** 지배기업 소유주지분 당기순이익을 가져온다: 연결(CFS)로 먼저 시도하고, 데이터가
+ * 없으면(013) 개별(OFS)로 재시도한다. 계정명 표기를 이 환경(DART_API_KEY 없음)에서
+ * 실응답으로 확인하지 못해, "지배기업"을 포함하고 "비지배"는 포함하지 않는 당기순이익
+ * 관련 계정명을 느슨하게 매칭한다 — 배포 후 실응답으로 재확인 필요. 못 찾으면 null이고
+ * 이 경우 EPS/ROE는 전체 당기순이익(netIncome)으로 폴백한다(computeDerivedMetrics). */
+async function fetchControllingNetIncome(corpCode: string, bsnsYear: number): Promise<number | null> {
+  const cfsItems = await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "CFS");
+  const items = cfsItems && cfsItems.length > 0 ? cfsItems : await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "OFS");
+  if (!items) return null;
+
+  const match = items.find(
+    (i) =>
+      (i.sj_div === "IS" || i.sj_div === "CIS") &&
+      i.account_nm.includes("지배기업") &&
+      i.account_nm.includes("당기순이익") &&
+      !i.account_nm.includes("비지배")
+  );
+  return match ? parseAmount(match.thstrm_amount) : null;
 }
 
 /** stocks 목록에 대해 다중회사 주요계정을 조회해 최근 3개년 재무제표를 갱신한다. 이미
@@ -509,7 +608,10 @@ export async function syncFinancialStatements(
       }
 
       const shares = await resolveSharesOutstanding(stock, bsnsYear, sharesOutstandingStats);
-      const years = computeDerivedMetrics(extractFinancialYears(items, bsnsYear), shares);
+      const controllingNetIncome = await fetchControllingNetIncome(stock.corpCode, bsnsYear);
+      const years = computeDerivedMetrics(extractFinancialYears(items, bsnsYear), shares, {
+        [bsnsYear]: controllingNetIncome ?? undefined,
+      });
 
       for (const y of years) {
         rowsToUpsert.push({
@@ -531,6 +633,7 @@ export async function syncFinancialStatements(
           eps: y.eps,
           bps: y.bps,
           shares_outstanding: y.sharesOutstanding,
+          controlling_net_income: y.controllingNetIncome,
           is_final: isFiscalYearFinal(y.year),
           fetched_at: new Date().toISOString(),
         });
@@ -567,7 +670,7 @@ export async function getFinancialStatements(stockCode: string): Promise<Financi
   const { data: rows } = await supabaseAdmin
     .from("dart_financial_statement_years")
     .select(
-      "year, revenue, operating_income, net_income, total_assets, total_liabilities, total_equity, revenue_growth_pct, operating_income_growth_pct, net_income_growth_pct, operating_margin_pct, net_margin_pct, roe_pct, eps, bps, shares_outstanding"
+      "year, revenue, operating_income, net_income, total_assets, total_liabilities, total_equity, revenue_growth_pct, operating_income_growth_pct, net_income_growth_pct, operating_margin_pct, net_margin_pct, roe_pct, eps, bps, shares_outstanding, controlling_net_income"
     )
     .eq("stock_code", stockCode)
     .order("year", { ascending: true });
@@ -591,6 +694,7 @@ export async function getFinancialStatements(stockCode: string): Promise<Financi
     eps: r.eps,
     bps: r.bps,
     sharesOutstanding: r.shares_outstanding,
+    controllingNetIncome: r.controlling_net_income,
   }));
 }
 

@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   const { updatedYears, maxSuccessfulChunkSize, sharesOutstandingStats } = await syncFinancialStatements(largeCaps);
   console.log(`재무제표 갱신: ${updatedYears}개 (종목×연도) 행 upsert, 다중회사 조회 성공 최대 묶음 크기: ${maxSuccessfulChunkSize}`);
   console.log(
-    `상장주식수 확보: KIS ${sharesOutstandingStats.kis}건 / DART 폴백 ${sharesOutstandingStats.dart}건 / 확보 실패 ${sharesOutstandingStats.unavailable}건`
+    `상장주식수 확보: DART 유통주식수 ${sharesOutstandingStats.dart}건 / KIS 폴백 ${sharesOutstandingStats.kis}건 / 확보 실패 ${sharesOutstandingStats.unavailable}건`
   );
 
   const updatedDividends = await syncDividends(largeCaps);

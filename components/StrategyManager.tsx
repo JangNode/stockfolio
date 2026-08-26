@@ -67,12 +67,22 @@ export function useStrategies(user: User) {
 }
 
 export default function StrategyManager({ user }: { user: User }) {
-  const { market, setMarket } = useMarket();
+  const { market } = useMarket();
   const { data: strategies, error, isLoading } = useStrategies(user);
   const marketStrategies = strategies?.filter((s) => s.market === market) ?? [];
 
   return (
     <div className="w-full max-w-3xl">
+      <div className="mb-4 flex items-center gap-4 text-sm">
+        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">전략 목록</span>
+        <Link
+          href="/backtest"
+          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          백테스트
+        </Link>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
       ) : error ? (
@@ -96,13 +106,6 @@ export default function StrategyManager({ user }: { user: User }) {
               <p className="mt-3 border-t border-black/[.08] pt-3 text-xs text-zinc-500 dark:border-white/[.145] dark:text-zinc-400">
                 {STRATEGY_DESCRIPTIONS[strategy.rule_type]}
               </p>
-              <Link
-                href={`/backtest?strategy=${strategy.id}`}
-                onClick={() => setMarket(strategy.market)}
-                className="mt-3 flex h-9 items-center justify-center rounded-full border border-black/[.08] text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
-              >
-                이 전략으로 백테스트
-              </Link>
             </div>
           ))}
         </div>

@@ -19,7 +19,7 @@ export default function NavBar() {
   const { market, setMarket } = useMarket();
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         {LINKS.map((link) => (
           <Link
@@ -36,7 +36,7 @@ export default function NavBar() {
         ))}
       </nav>
 
-      <div className="flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
+      <div className="ml-auto flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
         {MARKET_TABS.map((m) => (
           <button
             key={m}

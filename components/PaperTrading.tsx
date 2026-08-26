@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import { ScoreValue } from "@/components/ScoreValue";
@@ -788,6 +789,16 @@ export default function PaperTrading() {
 
   return (
     <div className="w-full max-w-4xl">
+      <div className="mb-4 flex items-center gap-4 text-sm">
+        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">AI 모의투자</span>
+        <Link
+          href="/lab"
+          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          실험실
+        </Link>
+      </div>
+
       <div className="mb-6 flex flex-wrap gap-1">
         {SUB_SCREENS.map((s) => (
           <button

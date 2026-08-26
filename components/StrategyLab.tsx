@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { authFetch, authJsonFetcher } from "@/lib/authFetch";
 import { useMarket } from "@/components/MarketContext";
@@ -128,6 +129,7 @@ function RunResultPanel({
   adoptError: string;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  const { setMarket } = useMarket();
 
   if (run.status === "pending" || run.status === "running") {
     return (
@@ -184,9 +186,18 @@ function RunResultPanel({
 
       <div className="flex flex-wrap items-center gap-3 border-b border-black/[.08] py-4 dark:border-white/[.145]">
         {run.adopted_at ? (
-          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
-            AI 모의투자(커스텀)로 채택됨
-          </span>
+          <>
+            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
+              AI 모의투자(커스텀)로 채택됨
+            </span>
+            <Link
+              href="/paper-trading"
+              onClick={() => setMarket(run.market)}
+              className="h-9 flex items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+            >
+              AI 모의투자에서 확인하기
+            </Link>
+          </>
         ) : (
           <button
             onClick={onAdopt}

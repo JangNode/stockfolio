@@ -36,6 +36,12 @@ export default function Backtest({ user }: { user: User }) {
     [strategies, market]
   );
 
+  // 전략 관리 화면의 "백테스트" 링크(/backtest?strategy=<id>)로 들어온 경우, 그
+  // 전략을 미리 선택해둔다. window.location은 마운트 시점 한 번만 읽으면 되므로
+  // 리렌더마다 다시 파싱하지 않도록 지연 초기화(lazy useState)로 한 번만 계산한다.
+  const [preselectStrategyId] = useState<string | null>(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("strategy") : null
+  );
   const [strategyId, setStrategyId] = useState("");
   const [stockQuery, setStockQuery] = useState("");
   const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
@@ -66,6 +72,19 @@ export default function Backtest({ user }: { user: User }) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
+
+  // preselectStrategyId는 전략 목록이 로드되기 전에는 marketStrategies에 없을 수
+  // 있으므로, 목록이 채워지는 렌더에서 다시 확인해 반영한다(prevMarket과 같은
+  // 렌더 중 조정 패턴 — 한 번 적용되면 preselectApplied가 true가 돼 재실행되지 않는다).
+  const [preselectApplied, setPreselectApplied] = useState(false);
+  if (
+    !preselectApplied &&
+    preselectStrategyId &&
+    marketStrategies.some((s) => s.id === preselectStrategyId)
+  ) {
+    setPreselectApplied(true);
+    setStrategyId(preselectStrategyId);
+  }
 
   const selectedStrategy = marketStrategies.find((s) => s.id === strategyId);
 

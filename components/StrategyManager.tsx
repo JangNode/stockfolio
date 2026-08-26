@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
@@ -66,7 +67,7 @@ export function useStrategies(user: User) {
 }
 
 export default function StrategyManager({ user }: { user: User }) {
-  const { market } = useMarket();
+  const { market, setMarket } = useMarket();
   const { data: strategies, error, isLoading } = useStrategies(user);
   const marketStrategies = strategies?.filter((s) => s.market === market) ?? [];
 
@@ -95,6 +96,13 @@ export default function StrategyManager({ user }: { user: User }) {
               <p className="mt-3 border-t border-black/[.08] pt-3 text-xs text-zinc-500 dark:border-white/[.145] dark:text-zinc-400">
                 {STRATEGY_DESCRIPTIONS[strategy.rule_type]}
               </p>
+              <Link
+                href={`/backtest?strategy=${strategy.id}`}
+                onClick={() => setMarket(strategy.market)}
+                className="mt-3 flex h-9 items-center justify-center rounded-full border border-black/[.08] text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              >
+                이 전략으로 백테스트
+              </Link>
             </div>
           ))}
         </div>

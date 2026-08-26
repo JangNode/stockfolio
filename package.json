@@ -13,7 +13,8 @@
     "cleanup:logs": "tsx --conditions=react-server scripts/cleanup-logs.ts",
     "cleanup:lab-backtests": "tsx --conditions=react-server scripts/cleanup-custom-backtests.ts",
     "run:custom-backtest": "tsx --conditions=react-server scripts/run-custom-backtest.ts",
-    "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts"
+    "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts",
+    "sync:dart-financials": "tsx --conditions=react-server scripts/sync-dart-financials.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

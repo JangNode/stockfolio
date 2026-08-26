@@ -1,0 +1,34 @@
+name: Sync DART Corp Code Mapping
+
+on:
+  schedule:
+    # 매주 월요일 한국시간(KST, UTC+9) 오전 5시 = UTC 전주 일요일 20시. 다른 배치(screening,
+    # paper trading)와 겹치지 않는 새벽 시간대를 골랐다. DART 매핑은 자주 바뀌지 않으므로
+    # 주 1회면 충분하다.
+    - cron: "0 20 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 전체 법인이 10만 건 이상이라(비상장 포함) 다운로드+파싱+upsert에 여유를 둔다.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync DART corp_code mapping
+        run: npm run sync:dart-corp-codes
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -1,12 +1,12 @@
 "use client";
 
 import useSWR from "swr";
-import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { StrategyRule, StrategyRuleType } from "@/lib/backtest";
 import { useMarket } from "@/components/MarketContext";
 import { MARKET_LABELS, type Market } from "@/lib/market";
+import SubTabs, { STRATEGY_BACKTEST_TABS } from "@/components/SubTabs";
 
 export type StrategyRow = StrategyRule & {
   id: string;
@@ -73,15 +73,7 @@ export default function StrategyManager({ user }: { user: User }) {
 
   return (
     <div className="w-full max-w-3xl">
-      <div className="mb-4 flex items-center gap-4 text-sm">
-        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">전략 목록</span>
-        <Link
-          href="/backtest"
-          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          백테스트
-        </Link>
-      </div>
+      <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
       {isLoading ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>

@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { authFetch, authJsonFetcher } from "@/lib/authFetch";
 import { useMarket } from "@/components/MarketContext";
+import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 import { CUSTOM_BACKTEST_PERIOD_MONTHS } from "@/lib/customBacktestRequest";
 import type { BacktestTrade, CustomCompositeParams } from "@/lib/backtest";
@@ -347,15 +347,7 @@ export default function StrategyLab({}: { user: User }) {
 
   return (
     <div className="w-full max-w-4xl">
-      <div className="mb-4 flex items-center gap-4 text-sm">
-        <span className="whitespace-nowrap font-medium text-black dark:text-zinc-50">커스텀 백테스트</span>
-        <Link
-          href="/paper-trading"
-          className="whitespace-nowrap text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          AI 모의투자
-        </Link>
-      </div>
+      <SubTabs tabs={LAB_PAPER_TRADING_TABS} />
 
       <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">

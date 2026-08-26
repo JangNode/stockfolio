@@ -68,14 +68,16 @@ async function findLargeCapStocks(): Promise<StockCorpPair[]> {
   const stocks: StockEntry[] = await getAllStocks();
   console.log(`전종목(KOSPI+KOSDAQ) ${stocks.length}건 대상으로 시가총액 조회 시작`);
 
-  const largeCapCodes: string[] = [];
+  // 시세 조회 시점에 상장주식수(lstn_stcn)도 같이 받아서 넘겨두면, 뒤에서
+  // syncFinancialStatements가 EPS/BPS 계산을 위해 KIS를 다시 호출하지 않아도 된다.
+  const largeCaps: { code: string; sharesOutstanding: number | null }[] = [];
   let fetchErrors = 0;
 
   await runWithConcurrency(stocks, BATCH_CONCURRENCY, async (stock) => {
     try {
       const price = await withRetry(() => getStockPrice(stock.code, "batch"), `${stock.code}(${stock.name}) 시세 조회`);
       if (price.marketCapEok >= MARKET_CAP_THRESHOLD_EOK) {
-        largeCapCodes.push(stock.code);
+        largeCaps.push({ code: stock.code, sharesOutstanding: price.sharesOutstanding });
       }
     } catch (error) {
       fetchErrors++;
@@ -84,21 +86,28 @@ async function findLargeCapStocks(): Promise<StockCorpPair[]> {
     }
   });
 
-  console.log(`시가총액 ${MARKET_CAP_THRESHOLD_EOK.toLocaleString("ko-KR")}억원 이상: ${largeCapCodes.length}건 (조회 실패 ${fetchErrors}건)`);
+  console.log(`시가총액 ${MARKET_CAP_THRESHOLD_EOK.toLocaleString("ko-KR")}억원 이상: ${largeCaps.length}건 (조회 실패 ${fetchErrors}건)`);
 
   const { data: corpRows, error } = await supabaseAdmin
     .from("dart_corp_codes")
     .select("stock_code, corp_code")
-    .in("stock_code", largeCapCodes);
+    .in(
+      "stock_code",
+      largeCaps.map((s) => s.code)
+    );
 
   if (error) throw new Error(`dart_corp_codes 조회 실패: ${error.message}`);
 
   const corpByStock = new Map((corpRows ?? []).map((r) => [r.stock_code as string, r.corp_code as string]));
-  const pairs = largeCapCodes
-    .map((code) => ({ stockCode: code, corpCode: corpByStock.get(code) }))
-    .filter((p): p is StockCorpPair => p.corpCode !== undefined);
+  const pairs: StockCorpPair[] = [];
+  for (const s of largeCaps) {
+    const corpCode = corpByStock.get(s.code);
+    if (corpCode !== undefined) {
+      pairs.push({ stockCode: s.code, corpCode, sharesOutstanding: s.sharesOutstanding });
+    }
+  }
 
-  const unmapped = largeCapCodes.length - pairs.length;
+  const unmapped = largeCaps.length - pairs.length;
   if (unmapped > 0) {
     console.warn(`  대형주 중 DART corp_code 매핑이 없는 종목 ${unmapped}건은 건너뜁니다.`);
   }
@@ -112,8 +121,11 @@ async function main(): Promise<void> {
   const largeCaps = await findLargeCapStocks();
   console.log(`대형주(시가총액 1조원 이상, DART 매핑 있음) 종목 수: ${largeCaps.length}`);
 
-  const { updatedYears, maxSuccessfulChunkSize } = await syncFinancialStatements(largeCaps);
+  const { updatedYears, maxSuccessfulChunkSize, sharesOutstandingStats } = await syncFinancialStatements(largeCaps);
   console.log(`재무제표 갱신: ${updatedYears}개 (종목×연도) 행 upsert, 다중회사 조회 성공 최대 묶음 크기: ${maxSuccessfulChunkSize}`);
+  console.log(
+    `상장주식수 확보: KIS ${sharesOutstandingStats.kis}건 / DART 폴백 ${sharesOutstandingStats.dart}건 / 확보 실패 ${sharesOutstandingStats.unavailable}건`
+  );
 
   const updatedDividends = await syncDividends(largeCaps);
   console.log(`배당 이력 갱신: ${updatedDividends}개 (종목×연도) 행 upsert`);

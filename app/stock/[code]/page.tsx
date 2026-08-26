@@ -1,6 +1,8 @@
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
+import StockValuation from "@/components/StockValuation";
 import StockFinancials from "@/components/StockFinancials";
+import StockPerformance from "@/components/StockPerformance";
 import RequireApproved from "@/components/RequireApproved";
 import type { Market } from "@/lib/market";
 
@@ -37,7 +39,13 @@ export default async function StockPage({
           <RequireApproved>
             <div className="flex w-full flex-col">
               <StockChart code={code} market={market} />
-              {market === "KR" && <StockFinancials code={code} />}
+              {market === "KR" && (
+                <>
+                  <StockValuation code={code} />
+                  <StockFinancials code={code} />
+                  <StockPerformance code={code} />
+                </>
+              )}
             </div>
           </RequireApproved>
         </div>

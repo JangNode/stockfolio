@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getDailyPrice } from "@/lib/dhDailyPricesStorage";
 
 /**
  * DH전략(대형 배당·가치주) 백테스트/스크리닝이 과거 특정 날짜의 재무·배당 데이터를
@@ -113,21 +114,15 @@ export interface DhValuationAsOf {
  * 등) null. EPS/BPS가 0 이하(적자/자본잠식)면 PER/PBR도 null로 둔다 — 음수 배수는
  * 의미가 없어 계산 단계에서부터 걸러낸다. */
 export async function computeValuationAsOf(stockCode: string, date: string): Promise<DhValuationAsOf | null> {
-  const [{ data: priceRow, error: priceError }, fundamentals] = await Promise.all([
-    supabaseAdmin
-      .from("dh_daily_market_data")
-      .select("close_price, market_cap_eok, listed_shares")
-      .eq("stock_code", stockCode)
-      .eq("trade_date", date)
-      .maybeSingle(),
+  const [priceRow, fundamentals] = await Promise.all([
+    getDailyPrice(stockCode, date),
     getFundamentalsAsOf(stockCode, date),
   ]);
 
-  if (priceError) throw new Error(`${stockCode} ${date} 시세 조회 실패: ${priceError.message}`);
   if (!priceRow || !fundamentals) return null;
 
-  const closePrice = Number(priceRow.close_price);
-  const listedShares = Number(priceRow.listed_shares);
+  const closePrice = priceRow.closePrice;
+  const listedShares = priceRow.listedShares;
   const eps =
     fundamentals.netIncomeParent !== null && listedShares > 0
       ? fundamentals.netIncomeParent / listedShares
@@ -137,7 +132,7 @@ export async function computeValuationAsOf(stockCode: string, date: string): Pro
 
   return {
     closePrice,
-    marketCapEok: Number(priceRow.market_cap_eok),
+    marketCapEok: priceRow.marketCapEok,
     listedShares,
     eps,
     bps,

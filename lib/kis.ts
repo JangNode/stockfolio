@@ -1336,6 +1336,18 @@ interface KsdinfoDividendResponse extends KisResponse {
   output?: { record_date: string; per_sto_divi_amt: string }[];
 }
 
+// ksdinfo/dividend는 유효한 토큰·정상 파라미터로 불러도 가끔 rt_cd="0"(성공)인 채로
+// output이 빈 배열로 온다 — 005930 실측으로 확인(같은 토큰·같은 쿼리를 몇 초 뒤
+// 재시도하면 정상적으로 배당 이력이 옴, 다른 엔드포인트(현재가 조회)는 같은 토큰으로
+// 그 사이에도 계속 정상 응답). 우리 코드 문제가 아니라 이 엔드포인트 자체의 일시적인
+// 응답 불안정으로 보여, 빈 결과가 오면 이 함수 안에서 짧게 재시도한다.
+const EMPTY_DIVIDEND_RETRY_COUNT = 2;
+const EMPTY_DIVIDEND_RETRY_DELAY_MS = 800;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** 예탁원정보(배당일정)에서 최근 yearsBack개년의 배당 이벤트(보통주 1주당 현금배당금)를
  * 원본 그대로 받아온다. 삼성전자처럼 분기배당을 하는 종목은 한 해에 결산/분기 배당이
  * 여러 건 나뉘어 오므로(005930 실측: 분기 3건 + 결산 1건), 연도별 합산이나 최근 1년
@@ -1363,14 +1375,20 @@ export async function getDividendRecords(
   url.searchParams.set("SHT_CD", stockCode);
   url.searchParams.set("HIGH_GB", "");
 
-  const data = (await kisFetch(
-    url,
-    TR_ID_KSDINFO_DIVIDEND,
-    accessToken,
-    appKey,
-    appSecret,
-    priority
-  )) as KsdinfoDividendResponse;
+  let data: KsdinfoDividendResponse = { rt_cd: "0", msg1: "" };
+  for (let attempt = 0; attempt <= EMPTY_DIVIDEND_RETRY_COUNT; attempt++) {
+    data = (await kisFetch(
+      url,
+      TR_ID_KSDINFO_DIVIDEND,
+      accessToken,
+      appKey,
+      appSecret,
+      priority
+    )) as KsdinfoDividendResponse;
+
+    if ((data.output ?? []).length > 0) break;
+    if (attempt < EMPTY_DIVIDEND_RETRY_COUNT) await sleep(EMPTY_DIVIDEND_RETRY_DELAY_MS);
+  }
 
   const records: DividendRecord[] = [];
   for (const row of data.output ?? []) {

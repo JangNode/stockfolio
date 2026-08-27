@@ -1,4 +1,4 @@
-name: (임시) 배당 이력 빈 응답 4차 진단 - 005930
+name: (임시) 오늘 스크리닝/AI 모의투자 배치 실행 여부 확인
 
 on:
   workflow_dispatch: {}
@@ -20,10 +20,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Diagnose ksdinfo/dividend empty response pattern for 005930 (read-only)
+      - name: Check today's screening/paper-trade run records (read-only)
         run: npx tsx --conditions=react-server scripts/verify-valuation-005930.ts
         env:
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

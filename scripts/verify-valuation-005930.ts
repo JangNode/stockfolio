@@ -15,9 +15,9 @@ import { getStockPrice } from "@/lib/kis";
 async function main(): Promise<void> {
   const { data: rows, error } = await supabaseAdmin
     .from("dart_financial_statement_years")
-    .select("bsns_year, eps, bps, roe_pct, controlling_net_income, is_final")
+    .select("year, eps, bps, roe_pct, controlling_net_income, is_final")
     .eq("stock_code", "005930")
-    .order("bsns_year", { ascending: false })
+    .order("year", { ascending: false })
     .limit(3);
 
   if (error) throw new Error(`조회 실패: ${error.message}`);

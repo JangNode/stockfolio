@@ -1332,20 +1332,17 @@ export interface DividendRecord {
   cashDividendPerShare: number;
 }
 
+type KsdinfoDividendRow = { record_date: string; per_sto_divi_amt: string };
+
 interface KsdinfoDividendResponse extends KisResponse {
-  output?: { record_date: string; per_sto_divi_amt: string }[];
-}
-
-// ksdinfo/dividend는 유효한 토큰·정상 파라미터로 불러도 가끔 rt_cd="0"(성공)인 채로
-// output이 빈 배열로 온다 — 005930 실측으로 확인(같은 토큰·같은 쿼리를 몇 초 뒤
-// 재시도하면 정상적으로 배당 이력이 옴, 다른 엔드포인트(현재가 조회)는 같은 토큰으로
-// 그 사이에도 계속 정상 응답). 우리 코드 문제가 아니라 이 엔드포인트 자체의 일시적인
-// 응답 불안정으로 보여, 빈 결과가 오면 이 함수 안에서 짧게 재시도한다.
-const EMPTY_DIVIDEND_RETRY_COUNT = 2;
-const EMPTY_DIVIDEND_RETRY_DELAY_MS = 800;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  // 실측 확인: 이 엔드포인트는 배열 필드명을 "output"으로 줄 때도 있고 "output1"로
+  // 줄 때도 있다(005930, 같은 토큰·같은 쿼리 파라미터, 몇 분 간격으로 둘 다 실제
+  // 관측함 — 우리 쪽 재시도/캐싱 문제가 아니라 KIS 응답 자체의 필드명이 바뀐다).
+  // 앞서 "가끔 빈 배열로 온다"고 판단해 재시도를 넣었던 건 사실 이 필드명 불일치를
+  // "output"만 읽고 있었기 때문이었다 — 재시도가 아니라 두 필드명을 다 읽는 게
+  // 정확한 수정이라 여기서 그렇게 고친다.
+  output?: KsdinfoDividendRow[];
+  output1?: KsdinfoDividendRow[];
 }
 
 /** 예탁원정보(배당일정)에서 최근 yearsBack개년의 배당 이벤트(보통주 1주당 현금배당금)를
@@ -1375,23 +1372,18 @@ export async function getDividendRecords(
   url.searchParams.set("SHT_CD", stockCode);
   url.searchParams.set("HIGH_GB", "");
 
-  let data: KsdinfoDividendResponse = { rt_cd: "0", msg1: "" };
-  for (let attempt = 0; attempt <= EMPTY_DIVIDEND_RETRY_COUNT; attempt++) {
-    data = (await kisFetch(
-      url,
-      TR_ID_KSDINFO_DIVIDEND,
-      accessToken,
-      appKey,
-      appSecret,
-      priority
-    )) as KsdinfoDividendResponse;
+  const data = (await kisFetch(
+    url,
+    TR_ID_KSDINFO_DIVIDEND,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as KsdinfoDividendResponse;
 
-    if ((data.output ?? []).length > 0) break;
-    if (attempt < EMPTY_DIVIDEND_RETRY_COUNT) await sleep(EMPTY_DIVIDEND_RETRY_DELAY_MS);
-  }
-
+  const rows = data.output ?? data.output1 ?? [];
   const records: DividendRecord[] = [];
-  for (const row of data.output ?? []) {
+  for (const row of rows) {
     const amount = Number(row.per_sto_divi_amt);
     if (!row.record_date || !Number.isFinite(amount)) continue;
     records.push({ recordDate: row.record_date, cashDividendPerShare: amount });

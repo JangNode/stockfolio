@@ -276,15 +276,24 @@ function extractFinancialYears(items: FnlttMultiAcntItem[], bsnsYear: number): B
  * 붙인다. years는 연도 오름차순(오래된 것부터)이어야 증감률 계산이 맞다 —
  * extractFinancialYears의 반환 순서를 그대로 따른다.
  *
- * controllingNetIncomeByYear: EPS/ROE 분자로 쓸 지배주주순이익(있는 연도만). 증권사
- * PER/ROE는 보통 이 값을 쓰므로 있으면 우선 쓰고, 없는 연도(과거 연도는 재조회하지
- * 않으므로 보통 비어 있음)는 전체 당기순이익(netIncome)으로 폴백한다. 실적 정보
- * 섹션의 증감률/이익률(revenueGrowthPct 등)은 공시상 표준 지표인 전체 당기순이익
- * 기준을 그대로 유지한다 — 지배주주순이익 대체는 EPS/ROE에만 적용한다. */
+ * controllingNetIncomeByYear: ROE 분자로 쓸 지배주주순이익(있는 연도만). 없는
+ * 연도(과거 연도는 재조회하지 않으므로 보통 비어 있음)는 전체 당기순이익
+ * (netIncome)으로 폴백한다.
+ * basicEpsByYear: DART가 회사 계산치로 직접 공시하는 "기본주당이익"(있는 연도만).
+ * 증권사 EPS는 순이익÷기말주식수로 재계산한 값이 아니라 이 공시값을 그대로 쓰므로
+ * (가중평균유통주식수 기준이라 우리가 쓰는 기말 유통주식수와 분모가 다름 — 2026-08-27
+ * 삼성전자 실측으로 확인), 있으면 그대로 쓰고 없으면 지배주주순이익÷주식수로 폴백한다.
+ * controllingEquityByYear: BPS/ROE 분모로 쓸 지배기업 소유주지분(자본, 있는
+ * 연도만). 없으면 자본총계(전체, 비지배지분 포함)로 폴백한다.
+ * 실적 정보 섹션의 증감률/이익률(revenueGrowthPct 등)은 공시상 표준 지표인 전체
+ * 당기순이익/자본총계 기준을 그대로 유지한다 — 지배주주 기준 대체는 EPS/BPS/ROE에만
+ * 적용한다. */
 function computeDerivedMetrics(
   years: BaseFinancialYear[],
   sharesOutstanding: number | null,
-  controllingNetIncomeByYear: Partial<Record<number, number>> = {}
+  controllingNetIncomeByYear: Partial<Record<number, number>> = {},
+  basicEpsByYear: Partial<Record<number, number>> = {},
+  controllingEquityByYear: Partial<Record<number, number>> = {}
 ): FinancialStatementYear[] {
   const growthPct = (curr: number | null, prev: number | null): number | null => {
     if (curr === null || prev === null || prev === 0) return null;
@@ -303,6 +312,8 @@ function computeDerivedMetrics(
     const prev = i > 0 ? years[i - 1] : null;
     const controllingNetIncome = controllingNetIncomeByYear[y.year] ?? null;
     const epsBasisNetIncome = controllingNetIncome ?? y.netIncome;
+    const epsBasisEquity = controllingEquityByYear[y.year] ?? y.totalEquity;
+    const reportedEps = basicEpsByYear[y.year] ?? null;
     return {
       ...y,
       revenueGrowthPct: growthPct(y.revenue, prev?.revenue ?? null),
@@ -310,9 +321,9 @@ function computeDerivedMetrics(
       netIncomeGrowthPct: growthPct(y.netIncome, prev?.netIncome ?? null),
       operatingMarginPct: ratioPct(y.operatingIncome, y.revenue),
       netMarginPct: ratioPct(y.netIncome, y.revenue),
-      roePct: ratioPct(epsBasisNetIncome, y.totalEquity),
-      eps: perShare(epsBasisNetIncome),
-      bps: perShare(y.totalEquity),
+      roePct: ratioPct(epsBasisNetIncome, epsBasisEquity),
+      eps: reportedEps ?? perShare(epsBasisNetIncome),
+      bps: perShare(epsBasisEquity),
       sharesOutstanding,
       controllingNetIncome,
     };
@@ -566,28 +577,56 @@ async function fetchFnlttSinglAcntAll(
   return body.list ?? [];
 }
 
-/** 지배기업 소유주지분 당기순이익을 가져온다: 연결(CFS)로 먼저 시도하고, 데이터가
- * 없으면(013) 개별(OFS)로 재시도한다. 2026-08-27 실응답(삼성전자)으로 확인된 실제
- * 구조: 손익계산서(IS)에 "당기순이익"(전체) 옆에 "지배기업 소유주지분"과
- * "비지배지분"이 별도 계정으로 나란히 온다("당기순이익" 단어는 포함하지 않음) —
- * IS를 CIS(포괄손익, 기타포괄손익까지 포함해 값이 다름)보다 먼저 찾아야 순수
- * 당기순이익귀속분이 잡힌다(items 배열 순서가 항상 IS→CIS라는 전제, DART 표준
- * 재무제표 섹션 순서를 따름). 개별(OFS)엔 비지배지분 자체가 없어 이 계정이 없는 게
- * 정상 — 이 경우 못 찾고, EPS/ROE는 전체 당기순이익(netIncome)으로 폴백한다
- * (computeDerivedMetrics) — OFS는 어차피 전체=지배주주 몫이라 결과가 같다. */
-async function fetchControllingNetIncome(corpCode: string, bsnsYear: number): Promise<number | null> {
+export interface ControllingFigures {
+  // 지배기업 소유주지분 당기순이익(IS) — ROE 분자, 기본주당이익을 못 구했을 때 EPS
+  // 폴백 분자로도 쓴다.
+  controllingNetIncome: number | null;
+  // DART가 회사 계산치로 직접 공시하는 "기본주당이익"(IS) — 있으면 EPS는 이 값을
+  // 그대로 쓴다(가중평균유통주식수 기준이라 우리가 넷이익÷기말주식수로 재계산한 값과
+  // 다름 — 2026-08-27 삼성전자 실측: 재계산 EPS 7,594.79원 vs 공시 기본주당이익
+  // 6,605원, 증권사 표시값 6,564원과는 공시값이 훨씬 근접).
+  basicEps: number | null;
+  // 지배기업 소유주지분(BS, 자본) — BPS/ROE 분모. 자본총계(전체, 비지배지분 포함)
+  // 대신 이 값을 쓰면 비지배지분이 섞이지 않는다.
+  controllingEquity: number | null;
+}
+
+/** 지배주주 기준 재무 수치 3가지(당기순이익귀속분/기본주당이익/자본귀속분)를 한 번에
+ * 가져온다: 연결(CFS)로 먼저 시도하고, 데이터가 없으면(013) 개별(OFS)로 재시도한다.
+ * 2026-08-27 실응답(삼성전자)으로 확인된 실제 구조:
+ * - 손익계산서(IS)에 "당기순이익"(전체) 옆에 "지배기업 소유주지분"과 "비지배지분"이
+ *   순이익 귀속분으로 별도 계정 나란히 온다("당기순이익" 단어는 포함하지 않음) — IS를
+ *   CIS(포괄손익, 기타포괄손익까지 포함해 값이 다름)보다 먼저 찾아야 순수 당기순이익
+ *   귀속분이 잡힌다(items 배열 순서가 항상 IS→CIS라는 전제, DART 표준 재무제표 섹션
+ *   순서를 따름).
+ * - 같은 IS 섹션에 "기본주당이익"/"희석주당이익" 계정이 원 단위(KRW)로 직접 온다.
+ * - 재무상태표(BS)에도 "지배기업 소유주지분"이 자본 항목으로 따로 온다(계정명은 IS
+ *   순이익귀속분과 동일 문자열이라 sj_div로 구분해야 함).
+ * 개별(OFS)엔 비지배지분 자체가 없어 이 계정들이 없는 게 정상 — 이 경우 각각 null이고
+ * computeDerivedMetrics가 전체 당기순이익/자본총계로 폴백한다(OFS는 어차피
+ * 전체=지배주주 몫이라 결과가 같다). */
+async function fetchControllingFigures(corpCode: string, bsnsYear: number): Promise<ControllingFigures> {
   const cfsItems = await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "CFS");
   const items = cfsItems && cfsItems.length > 0 ? cfsItems : await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "OFS");
-  if (!items) return null;
+  if (!items) return { controllingNetIncome: null, basicEps: null, controllingEquity: null };
 
-  const match = items.find(
+  const netIncomeMatch = items.find(
     (i) =>
       (i.sj_div === "IS" || i.sj_div === "CIS") &&
       i.account_nm.includes("지배기업") &&
       i.account_nm.includes("소유주지분") &&
       !i.account_nm.includes("비지배")
   );
-  return match ? parseAmount(match.thstrm_amount) : null;
+  const basicEpsMatch = items.find((i) => i.sj_div === "IS" && i.account_nm.includes("기본주당이익"));
+  const equityMatch = items.find(
+    (i) => i.sj_div === "BS" && i.account_nm.includes("지배기업") && i.account_nm.includes("소유주지분")
+  );
+
+  return {
+    controllingNetIncome: netIncomeMatch ? parseAmount(netIncomeMatch.thstrm_amount) : null,
+    basicEps: basicEpsMatch ? parseAmount(basicEpsMatch.thstrm_amount) : null,
+    controllingEquity: equityMatch ? parseAmount(equityMatch.thstrm_amount) : null,
+  };
 }
 
 /** stocks 목록에 대해 다중회사 주요계정을 조회해 최근 3개년 재무제표를 갱신한다. 이미
@@ -643,10 +682,17 @@ export async function syncFinancialStatements(
       if (!items) return;
 
       const shares = await resolveSharesOutstanding(stock, bsnsYear, sharesOutstandingStats);
-      const controllingNetIncome = await fetchControllingNetIncome(stock.corpCode, bsnsYear);
-      const years = computeDerivedMetrics(extractFinancialYears(items, bsnsYear), shares, {
-        [bsnsYear]: controllingNetIncome ?? undefined,
-      });
+      const { controllingNetIncome, basicEps, controllingEquity } = await fetchControllingFigures(
+        stock.corpCode,
+        bsnsYear
+      );
+      const years = computeDerivedMetrics(
+        extractFinancialYears(items, bsnsYear),
+        shares,
+        { [bsnsYear]: controllingNetIncome ?? undefined },
+        { [bsnsYear]: basicEps ?? undefined },
+        { [bsnsYear]: controllingEquity ?? undefined }
+      );
 
       for (const y of years) {
         rowsToUpsert.push({

@@ -1,8 +1,9 @@
 /**
- * DH전략(대형 배당·가치주) 백테스트용 백필 3단계 — 후보종목(dh_daily_market_data에서
- * 시가총액 1조원 이상이었던 이력이 있는 종목)의 배당 이력을 dh_dividend_history에
- * 채운다. 이미 검증된 lib/kis.ts의 getDividendRecords(예탁원정보/배당일정, payDate
- * 포함)를 그대로 재사용한다 — 종목당 호출 1번으로 yearsBack년치가 한 번에 온다.
+ * DH전략(대형 배당·가치주) 백테스트용 백필 3단계 — 후보종목(1단계가 Storage에 쓴
+ * 연도별 Parquet 파일에서 시가총액 1조원 이상이었던 이력이 있는 종목)의 배당 이력을
+ * dh_dividend_history에 채운다. 이미 검증된 lib/kis.ts의 getDividendRecords(예탁원정보/
+ * 배당일정, payDate 포함)를 그대로 재사용한다 — 종목당 호출 1번으로 yearsBack년치가
+ * 한 번에 온다.
  *
  * server-only로 막힌 lib/kis.ts, lib/supabaseAdmin.ts를 순수 Node 스크립트에서도
  * 재사용하려면 "react-server" 조건으로 실행해야 한다:
@@ -13,8 +14,12 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDividendRecords } from "@/lib/kis";
+import { discoverCandidateStockCodes } from "@/lib/dhDailyPricesStorage";
+import { DH_MIN_MARKET_CAP_EOK } from "@/lib/dhStrategyConfig";
 
-const MIN_MARKET_CAP_EOK_CANDIDATE = 10_000; // 1조원
+// 1단계(scripts/backfill-dh-krx-prices.ts)의 BACKFILL_START_YEAR와 동일해야 후보종목이
+// 빠짐없이 뽑힌다.
+const PRICE_BACKFILL_START_YEAR = 2011;
 // 2011년 시작 백테스트의 5년 배당 lookback(2011년 초 조회 시 2006년까지 필요)까지
 // 넉넉히 덮도록 여유를 둔다.
 const DIVIDEND_YEARS_BACK = 20;
@@ -33,12 +38,12 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
 }
 
 async function discoverCandidates(): Promise<string[]> {
-  const { data, error } = await supabaseAdmin
-    .from("dh_daily_market_data")
-    .select("stock_code")
-    .gte("market_cap_eok", MIN_MARKET_CAP_EOK_CANDIDATE);
-  if (error) throw new Error(`후보종목 발굴 실패: ${error.message}`);
-  return Array.from(new Set((data ?? []).map((r) => r.stock_code)));
+  const currentYear = new Date().getUTCFullYear();
+  const years = Array.from(
+    { length: currentYear - PRICE_BACKFILL_START_YEAR + 1 },
+    (_, i) => PRICE_BACKFILL_START_YEAR + i
+  );
+  return discoverCandidateStockCodes(years, DH_MIN_MARKET_CAP_EOK);
 }
 
 function toIsoDate(yyyymmdd: string): string {

@@ -9,6 +9,7 @@
 
 import { uploadYearPrices, yearPricesExist, getDailyPrice, discoverCandidateStockCodes } from "@/lib/dhDailyPricesStorage";
 import { DH_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/dhStrategyConfig";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const TEST_YEAR = 9999; // 실제 연도와 안 겹치게 테스트 전용 연도 사용, 끝나면 정리
 
@@ -67,6 +68,11 @@ async function main(): Promise<void> {
   console.log("6) discoverCandidateStockCodes로 후보종목 발굴 테스트...");
   const candidates = await discoverCandidateStockCodes([TEST_YEAR], 10_000);
   console.log(`시가총액 1조원 이상 후보종목 수: ${candidates.length}, 005930 포함 여부: ${candidates.includes("005930")}`);
+
+  console.log("7) 테스트 파일 정리...");
+  const { error: removeError } = await supabaseAdmin.storage.from("dh-daily-prices").remove([`${TEST_YEAR}.parquet`]);
+  if (removeError) console.error("테스트 파일 삭제 실패:", removeError.message);
+  else console.log("테스트 파일 삭제 완료");
 }
 
 main().catch((error) => {

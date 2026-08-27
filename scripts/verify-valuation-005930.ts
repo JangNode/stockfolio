@@ -1,37 +1,42 @@
 /**
- * (임시) 배당 이력이 빈 배열로 오는 버그 진단용 읽기 전용 스크립트 2차 — 005930
- * 기준. 1차 진단에서 getDividendRecords("005930", 5)가 오류 없이 빈 배열을
- * 반환하는 것까지 확인했지만, 그게 KIS가 진짜로 0건을 준 건지 파싱 문제인지
- * 구분이 안 돼 이번엔 raw KIS 응답(rt_cd/msg1/output)을 그대로 같이 찍는다.
- * DB/코드는 건드리지 않는다 — 확인 후 삭제 예정.
+ * (임시) 배당 이력 버그 진단 3차 — 캐싱된 KIS 토큰(kis_tokens 테이블, 프로덕션과
+ * 공유)으로 직접 ksdinfo/dividend를 호출해, 신규 발급 토큰(2차 진단, 성공)과
+ * 차이가 있는지 확인한다. kis_tokens 행의 만료 시각도 함께 찍는다. DB는 읽기만
+ * 한다 — 확인 후 삭제 예정.
  *
  *   tsx --conditions=react-server scripts/verify-valuation-005930.ts
  */
 
-const KIS_BASE_URL = process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-async function getAccessToken(appKey: string, appSecret: string): Promise<string> {
-  const res = await fetch(new URL("/oauth2/tokenP", KIS_BASE_URL), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, appsecret: appSecret }),
-  });
-  if (!res.ok) throw new Error(`토큰 발급 실패: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { access_token: string };
-  return data.access_token;
-}
+const KIS_BASE_URL = process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
 
 async function main(): Promise<void> {
   const appKey = process.env.KIS_APP_KEY;
   const appSecret = process.env.KIS_APP_SECRET;
   if (!appKey || !appSecret) throw new Error("KIS_APP_KEY / KIS_APP_SECRET 없음");
 
-  const accessToken = await getAccessToken(appKey, appSecret);
+  const { data: tokenRow, error } = await supabaseAdmin
+    .from("kis_tokens")
+    .select("access_token, expires_at, updated_at")
+    .eq("id", "kis")
+    .maybeSingle();
+
+  if (error) throw new Error(`kis_tokens 조회 실패: ${error.message}`);
+  if (!tokenRow) {
+    console.log("kis_tokens 행이 없습니다.");
+    return;
+  }
 
   const now = new Date();
+  const expiresAt = new Date(tokenRow.expires_at);
+  console.log(`지금: ${now.toISOString()}`);
+  console.log(`캐싱된 토큰 만료 시각: ${tokenRow.expires_at} (${expiresAt.getTime() - now.getTime()}ms 남음)`);
+  console.log(`캐싱된 토큰 마지막 갱신: ${tokenRow.updated_at}`);
+  console.log(`캐싱된 토큰(앞 20자): ${tokenRow.access_token.slice(0, 20)}...`);
+
   const toDate = `${now.getFullYear()}1231`;
   const fromDate = `${now.getFullYear() - 5}0101`;
-  console.log(`fromDate=${fromDate}, toDate=${toDate} (now=${now.toISOString()})`);
 
   const url = new URL("/uapi/domestic-stock/v1/ksdinfo/dividend", KIS_BASE_URL);
   url.searchParams.set("CTS", "");
@@ -41,12 +46,11 @@ async function main(): Promise<void> {
   url.searchParams.set("SHT_CD", "005930");
   url.searchParams.set("HIGH_GB", "");
 
-  console.log(`요청 URL: ${url.toString()}`);
-
+  console.log(`\n=== 캐싱된 토큰으로 ksdinfo/dividend 호출 ===`);
   const res = await fetch(url, {
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
+      authorization: `Bearer ${tokenRow.access_token}`,
       appkey: appKey,
       appsecret: appSecret,
       tr_id: "HHKDB669102C0",
@@ -56,8 +60,27 @@ async function main(): Promise<void> {
 
   console.log(`HTTP 상태: ${res.status}`);
   const body = await res.json();
-  console.log("=== raw 응답 ===");
   console.log(JSON.stringify(body, null, 2));
+
+  // 비교용: 같은 캐싱된 토큰으로 이미 잘 되던 다른 엔드포인트(현재가 조회)도 같이
+  // 호출해본다 — 토큰 자체가 무효라면 이것도 실패해야 한다.
+  console.log(`\n=== 캐싱된 토큰으로 inquire-price(005930) 호출 (비교용) ===`);
+  const priceUrl = new URL("/uapi/domestic-stock/v1/quotations/inquire-price", KIS_BASE_URL);
+  priceUrl.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
+  priceUrl.searchParams.set("FID_INPUT_ISCD", "005930");
+  const priceRes = await fetch(priceUrl, {
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${tokenRow.access_token}`,
+      appkey: appKey,
+      appsecret: appSecret,
+      tr_id: "FHKST01010100",
+      custtype: "P",
+    },
+  });
+  console.log(`HTTP 상태: ${priceRes.status}`);
+  const priceBody = await priceRes.json();
+  console.log(JSON.stringify({ rt_cd: priceBody.rt_cd, msg1: priceBody.msg1, stck_prpr: priceBody.output?.stck_prpr }, null, 2));
 }
 
 main().catch((error) => {

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFinancialStatements, getDividendHistory } from "@/lib/dart";
-import { getStockPrice } from "@/lib/kis";
+import { getStockPrice, getProfitRatioYears, getDividendYearTotals } from "@/lib/kis";
 import { requireApproved } from "@/lib/requireApproved";
 
-// DART는 국내(KRX) 상장사만 다루므로 미국 종목은 지원 대상이 아니다 — 프런트에서도
+const DIVIDEND_YEARS_TO_SHOW = 5;
+
+// KIS는 국내(KRX) 상장사만 다루므로 미국 종목은 지원 대상이 아니다 — 프런트에서도
 // market === "KR"일 때만 이 엔드포인트를 호출한다.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   const denied = await requireApproved(request);
@@ -12,36 +13,38 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { code } = await params;
 
   try {
-    const [financials, dividends] = await Promise.all([getFinancialStatements(code), getDividendHistory(code)]);
+    // PER/PBR/EPS/BPS는 KIS 현재가 조회 API가 이미 계산해서 내려주는 값을 그대로
+    // 쓴다 — DART 재무제표를 재조합해 직접 계산하던 이전 방식과 달리 한국투자증권
+    // 앱 표시값과 실측 비교해 일치함을 확인했다(005930 기준). ROE는 이 API에 없어
+    // 수익성비율 API(연도별)의 최근 연도 값을 쓴다.
+    const [price, profitRatioYears] = await Promise.all([getStockPrice(code), getProfitRatioYears(code)]);
+    const latestRoePct = profitRatioYears[0]?.roePct ?? null;
 
-    if (!financials || financials.length === 0) {
-      return NextResponse.json({ financials: [], dividends: [], per: null, pbr: null, dividendYieldPct: null });
-    }
+    // 배당수익률/배당성향은 오늘 주가·오늘 EPS 기준 스냅샷이라 캐싱하지 않는다.
+    // 5개년 표의 과거 연도 배당수익률도 동일하게 "오늘 주가로 계산했다면"의 값으로
+    // 통일해 보여준다(연도별 당시 주가 조회는 별도 호출이 더 필요해 생략) — 값 자체는
+    // 그 해에 지급된 실제 배당금이므로 절대 배당금은 정확하다.
+    const dividendYears = await getDividendYearTotals(code, DIVIDEND_YEARS_TO_SHOW);
+    const dividends = dividendYears.map((d) => ({
+      year: d.year,
+      cashDividendPerShareCommon: d.cashDividendPerShare,
+      dividendYieldPct: price.currentPrice > 0 ? (d.cashDividendPerShare / price.currentPrice) * 100 : null,
+    }));
 
-    // PER/PBR/배당수익률은 "오늘 주가" 기준 스냅샷이라 캐싱하지 않는다 — 캐싱된
-    // EPS/BPS/배당금(재료)에 지금 이 순간의 KIS 현재가를 조합해 즉시 계산한다.
-    const price = await getStockPrice(code);
-    const latest = financials[financials.length - 1];
     const latestDividend = dividends[0] ?? null;
-
-    const per = latest.eps !== null && latest.eps > 0 ? price.currentPrice / latest.eps : null;
-    const pbr = latest.bps !== null && latest.bps > 0 ? price.currentPrice / latest.bps : null;
-    const dividendYieldPct =
-      latestDividend?.cashDividendPerShareCommon !== null &&
-      latestDividend?.cashDividendPerShareCommon !== undefined &&
-      price.currentPrice > 0
-        ? (latestDividend.cashDividendPerShareCommon / price.currentPrice) * 100
+    const payoutRatioPct =
+      latestDividend !== null && price.eps !== null && price.eps > 0
+        ? (latestDividend.cashDividendPerShareCommon / price.eps) * 100
         : null;
 
     return NextResponse.json({
-      financials,
       dividends,
       currentPrice: price.currentPrice,
-      per,
-      pbr,
-      roePct: latest.roePct,
-      dividendYieldPct,
-      payoutRatioPct: latestDividend?.payoutRatioPct ?? null,
+      per: price.per,
+      pbr: price.pbr,
+      roePct: latestRoePct,
+      dividendYieldPct: latestDividend?.dividendYieldPct ?? null,
+      payoutRatioPct,
     });
   } catch (error) {
     return NextResponse.json(

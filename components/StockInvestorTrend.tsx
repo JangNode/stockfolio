@@ -17,11 +17,13 @@ interface InvestorTrendResponse {
 
 // 3주체 각각 고정된 색을 쓴다 — 매수/매도 부호에 따른 빨강/파랑은 겹쳐 그리면
 // 알아보기 어려워서(3개 선이 서로 교차) 아래 기간 누적 순매수량 숫자 쪽에만
-// 적용한다(기존 실적 정보 카드의 증감률 색상 관례와 동일).
+// 적용한다(기존 실적 정보 카드의 증감률 색상 관례와 동일). 파랑/보라는 화면에서
+// 구분이 잘 안 된다는 피드백을 받아 색상 대비를 더 크게(파랑/주황/초록) 벌리고,
+// 선이 겹쳐도 구분되도록 선 종류(실선/파선/일점쇄선)를 색과 별도로 함께 준다.
 const SERIES = [
-  { key: "foreignNetBuy" as const, label: "외국인", color: "#3b82f6" },
-  { key: "institutionNetBuy" as const, label: "기관", color: "#8b5cf6" },
-  { key: "individualNetBuy" as const, label: "개인", color: "#10b981" },
+  { key: "foreignNetBuy" as const, label: "외국인", color: "#2563eb", dash: undefined },
+  { key: "institutionNetBuy" as const, label: "기관", color: "#ea580c", dash: "6 3" },
+  { key: "individualNetBuy" as const, label: "개인", color: "#16a34a", dash: "2 2" },
 ];
 
 function formatShortDate(date: string): string {
@@ -77,7 +79,13 @@ export default function StockInvestorTrend({ code }: { code: string }) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data.days} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
-                <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 11, fill: "#71717a" }} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatShortDate}
+                  tick={{ fontSize: 11, fill: "#71717a" }}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                />
                 <YAxis
                   tickFormatter={(v: number) => `${(v / 10_000).toLocaleString("ko-KR")}만`}
                   tick={{ fontSize: 11, fill: "#71717a" }}
@@ -95,8 +103,10 @@ export default function StockInvestorTrend({ code }: { code: string }) {
                     dataKey={s.key}
                     name={s.label}
                     stroke={s.color}
-                    strokeWidth={2}
+                    strokeWidth={2.25}
+                    strokeDasharray={s.dash}
                     dot={false}
+                    activeDot={{ r: 4 }}
                   />
                 ))}
               </LineChart>

@@ -1326,13 +1326,27 @@ export async function getGrowthRatioYears(
 }
 
 export interface DividendRecord {
-  // YYYYMMDD 문자열 그대로 둔다 — 호출부가 연도별 합산(5개년 배당 이력 표)과 최근
-  // 365일 이벤트 수(1년간 배당 횟수) 둘 다 이 문자열을 그대로 비교해 계산한다.
+  // YYYYMMDD 문자열 그대로 둔다 — 호출부가 연도별 합산(5개년 배당 이력 표)에 이 값을
+  // 그대로 비교해 쓴다.
   recordDate: string;
   cashDividendPerShare: number;
+  // 실제 배당금 지급일(YYYYMMDD, 없으면 null). 한투 앱 자체 정의("배당수익률 = 최근
+  // 1년 주당배당금 합계 / 전일 종가", "1년간 배당 = 지급일 기준으로 최근 1년동안
+  // 지급된 배당지급 횟수")를 그대로 따르려면 기준일(record_date)이 아니라 이
+  // 지급일 기준으로, 그리고 "이미 지급된"(지급일이 오늘 이전인) 건만 세야 한다 —
+  // 005930 실측으로 아직 지급 전인(divi_pay_dt가 미래) 예정 배당 건이 함께 잡혀
+  // 한투보다 배당수익률/배당 횟수가 더 크게 나오는 걸 확인해 이렇게 고쳤다.
+  payDate: string | null;
 }
 
-type KsdinfoDividendRow = { record_date: string; per_sto_divi_amt: string };
+type KsdinfoDividendRow = { record_date: string; per_sto_divi_amt: string; divi_pay_dt?: string };
+
+/** "YYYY/MM/DD" → "YYYYMMDD". 비어있거나 형식이 다르면 null. */
+function parseKsdPayDate(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replaceAll("/", "");
+  return /^\d{8}$/.test(digits) ? digits : null;
+}
 
 interface KsdinfoDividendResponse extends KisResponse {
   // 실측 확인: 이 엔드포인트는 배열 필드명을 "output"으로 줄 때도 있고 "output1"로
@@ -1386,7 +1400,7 @@ export async function getDividendRecords(
   for (const row of rows) {
     const amount = Number(row.per_sto_divi_amt);
     if (!row.record_date || !Number.isFinite(amount)) continue;
-    records.push({ recordDate: row.record_date, cashDividendPerShare: amount });
+    records.push({ recordDate: row.record_date, cashDividendPerShare: amount, payDate: parseKsdPayDate(row.divi_pay_dt) });
   }
 
   return records.sort((a, b) => b.recordDate.localeCompare(a.recordDate));
@@ -1409,6 +1423,7 @@ interface InquireInvestorResponse extends KisResponse {
 // 바뀌므로 TTL을 넘기면 자연히 다시 받아온다 — 서버리스 콜드스타트마다 캐시가
 // 비워질 수 있다는 한계도 기존 chartCache와 동일하게 감수한다.
 const INVESTOR_TREND_CACHE_TTL_MS = 5 * 60 * 1000;
+const INVESTOR_TREND_MAX_DAYS = 20;
 const investorTrendCache = new Map<string, { days: InvestorTrendDay[]; fetchedAt: number }>();
 
 /** 국내주식 현재가 투자자(inquire-investor) — 날짜 파라미터 없이 한 번의 호출로 최근
@@ -1444,6 +1459,11 @@ export async function getInvestorTrend(
   )) as InquireInvestorResponse;
 
   // KIS는 최신 순으로 내려주므로 과거→최신 순으로 뒤집는다(국내 getDailyPrices와 동일 규약).
+  // 이 API가 실제로 몇 건을 주는지는 그때그때 다를 수 있어(005930 실측으로 확인한
+  // ksdinfo/dividend의 사례처럼 이 계정의 KIS 응답이 문서와 다르게 오는 경우가
+  // 있었다), "최근 1개월(약 영업일 기준 20일)"이라는 원래 요구사항을 지키기 위해
+  // 항상 최근 INVESTOR_TREND_MAX_DAYS일만 잘라서 쓴다 — 그래프가 과도하게 빽빽해지는
+  // 것도 함께 막는다.
   const days = (data.output ?? [])
     .map((row) => ({
       date: `${row.stck_bsop_date.slice(0, 4)}-${row.stck_bsop_date.slice(4, 6)}-${row.stck_bsop_date.slice(6, 8)}`,
@@ -1451,7 +1471,8 @@ export async function getInvestorTrend(
       institutionNetBuy: Number(row.orgn_ntby_qty),
       individualNetBuy: Number(row.prsn_ntby_qty),
     }))
-    .reverse();
+    .reverse()
+    .slice(-INVESTOR_TREND_MAX_DAYS);
 
   investorTrendCache.set(stockCode, { days, fetchedAt: Date.now() });
 

@@ -1,18 +1,21 @@
 /**
  * DH전략(대형 배당·가치주) 백테스트용 과거 PER/PBR 재구성의 1단계 — KRX
  * 일별매매정보(stk_bydd_trd/ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가총액/
- * 상장주식수를 dh_daily_market_data에 채운다. 이 단계는 후보종목 필터링을 하지
- * 않는다 — basDd 하나로 그날 전종목이 한 번에 오기 때문에 필터링해도 호출 비용이
- * 안 줄고, 2단계(DART 재무 백필)가 "그 기간 중 단 하루라도 시가총액 1조원을 넘은
- * 적 있는 종목"을 이 표에서 직접 뽑아 쓴다(오늘 기준 대형주 리스트를 쓰면 생존편향이
- * 생긴다 — supabase/migrations의 dh_daily_market_data 테이블 코멘트 참고).
+ * 상장주식수를 연도별 Parquet 파일(dh-daily-prices/{year}.parquet, Supabase Storage)로
+ * 만든다. Postgres가 아니라 Storage에 쓰는 이유는 supabase/migrations의
+ * 20260827060000_dh_daily_prices_to_storage.sql 코멘트 참고 — 전종목 15년치를
+ * Postgres에 다 넣었더니 무료 플랜 DB 용량(500MB)을 넘겨버렸다(639만 행에서
+ * "No space left on device"로 중단됨).
  *
- * 주말(토/일)은 API 호출 없이 요일 계산만으로 건너뛴다(호출 비용 없음). 평일 중
- * 공휴일은 호출은 하되 응답이 비어 있으면(OutBlock_1 없음/빈 배열) 그냥 건너뛴다.
- * 15년치 기준 예상 호출 수: 평일 약 4,100일 × 2개 시장 ≈ 8,200회 — KRX 일일 한도
- * 10,000회 안에 여유 있게 들어와 한 번 실행으로 끝난다. 그래도 중간에 네트워크
- * 오류 등으로 끊길 경우를 대비해 날짜 단위로 체크포인트(dh_backfill_runs)를 남기고
- * 이어받는다.
+ * 시가총액이 DH_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/dhStrategyConfig.ts, 5천억원) 미만인
+ * 행은 애초에 저장하지 않는다 — DH전략 최종 기준(1조원)보다 낮게 잡아 여유를 두면서도,
+ * 저장량을 크게 줄인다. 주말(토/일)은 API 호출 없이 요일 계산만으로 건너뛴다. 평일 중
+ * 공휴일은 호출은 하되 응답이 비어 있으면 그냥 건너뛴다.
+ *
+ * 연도 단위로 파일을 통째로 쓰기 때문에(한 해가 전부 성공해야 업로드) 재개 로직도
+ * 연도 단위다 — 이미 Storage에 있는 연도는(현재 진행 중인 최신 연도 제외) 통째로
+ * 건너뛴다. 중간에 실패한 해는 파일이 아예 안 올라가 있으므로 다음 실행이 그 해를
+ * 처음부터 다시 받는다(한 해 최대 ~245영업일이라 다시 받아도 오래 안 걸림).
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
@@ -22,9 +25,11 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { uploadYearPrices, yearPricesExist, type DhDailyPriceRow } from "@/lib/dhDailyPricesStorage";
+import { DH_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/dhStrategyConfig";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
-const BACKFILL_START_DATE = "2011-01-01"; // 10년 백테스트(2016~) + 5년 배당 lookback
+const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
 const DATA_SOURCE = "krx_price" as const;
 const CONCURRENCY = 8;
 const CALL_RETRY_COUNT = 2;
@@ -54,9 +59,6 @@ function toBasDd(dateKey: string): string {
   return dateKey.replaceAll("-", "");
 }
 
-/** items를 최대 limit개까지 동시에 처리한다. worker 안 예외는 호출부가 흡수해야 한다
- * (screen-all-stocks.ts의 동명 헬퍼와 동일한 패턴 — 이 저장소는 이 정도 크기 헬퍼는
- * 스크립트마다 복붙해서 쓴다). */
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let nextIndex = 0;
   async function runOne(): Promise<void> {
@@ -69,7 +71,11 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runOne));
 }
 
-async function fetchKrxDaily(endpoint: "stk_bydd_trd" | "ksq_bydd_trd", basDd: string, apiKey: string): Promise<KrxTradeRow[]> {
+async function fetchKrxDaily(
+  endpoint: "stk_bydd_trd" | "ksq_bydd_trd",
+  basDd: string,
+  apiKey: string
+): Promise<KrxTradeRow[]> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= CALL_RETRY_COUNT; attempt++) {
     try {
@@ -83,19 +89,6 @@ async function fetchKrxDaily(endpoint: "stk_bydd_trd" | "ksq_bydd_trd", basDd: s
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
-async function getLastCompletedDate(): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("dh_backfill_runs")
-    .select("last_completed_date")
-    .eq("data_source", DATA_SOURCE)
-    .not("last_completed_date", "is", null)
-    .order("last_completed_date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`체크포인트 조회 실패: ${error.message}`);
-  return data?.last_completed_date ?? null;
 }
 
 async function recordCheckpoint(
@@ -115,97 +108,104 @@ async function recordCheckpoint(
   if (error) console.error(`체크포인트 저장 실패: ${error.message}`);
 }
 
+/** 한 해의 대상 평일 날짜(YYYY-MM-DD) 목록. endDate를 넘으면 그 이전까지만. */
+function weekdaysInYear(year: number, endDate: Date): string[] {
+  const dates: string[] = [];
+  const start = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year, 11, 31));
+  const last = yearEnd < endDate ? yearEnd : endDate;
+  for (const d = new Date(start); d <= last; d.setUTCDate(d.getUTCDate() + 1)) {
+    if (!isWeekend(d)) dates.push(toDateKey(d));
+  }
+  return dates;
+}
+
+async function backfillYear(year: number, targetDates: string[], apiKey: string): Promise<{ rows: number; errors: number }> {
+  const yearRows: DhDailyPriceRow[] = [];
+  let errors = 0;
+  let completed = 0;
+
+  await runWithConcurrency(targetDates, CONCURRENCY, async (dateKey) => {
+    const basDd = toBasDd(dateKey);
+    try {
+      const [kospi, kosdaq] = await Promise.all([
+        fetchKrxDaily("stk_bydd_trd", basDd, apiKey),
+        fetchKrxDaily("ksq_bydd_trd", basDd, apiKey),
+      ]);
+      for (const row of [...kospi, ...kosdaq]) {
+        if (!row.ISU_CD || !row.TDD_CLSPRC || row.TDD_CLSPRC === "-" || !row.LIST_SHRS || row.LIST_SHRS === "-") {
+          continue;
+        }
+        const marketCapEok = Number(row.MKTCAP) / 100_000_000;
+        if (!Number.isFinite(marketCapEok) || marketCapEok < DH_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
+
+        yearRows.push({
+          stockCode: row.ISU_CD,
+          tradeDate: dateKey,
+          closePrice: Number(row.TDD_CLSPRC),
+          marketCapEok,
+          listedShares: Number(row.LIST_SHRS),
+        });
+      }
+    } catch (error) {
+      errors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`  ${dateKey} 실패: ${message}`);
+    } finally {
+      completed++;
+      if (completed % 100 === 0 || completed === targetDates.length) {
+        console.log(`  ${year}년 진행: ${completed}/${targetDates.length}일 (누적 ${yearRows.length}행, 실패 ${errors})`);
+      }
+    }
+  });
+
+  if (errors === 0) {
+    await uploadYearPrices(year, yearRows);
+  }
+
+  return { rows: yearRows.length, errors };
+}
+
 async function main(): Promise<void> {
   const apiKey = process.env.KRX_API_KEY;
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
 
   const startedAt = new Date();
-  const lastCompleted = await getLastCompletedDate();
-  const resumeFrom = lastCompleted ? new Date(lastCompleted + "T00:00:00Z") : new Date(BACKFILL_START_DATE + "T00:00:00Z");
-  if (lastCompleted) resumeFrom.setUTCDate(resumeFrom.getUTCDate() + 1);
-
+  const currentYear = new Date().getUTCFullYear();
   // 오늘 데이터는 장 마감/정산 전일 수 있어 어제까지만 대상으로 한다 — 오늘 이후는
-  // 매일 도는 상시 갱신 배치(screening.yml에 추가 예정)가 처리한다.
+  // 매일 도는 상시 갱신 배치(추후 screening.yml에 추가 예정)가 처리한다.
   const endDate = new Date();
   endDate.setUTCDate(endDate.getUTCDate() - 1);
 
-  const targetDates: string[] = [];
-  for (const d = new Date(resumeFrom); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
-    if (!isWeekend(d)) targetDates.push(toDateKey(d));
-  }
-
-  console.log(`KRX 시세 백필 시작: ${targetDates.length}개 평일 대상 (${targetDates[0] ?? "없음"} ~ ${targetDates[targetDates.length - 1] ?? "없음"})`);
-  if (targetDates.length === 0) {
-    console.log("처리할 날짜가 없습니다. 이미 최신 상태입니다.");
-    return;
-  }
-
   let totalRows = 0;
-  let errorCount = 0;
-  let lastSuccessfulDate: string | null = null;
-  let completed = 0;
+  let totalErrors = 0;
 
-  // 날짜 순서대로 완료돼야 체크포인트가 안전하므로, 동시성은 날짜 배치 단위로만
-  // 준다 — 한 배치(CONCURRENCY개 날짜) 전체가 끝나야 다음 배치로 넘어간다.
-  for (let i = 0; i < targetDates.length; i += CONCURRENCY) {
-    const chunk = targetDates.slice(i, i + CONCURRENCY);
-    const results = new Map<string, { rows: number; ok: boolean }>();
-
-    await runWithConcurrency(chunk, CONCURRENCY, async (dateKey) => {
-      const basDd = toBasDd(dateKey);
-      try {
-        const [kospi, kosdaq] = await Promise.all([
-          fetchKrxDaily("stk_bydd_trd", basDd, apiKey),
-          fetchKrxDaily("ksq_bydd_trd", basDd, apiKey),
-        ]);
-        const allRows = [...kospi, ...kosdaq].filter(
-          (row) => row.ISU_CD && row.TDD_CLSPRC && row.TDD_CLSPRC !== "-" && row.LIST_SHRS && row.LIST_SHRS !== "-"
-        );
-
-        if (allRows.length > 0) {
-          const upsertRows = allRows.map((row) => ({
-            stock_code: row.ISU_CD,
-            trade_date: dateKey,
-            close_price: Number(row.TDD_CLSPRC),
-            market_cap_eok: Number(row.MKTCAP) / 100_000_000,
-            listed_shares: Number(row.LIST_SHRS),
-          }));
-          const { error } = await supabaseAdmin.from("dh_daily_market_data").upsert(upsertRows);
-          if (error) throw new Error(error.message);
-        }
-
-        results.set(dateKey, { rows: allRows.length, ok: true });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`  ${dateKey} 실패: ${message}`);
-        results.set(dateKey, { rows: 0, ok: false });
-      }
-    });
-
-    // 배치 내에서 실패가 하나라도 있으면 그 지점 이전까지만 완료로 체크포인트를 찍는다
-    // (실패한 날짜 이후는 다음 실행에서 다시 시도).
-    for (const dateKey of chunk) {
-      const result = results.get(dateKey);
-      completed++;
-      if (result?.ok) {
-        totalRows += result.rows;
-        lastSuccessfulDate = dateKey;
-      } else {
-        errorCount++;
-        console.error(`${dateKey} 실패로 백필을 중단합니다. 다음 실행이 여기부터 이어받습니다.`);
-        await recordCheckpoint(startedAt, lastSuccessfulDate, totalRows, errorCount);
-        console.log(`진행: ${completed}/${targetDates.length}일, 누적 ${totalRows}행, 마지막 완료일 ${lastSuccessfulDate ?? "없음"}`);
-        return;
-      }
+  for (let year = BACKFILL_START_YEAR; year <= currentYear; year++) {
+    const isCurrentYear = year === currentYear;
+    if (!isCurrentYear && (await yearPricesExist(year))) {
+      console.log(`${year}년: 이미 완료됨, 건너뜀`);
+      continue;
     }
 
-    if (completed % 100 === 0 || completed === targetDates.length) {
-      console.log(`진행: ${completed}/${targetDates.length}일, 누적 ${totalRows}행`);
+    const targetDates = weekdaysInYear(year, endDate);
+    if (targetDates.length === 0) continue;
+
+    console.log(`${year}년 백필 시작: ${targetDates.length}개 평일 (${targetDates[0]} ~ ${targetDates[targetDates.length - 1]})`);
+    const { rows, errors } = await backfillYear(year, targetDates, apiKey);
+    totalRows += rows;
+    totalErrors += errors;
+
+    if (errors > 0) {
+      console.error(`${year}년에 실패가 있어 이 해는 업로드하지 않았습니다. 다음 실행이 이 해부터 다시 시도합니다.`);
+      await recordCheckpoint(startedAt, `${year - 1}-12-31`, totalRows, totalErrors);
+      return;
     }
+
+    console.log(`${year}년 완료: ${rows}행 저장(기준 미달 종목 제외)`);
   }
 
-  await recordCheckpoint(startedAt, lastSuccessfulDate, totalRows, errorCount);
-  console.log(`KRX 시세 백필 완료: 총 ${totalRows}행, 마지막 완료일 ${lastSuccessfulDate ?? "없음"}`);
+  await recordCheckpoint(startedAt, `${currentYear}-12-31`, totalRows, totalErrors);
+  console.log(`KRX 시세 백필 완료: 총 ${totalRows}행 저장`);
 }
 
 main().catch((error) => {

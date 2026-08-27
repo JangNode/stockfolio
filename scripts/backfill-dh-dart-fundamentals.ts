@@ -1,10 +1,11 @@
 /**
  * DH전략(대형 배당·가치주) 백테스트용 과거 PER/PBR 재구성의 2단계 — 후보종목(백필
- * 기간 중 단 하루라도 시가총액 1조원을 넘은 적 있는 종목)을 dh_daily_market_data에서
- * 직접 뽑고, 각 종목×연도에 대해 DART fnlttSinglAcntAll(단일회사 전체 재무제표)을
- * 호출해 지배기업 소유주지분 당기순이익/자본총계를 dh_annual_fundamentals에 채운다.
- * "오늘 기준 대형주 리스트"가 아니라 실제 과거 시가총액으로 후보를 뽑기 때문에
- * 생존편향이 없다(과거엔 컸는데 지금 작아진 회사도 포함, 반대도 마찬가지).
+ * 기간 중 단 하루라도 시가총액 1조원을 넘은 적 있는 종목)을 1단계가 Storage에 쓴
+ * 연도별 Parquet 파일(dh-daily-prices/{year}.parquet)에서 직접 뽑고, 각 종목×연도에
+ * 대해 DART fnlttSinglAcntAll(단일회사 전체 재무제표)을 호출해 지배기업 소유주지분
+ * 당기순이익/자본총계를 dh_annual_fundamentals에 채운다. "오늘 기준 대형주 리스트"가
+ * 아니라 실제 과거 시가총액으로 후보를 뽑기 때문에 생존편향이 없다(과거엔 컸는데 지금
+ * 작아진 회사도 포함, 반대도 마찬가지).
  *
  * 연도 범위: 백테스트 기간 시작(2016년, 5년 배당 lookback 포함 2011년)의 point-in-time
  * 조회가 항상 유효한 재무를 찾을 수 있도록 FY2009부터(2010년 3월경 공시, 2011년 초
@@ -22,10 +23,11 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { discoverCandidateStockCodes } from "@/lib/dhDailyPricesStorage";
+import { DH_MIN_MARKET_CAP_EOK } from "@/lib/dhStrategyConfig";
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DATA_SOURCE = "dart_fundamentals" as const;
-const MIN_MARKET_CAP_EOK_CANDIDATE = 10_000; // 1조원
 const FISCAL_YEAR_START = 2009;
 const CONCURRENCY = 8;
 const CALL_RETRY_COUNT = 2;
@@ -50,15 +52,19 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runOne));
 }
 
+// 1단계(scripts/backfill-dh-krx-prices.ts)의 BACKFILL_START_YEAR와 동일해야 후보종목이
+// 빠짐없이 뽑힌다.
+const PRICE_BACKFILL_START_YEAR = 2011;
+
 /** 백필 기간 중 단 하루라도 시가총액 1조원을 넘은 적 있는 종목을 뽑는다. "오늘 기준"이
  * 아니라 실측 과거 시가총액을 쓰므로 생존편향이 없다. */
 async function discoverCandidates(): Promise<string[]> {
-  const { data, error } = await supabaseAdmin
-    .from("dh_daily_market_data")
-    .select("stock_code")
-    .gte("market_cap_eok", MIN_MARKET_CAP_EOK_CANDIDATE);
-  if (error) throw new Error(`후보종목 발굴 실패: ${error.message}`);
-  return Array.from(new Set((data ?? []).map((r) => r.stock_code)));
+  const currentYear = new Date().getUTCFullYear();
+  const years = Array.from(
+    { length: currentYear - PRICE_BACKFILL_START_YEAR + 1 },
+    (_, i) => PRICE_BACKFILL_START_YEAR + i
+  );
+  return discoverCandidateStockCodes(years, DH_MIN_MARKET_CAP_EOK);
 }
 
 async function getCorpCodeMap(stockCodes: string[]): Promise<Map<string, string>> {

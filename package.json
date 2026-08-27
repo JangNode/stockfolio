@@ -22,6 +22,8 @@
     "@supabase/supabase-js": "^2.112.3",
     "adm-zip": "^0.6.0",
     "fast-xml-parser": "^5.11.0",
+    "hyparquet": "^1.29.2",
+    "hyparquet-writer": "^0.16.8",
     "iconv-lite": "^0.7.3",
     "lightweight-charts": "^5.2.1",
     "next": "16.3.1",

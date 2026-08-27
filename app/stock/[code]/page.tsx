@@ -1,5 +1,6 @@
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
+import StockInvestorTrend from "@/components/StockInvestorTrend";
 import StockValuation from "@/components/StockValuation";
 import StockFinancials from "@/components/StockFinancials";
 import StockPerformance from "@/components/StockPerformance";
@@ -41,6 +42,7 @@ export default async function StockPage({
               <StockChart code={code} market={market} />
               {market === "KR" && (
                 <>
+                  <StockInvestorTrend code={code} />
                   <StockValuation code={code} />
                   <StockFinancials code={code} />
                   <StockPerformance code={code} />

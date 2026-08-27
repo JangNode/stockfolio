@@ -17,6 +17,7 @@ const TR_ID_FINANCE_BALANCE_SHEET = "FHKST66430100";
 const TR_ID_FINANCE_PROFIT_RATIO = "FHKST66430400";
 const TR_ID_FINANCE_GROWTH_RATIO = "FHKST66430800";
 const TR_ID_KSDINFO_DIVIDEND = "HHKDB669102C0";
+const TR_ID_INQUIRE_INVESTOR = "FHKST01010900";
 
 // 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
 const TOKEN_ROW_ID = "kis";
@@ -339,6 +340,11 @@ export interface StockPrice {
   pbr: number | null;
   eps: number | null;
   bps: number | null;
+  // 상장주식수/52주(최근 1년) 최고가·최저가 — 가치평가지표 카드 확장에 쓴다.
+  // 이 API 응답에 이미 포함돼 있어 별도 호출이 필요 없다(005930 실측 확인).
+  sharesOutstanding: number | null;
+  week52High: number | null;
+  week52Low: number | null;
 }
 
 interface InquirePriceResponse extends KisResponse {
@@ -355,6 +361,9 @@ interface InquirePriceResponse extends KisResponse {
     pbr?: string;
     eps?: string;
     bps?: string;
+    lstn_stcn?: string;
+    w52_hgpr?: string;
+    w52_lwpr?: string;
   };
 }
 
@@ -409,6 +418,9 @@ export async function getStockPrice(
     pbr: parsePositive(output.pbr),
     eps: parsePositive(output.eps),
     bps: parsePositive(output.bps),
+    sharesOutstanding: parsePositive(output.lstn_stcn),
+    week52High: parsePositive(output.w52_hgpr),
+    week52Low: parsePositive(output.w52_lwpr),
   };
 }
 
@@ -1313,8 +1325,10 @@ export async function getGrowthRatioYears(
     .sort((a, b) => b.year - a.year);
 }
 
-export interface DividendYearTotal {
-  year: number;
+export interface DividendRecord {
+  // YYYYMMDD 문자열 그대로 둔다 — 호출부가 연도별 합산(5개년 배당 이력 표)과 최근
+  // 365일 이벤트 수(1년간 배당 횟수) 둘 다 이 문자열을 그대로 비교해 계산한다.
+  recordDate: string;
   cashDividendPerShare: number;
 }
 
@@ -1322,16 +1336,18 @@ interface KsdinfoDividendResponse extends KisResponse {
   output?: { record_date: string; per_sto_divi_amt: string }[];
 }
 
-/** 예탁원정보(배당일정)에서 최근 yearsBack개년의 연간 현금배당금(보통주 1주당)을 모아
- * 연도별로 합산한다. 삼성전자처럼 분기배당을 하는 종목은 한 해에 결산/분기 배당이
- * 여러 건 나뉘어 오므로(005930 실측: 분기 3건 + 결산 1건) record_date의 연도로
- * 묶어서 합산해야 "그 해 총 배당금"이 된다. sht_cd로 종목을 좁혀 호출하므로(KRX는
- * 보통주/우선주가 서로 다른 종목코드) 별도 보통주/우선주 구분 파라미터는 없다. */
-export async function getDividendYearTotals(
+/** 예탁원정보(배당일정)에서 최근 yearsBack개년의 배당 이벤트(보통주 1주당 현금배당금)를
+ * 원본 그대로 받아온다. 삼성전자처럼 분기배당을 하는 종목은 한 해에 결산/분기 배당이
+ * 여러 건 나뉘어 오므로(005930 실측: 분기 3건 + 결산 1건), 연도별 합산이나 최근 1년
+ * 이벤트 수 계산은 호출부가 이 원본 리스트를 가지고 직접 한다 — 그래야 API를 두 번
+ * 부르지 않고 한 번 받은 데이터로 5개년 배당 이력 표와 "1년간 배당 횟수" 통계를 함께
+ * 계산할 수 있다. sht_cd로 종목을 좁혀 호출하므로(KRX는 보통주/우선주가 서로 다른
+ * 종목코드) 별도 보통주/우선주 구분 파라미터는 없다. */
+export async function getDividendRecords(
   stockCode: string,
   yearsBack: number,
   priority: "user" | "batch" = "user"
-): Promise<DividendYearTotal[]> {
+): Promise<DividendRecord[]> {
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
 
@@ -1356,15 +1372,78 @@ export async function getDividendYearTotals(
     priority
   )) as KsdinfoDividendResponse;
 
-  const totalsByYear = new Map<number, number>();
+  const records: DividendRecord[] = [];
   for (const row of data.output ?? []) {
-    const year = Number(row.record_date.slice(0, 4));
     const amount = Number(row.per_sto_divi_amt);
-    if (!Number.isFinite(year) || !Number.isFinite(amount)) continue;
-    totalsByYear.set(year, (totalsByYear.get(year) ?? 0) + amount);
+    if (!row.record_date || !Number.isFinite(amount)) continue;
+    records.push({ recordDate: row.record_date, cashDividendPerShare: amount });
   }
 
-  return Array.from(totalsByYear.entries())
-    .map(([year, cashDividendPerShare]) => ({ year, cashDividendPerShare }))
-    .sort((a, b) => b.year - a.year);
+  return records.sort((a, b) => b.recordDate.localeCompare(a.recordDate));
+}
+
+export interface InvestorTrendDay {
+  date: string; // YYYY-MM-DD
+  foreignNetBuy: number;
+  institutionNetBuy: number;
+  individualNetBuy: number;
+}
+
+interface InquireInvestorResponse extends KisResponse {
+  output?: { stck_bsop_date: string; frgn_ntby_qty: string; orgn_ntby_qty: string; prsn_ntby_qty: string }[];
+}
+
+// 투자자 동향 카드는 종목 상세화면을 열 때마다 조회되므로, 배치 없이도 같은 종목을
+// 짧은 시간 안에 여러 번 보면 KIS를 매번 다시 부르지 않도록 getDailyPrices의
+// chartCache와 동일한 패턴(인메모리 + TTL)을 쓴다. 오늘 데이터는 장중에 계속
+// 바뀌므로 TTL을 넘기면 자연히 다시 받아온다 — 서버리스 콜드스타트마다 캐시가
+// 비워질 수 있다는 한계도 기존 chartCache와 동일하게 감수한다.
+const INVESTOR_TREND_CACHE_TTL_MS = 5 * 60 * 1000;
+const investorTrendCache = new Map<string, { days: InvestorTrendDay[]; fetchedAt: number }>();
+
+/** 국내주식 현재가 투자자(inquire-investor) — 날짜 파라미터 없이 한 번의 호출로 최근
+ * 약 30영업일(005930 실측: 20260715~20260825, 30건) 외국인/기관/개인 순매수 수량을
+ * 배열로 받는다. "종목별 투자자매매동향(일별)"(investor-trade-by-stock-daily)도
+ * 검토했지만 날짜 커서+페이지네이션이 필요하고 장 시간 외 호출 시 "TIME LIMIT
+ * 00:00~15:40"(OPSQ2001) 오류로 실패해(005930 실측) 상시 온디맨드 조회에 부적합해
+ * 채택하지 않았다. KIS 문서상 당일 데이터는 장 종료 후 제공되므로, 장중에는 오늘
+ * 날짜 행이 아직 없을 수 있다(정상 — 있는 데이터까지만 반환). */
+export async function getInvestorTrend(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<InvestorTrendDay[]> {
+  const cached = investorTrendCache.get(stockCode);
+  if (cached && Date.now() - cached.fetchedAt < INVESTOR_TREND_CACHE_TTL_MS) {
+    return cached.days;
+  }
+
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/quotations/inquire-investor", KIS_BASE_URL);
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
+  url.searchParams.set("FID_INPUT_ISCD", stockCode);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_INQUIRE_INVESTOR,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as InquireInvestorResponse;
+
+  // KIS는 최신 순으로 내려주므로 과거→최신 순으로 뒤집는다(국내 getDailyPrices와 동일 규약).
+  const days = (data.output ?? [])
+    .map((row) => ({
+      date: `${row.stck_bsop_date.slice(0, 4)}-${row.stck_bsop_date.slice(4, 6)}-${row.stck_bsop_date.slice(6, 8)}`,
+      foreignNetBuy: Number(row.frgn_ntby_qty),
+      institutionNetBuy: Number(row.orgn_ntby_qty),
+      individualNetBuy: Number(row.prsn_ntby_qty),
+    }))
+    .reverse();
+
+  investorTrendCache.set(stockCode, { days, fetchedAt: Date.now() });
+
+  return days;
 }

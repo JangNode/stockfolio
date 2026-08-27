@@ -1,83 +1,62 @@
 /**
- * (임시) DH전략 백테스트용 과거 PER/PBR 재구성 가능성 확인 — DART fnlttSinglAcntAll 진단.
- * 005930 FY2022 사업보고서(연결)를 받아 rcept_no 존재/형식과 "지배기업 소유주지분"
- * 당기순이익/자본총계 계정과목 존재 여부를 raw로 확인한다. 확인 후 삭제 예정.
+ * (임시) DH전략 백테스트용 과거 PER/PBR 재구성 가능성 확인 — KRX 일별매매정보 API 진단.
+ * 후보 URL 두 개(공식 문서 "샘플 URL" 필드 그대로 / "sample" 세그먼트를 뺀 운영용 추정)를
+ * 둘 다 실제 호출해서 어느 쪽이 동작하는지, 과거 날짜 조회가 되는지, 응답 구조가 종목
+ * 전체 한 번에 오는지 확인한다. 확인 후 삭제 예정.
  *
  *   tsx --conditions=react-server scripts/verify-valuation-005930.ts
  */
 
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+const CANDIDATE_URLS = [
+  "https://data-dbg.krx.co.kr/svc/sample/apis/sto/stk_bydd_trd",
+  "https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
+];
 
-const DART_BASE_URL = "https://opendart.fss.or.kr/api";
+async function tryUrl(baseUrl: string, basDd: string, apiKey: string): Promise<void> {
+  const url = `${baseUrl}?basDd=${basDd}`;
+  console.log(`\n--- 시도: ${url} ---`);
+  try {
+    const res = await fetch(url, { headers: { AUTH_KEY: apiKey } });
+    const text = await res.text();
+    console.log(`HTTP 상태: ${res.status}`);
+    console.log(`Content-Type: ${res.headers.get("content-type")}`);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      console.log("JSON 파싱 실패, 원문 앞부분:", text.slice(0, 500));
+      return;
+    }
+
+    const obj = parsed as { OutBlock_1?: unknown[]; [key: string]: unknown };
+    if (Array.isArray(obj.OutBlock_1)) {
+      console.log(`OutBlock_1 건수: ${obj.OutBlock_1.length}`);
+      console.log("첫 행:", JSON.stringify(obj.OutBlock_1[0]));
+      const samsung = obj.OutBlock_1.find(
+        (row) => (row as { ISU_CD?: string; ISU_SRT_CD?: string }).ISU_SRT_CD === "005930"
+      );
+      console.log("005930 행:", samsung ? JSON.stringify(samsung) : "(못 찾음)");
+    } else {
+      console.log("전체 응답(OutBlock_1 없음):", JSON.stringify(parsed).slice(0, 1000));
+    }
+  } catch (error) {
+    console.log("요청 실패:", error instanceof Error ? error.message : String(error));
+  }
+}
 
 async function main(): Promise<void> {
-  const apiKey = process.env.DART_API_KEY;
-  if (!apiKey) throw new Error("DART_API_KEY 환경 변수가 없습니다.");
+  const apiKey = process.env.KRX_API_KEY;
+  if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
 
-  const { data, error } = await supabaseAdmin
-    .from("dart_corp_codes")
-    .select("corp_code, corp_name, stock_code")
-    .eq("stock_code", "005930")
-    .maybeSingle();
-  if (error) throw new Error(`corp_code 조회 실패: ${error.message}`);
-  if (!data) throw new Error("005930의 corp_code를 dart_corp_codes에서 찾을 수 없습니다.");
-
-  console.log("corp_code 매핑:", JSON.stringify(data));
-
-  const url = new URL(`${DART_BASE_URL}/fnlttSinglAcntAll.json`);
-  url.searchParams.set("crtfc_key", apiKey);
-  url.searchParams.set("corp_code", data.corp_code);
-  url.searchParams.set("bsns_year", "2022");
-  url.searchParams.set("reprt_code", "11011"); // 사업보고서
-  url.searchParams.set("fs_div", "CFS"); // 연결재무제표
-
-  const res = await fetch(url);
-  const body = await res.json();
-
-  console.log(`\nHTTP 상태: ${res.status}`);
-  console.log(`DART status/message: ${body.status} / ${body.message}`);
-  console.log(`output 건수: ${Array.isArray(body.list) ? body.list.length : "N/A"}`);
-
-  if (!Array.isArray(body.list)) {
-    console.log("\n전체 응답:", JSON.stringify(body, null, 2));
-    return;
+  console.log("=== 1) 최근 영업일(2026-08-25)로 두 후보 URL 다 시도 ===");
+  for (const base of CANDIDATE_URLS) {
+    await tryUrl(base, "20260825", apiKey);
   }
 
-  const first = body.list[0];
-  console.log("\n=== 첫 행 전체(필드 구조 확인용) ===");
-  console.log(JSON.stringify(first, null, 2));
-
-  const rceptNos = new Set(body.list.map((row: { rcept_no?: string }) => row.rcept_no));
-  console.log("\n=== rcept_no 종류(전체 행에서 유니크) ===");
-  console.log(JSON.stringify(Array.from(rceptNos)));
-
-  console.log("\n=== '당기순이익' 또는 '자본총계' 포함 계정과목 전체 ===");
-  for (const row of body.list as {
-    account_nm?: string;
-    sj_div?: string;
-    sj_nm?: string;
-    thstrm_amount?: string;
-    fs_div?: string;
-    fs_nm?: string;
-  }[]) {
-    if (row.account_nm?.includes("당기순이익") || row.account_nm?.includes("자본총계")) {
-      console.log(JSON.stringify(row));
-    }
-  }
-
-  console.log("\n=== 재무상태표(BS)에서 '지배기업' 또는 '귀속' 또는 '비지배' 포함 계정과목 전체 ===");
-  for (const row of body.list as {
-    account_nm?: string;
-    sj_div?: string;
-  }[]) {
-    if (
-      row.sj_div === "BS" &&
-      (row.account_nm?.includes("지배기업") ||
-        row.account_nm?.includes("귀속") ||
-        row.account_nm?.includes("비지배"))
-    ) {
-      console.log(JSON.stringify(row));
-    }
+  console.log("\n\n=== 2) 과거 날짜(2023-03-15)로 재시도 ===");
+  for (const base of CANDIDATE_URLS) {
+    await tryUrl(base, "20230315", apiKey);
   }
 }
 

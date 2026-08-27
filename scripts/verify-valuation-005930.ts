@@ -64,6 +64,21 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(row));
     }
   }
+
+  console.log("\n=== 재무상태표(BS)에서 '지배기업' 또는 '귀속' 또는 '비지배' 포함 계정과목 전체 ===");
+  for (const row of body.list as {
+    account_nm?: string;
+    sj_div?: string;
+  }[]) {
+    if (
+      row.sj_div === "BS" &&
+      (row.account_nm?.includes("지배기업") ||
+        row.account_nm?.includes("귀속") ||
+        row.account_nm?.includes("비지배"))
+    ) {
+      console.log(JSON.stringify(row));
+    }
+  }
 }
 
 main().catch((error) => {

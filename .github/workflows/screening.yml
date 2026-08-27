@@ -1,13 +1,18 @@
 name: Stock Screening Batch
 
 on:
-  schedule:
-    # 평일 한국시간(KST, UTC+9) 오후 2시 30분 = UTC 05:30. 이 시점에 수집한 가격
-    # 기준으로 판단하는 게 의도된 동작이라, 당일 미확정 종가를 쓰더라도 그대로 둔다.
-    # cron의 요일 필드는 UTC 기준이지만 KST 14:30 - 9h = UTC 05:30로 날짜가 안 바뀌므로
-    # 평일(월~금, 1-5) 그대로 대응된다.
-    - cron: "30 5 * * 1-5"
-  workflow_dispatch: {}
+  # GitHub Actions의 schedule 트리거는 부하가 높을 때 몇 시간씩 지연될 수 있어(공식
+  # 문서에 명시된 동작이며, 실측으로도 평일 05:30 UTC 예약이 07:29~08:08 UTC 사이로
+  # 매번 2시간 안팎 지연되는 걸 확인했다) 여기서는 두지 않는다. 대신 Supabase의
+  # pg_cron이 평일 한국시간(KST) 오후 2시 30분 = UTC 05:30에 이 워크플로의
+  # workflow_dispatch API를 직접 호출한다(supabase/migrations의 pg_cron 잡 참고) —
+  # schedule과 달리 workflow_dispatch는 지연 없이 거의 즉시 실행된다.
+  workflow_dispatch:
+    inputs:
+      force_rescan:
+        description: "오늘 이미 실행된 기록이 있어도 강제로 다시 스캔"
+        type: boolean
+        default: false
 
 jobs:
   screen:
@@ -36,6 +41,7 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FORCE_RESCAN: ${{ inputs.force_rescan }}
 
       # 스크리닝 배치가 갱신한 screening_results를 그대로 입력값으로 쓰므로 추가 KIS
       # 호출이 없다 — 그래서 같은 잡의 다음 스텝으로 이어 붙인다(별도 워크플로/스케줄 불필요).

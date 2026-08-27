@@ -619,11 +619,14 @@ function todayKstDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
-/** 오늘(KST) 이미 완료된 국내 스크리닝 실행 기록이 있는지 확인한다. 지연 도착한 정규
- * 스케줄(schedule) 트리거가 당일 이미 끝난 실행과 중복으로 전종목을 재스캔(KIS API
- * 낭비)하는 걸 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와 동일한 패턴.
- * workflow_dispatch(수동 실행)는 이 가드의 영향을 받지 않는다 — 호출부에서
- * isScheduledRun일 때만 이 함수를 부른다. */
+/** 오늘(KST) 이미 완료된 국내 스크리닝 실행 기록이 있는지 확인한다. GitHub Actions의
+ * schedule 트리거는 부하가 높을 때 몇 시간씩 지연되는 경우가 있어(공식 문서에 명시된
+ * 동작), 정시 실행을 위해 Supabase pg_cron이 workflow_dispatch API를 직접 호출하는
+ * 방식으로 전환했다 — 이제 이 워크플로엔 schedule 트리거가 없고 항상 workflow_dispatch로만
+ * 들어온다. 그래서 트리거 종류로 "예약 실행 vs 수동 실행"을 구분할 수 없으므로, 당일
+ * 중복 실행 방지 가드를 트리거 종류와 무관하게 항상 적용하고, 의도적인 재실행이 필요할
+ * 때만 workflow_dispatch의 force_rescan 입력으로 우회한다 — paper-trade.ts의
+ * alreadyRanToday와 동일한 패턴. */
 async function alreadyRanToday(): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("screening_runs")
@@ -645,11 +648,11 @@ async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`스크리닝 배치 시작: ${startedAt.toISOString()}`);
 
-  const isScheduledRun = process.env.GITHUB_EVENT_NAME === "schedule";
-  if (isScheduledRun && (await alreadyRanToday())) {
+  const forceRescan = process.env.FORCE_RESCAN === "true";
+  if (!forceRescan && (await alreadyRanToday())) {
     console.log(
       "오늘 국내 스크리닝 배치가 이미 실행된 기록이 있어 건너뜁니다(중복 스캔 방지). " +
-        "수동 실행(workflow_dispatch)은 이 가드와 무관하게 항상 진행됩니다."
+        "강제로 다시 돌리려면 workflow_dispatch 실행 시 force_rescan 입력을 true로 설정하세요."
     );
     return;
   }

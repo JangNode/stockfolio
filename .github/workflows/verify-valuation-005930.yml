@@ -1,4 +1,4 @@
-name: (임시) DH전략 과거 PER/PBR 재구성 가능성 진단 - DART fnlttSinglAcntAll
+name: (임시) DH전략 과거 PER/PBR 재구성 가능성 진단 - KRX 일별매매정보
 
 on:
   workflow_dispatch: {}
@@ -20,9 +20,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Dump DART fnlttSinglAcntAll raw response (read-only)
+      - name: Dump KRX stk_bydd_trd raw response (read-only)
         run: npx tsx --conditions=react-server scripts/verify-valuation-005930.ts
         env:
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}

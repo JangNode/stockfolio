@@ -533,11 +533,13 @@ function todayKstDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
-/** 오늘(KST) 이미 완료된 미국 스크리닝 실행 기록이 있는지 확인한다. 지연 도착한 정규
- * 스케줄(schedule) 트리거가 당일 이미 끝난 실행과 중복으로 전종목을 재스캔(KIS API
- * 낭비)하는 걸 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와 동일한 패턴,
- * 날짜 기준도 그와 동일하게 KST 기준으로 맞춘다. workflow_dispatch(수동 실행)는 이
- * 가드의 영향을 받지 않는다 — 호출부에서 isScheduledRun일 때만 이 함수를 부른다. */
+/** 오늘(KST) 이미 완료된 미국 스크리닝 실행 기록이 있는지 확인한다. pg_cron이 서머타임용·
+ * 표준시용 두 잡을 모두 등록해두고 그중 맞는 한 번만 통과시키는 구조라 정상적으로는
+ * 하루 한 번만 여기 닿지만, 혹시 모를 중복 호출이 당일 이미 끝난 실행과 겹쳐 전종목을
+ * 재스캔(KIS API 낭비)하는 걸 막기 위한 가드다 — paper-trade.ts의 alreadyRanToday와
+ * 동일한 패턴, 날짜 기준도 그와 동일하게 KST 기준으로 맞춘다. workflow_dispatch로 사람이
+ * schedule_cron 없이 수동 실행하면 이 가드의 영향을 받지 않는다 — 호출부에서
+ * isScheduledRun일 때만 이 함수를 부른다. */
 async function alreadyRanToday(): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("screening_runs")
@@ -559,11 +561,12 @@ async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`미국주식 스크리닝 배치 시작: ${startedAt.toISOString()}`);
 
-  // .github/workflows/screening-us.yml은 서머타임용(UTC 19시)·표준시용(UTC 20시) 크론을
-  // 둘 다 등록해뒀다(정규장 마감 1시간 전인 동부시간 15:00을 노린 것). 그래서 평일마다
-  // 이 배치가 하루 두 번 트리거되는데, 그중 오늘 서머타임 여부에 맞지 않는 한 번은 여기서
-  // 걸러 즉시 종료한다. workflow_dispatch로 수동 실행할 때는 이 가드를 적용하지 않는다.
-  const isScheduledRun = process.env.GITHUB_EVENT_NAME === "schedule";
+  // Supabase pg_cron이 서머타임용(UTC 19시)·표준시용(UTC 20시) 잡을 둘 다 등록해뒀다
+  // (정규장 마감 1시간 전인 동부시간 15:00을 노린 것, supabase/migrations 참고). 그래서
+  // 평일마다 이 배치가 하루 두 번 트리거되는데, 그중 오늘 서머타임 여부에 맞지 않는
+  // 한 번은 여기서 걸러 즉시 종료한다. 사람이 workflow_dispatch를 수동 실행하며
+  // schedule_cron 입력을 비워두면(=GITHUB_EVENT_SCHEDULE 없음) 이 가드를 적용하지 않는다.
+  const isScheduledRun = Boolean(process.env.GITHUB_EVENT_SCHEDULE);
   if (isScheduledRun) {
     const schedule = determineUsBatchSchedule(startedAt, process.env.GITHUB_EVENT_SCHEDULE);
     console.log(schedule.reason);

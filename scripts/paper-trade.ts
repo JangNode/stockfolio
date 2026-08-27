@@ -509,10 +509,11 @@ async function main(): Promise<void> {
   const market = parseTargetMarket();
   console.log(`AI 모의투자 배치 시작(대상 시장: ${market}): ${startedAt.toISOString()}`);
 
-  // 미국 배치는 국내와 마찬가지로 서머타임/표준시 두 크론이 매일 다 걸린다
-  // (screening-us.yml과 같은 이유·같은 판별 함수). 스케줄 트리거일 때만 적용하고
-  // workflow_dispatch 수동 실행은 가드 없이 항상 진행한다.
-  if (market === "US" && process.env.GITHUB_EVENT_NAME === "schedule") {
+  // 미국 배치는 국내와 마찬가지로 pg_cron이 서머타임/표준시 두 잡을 매일 다 발화시킨다
+  // (screening-us.yml과 같은 이유·같은 판별 함수). pg_cron이 넘긴 schedule_cron 입력이
+  // 있을 때만 적용하고, 사람이 그 입력 없이 workflow_dispatch를 수동 실행하면 가드 없이
+  // 항상 진행한다.
+  if (market === "US" && process.env.GITHUB_EVENT_SCHEDULE) {
     const schedule = determineUsBatchSchedule(startedAt, process.env.GITHUB_EVENT_SCHEDULE);
     console.log(schedule.reason);
     if (!schedule.shouldRun) {

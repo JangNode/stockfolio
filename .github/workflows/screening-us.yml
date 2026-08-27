@@ -1,20 +1,26 @@
 name: US Stock Screening Batch
 
 on:
-  schedule:
-    # 뉴욕 정규장 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 배치를 돌린다.
-    # GitHub Actions cron은 고정 UTC 시각만 지원해 서머타임/표준시 스케줄을 하나로 합칠
-    # 수 없으므로, 두 경우에 해당하는 UTC 시각을 크론 두 개로 각각 등록해둔다. 뉴욕
-    # 월~금요일 15:00은 UTC로도 같은 날짜(시차만큼 더한 같은 요일)라 크론 요일은 그대로
-    # 월~금(1-5)이다.
-    #   - 서머타임(EDT, UTC-4): 동부 15:00 = UTC 19:00 (KST 익일 04:00)
-    - cron: "0 19 * * 1-5"
-    #   - 표준시(EST, UTC-5): 동부 15:00 = UTC 20:00 (KST 익일 05:00)
-    - cron: "0 20 * * 1-5"
-    # 매일 두 크론이 모두 트리거되지만, 스크립트 내부(scripts/screen-us-stocks.ts,
-    # lib/usMarketCalendar.ts의 determineUsBatchSchedule)가 오늘이 서머타임인지 날짜
-    # 계산으로 직접 판별해 예정된 시각과 다른 쪽 실행은 즉시 종료(스킵)한다.
-  workflow_dispatch: {}
+  # GitHub Actions의 schedule 트리거는 부하가 높을 때 몇 시간씩 지연될 수 있어(screening.yml
+  # 전환 때 실측으로 확인) 여기서는 두지 않는다. 대신 Supabase의 pg_cron이 뉴욕 정규장
+  # 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 맞춰 이 워크플로의 workflow_dispatch
+  # API를 직접 호출한다(supabase/migrations 참고) — schedule과 달리 workflow_dispatch는
+  # 지연 없이 거의 즉시 실행된다.
+  #
+  # pg_cron도 고정 UTC 시각만 지원해 서머타임/표준시 스케줄을 하나로 합칠 수 없으므로,
+  # 두 경우에 해당하는 UTC 시각마다 각각 잡을 등록해두고(뉴욕 월~금요일 15:00은 UTC로도
+  # 같은 날짜라 요일은 그대로 월~금) 이번 호출이 어느 쪽인지를 schedule_cron 입력으로
+  # 넘겨준다. 평일마다 이 워크플로가 하루 두 번 호출되는데, 그중 오늘 서머타임 여부와
+  # 안 맞는 한 번은 스크립트 내부(scripts/screen-us-stocks.ts, lib/usMarketCalendar.ts의
+  # determineUsBatchSchedule)가 판별해 즉시 종료(스킵)한다.
+  #   - 서머타임(EDT, UTC-4): 동부 15:00 = UTC 19:00 (KST 익일 04:00)
+  #   - 표준시(EST, UTC-5): 동부 15:00 = UTC 20:00 (KST 익일 05:00)
+  workflow_dispatch:
+    inputs:
+      schedule_cron:
+        description: "이 실행을 발화시킨 pg_cron 잡의 목표 cron 표현식(서머타임/표준시 판별용). 사람이 수동 실행할 땐 비워두면 가드 없이 항상 실행됨"
+        type: string
+        required: false
 
 jobs:
   screen:
@@ -42,10 +48,10 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # 어느 크론이 이 실행을 발화시켰는지(워크플로 시작 시점에 고정되는 값) —
+          # 어느 pg_cron 잡이 이 실행을 발화시켰는지(워크플로 시작 시점에 고정되는 입력값) —
           # lib/usMarketCalendar.ts의 determineUsBatchSchedule 참고. "지금 UTC
           # 몇 시인지"를 벽시계로 다시 재지 않기 위해 스텝마다 명시적으로 넘긴다.
-          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          GITHUB_EVENT_SCHEDULE: ${{ inputs.schedule_cron }}
 
       # 스크리닝 배치가 갱신한 screening_results를 그대로 입력값으로 쓰므로 추가 KIS
       # 호출이 없다 — 그래서 같은 잡의 다음 스텝으로 이어 붙인다. 미국 가상 계좌만
@@ -60,4 +66,4 @@ jobs:
           PAPER_TRADE_MARKET: US
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          GITHUB_EVENT_SCHEDULE: ${{ inputs.schedule_cron }}

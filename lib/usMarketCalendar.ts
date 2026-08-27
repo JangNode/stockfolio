@@ -2,9 +2,10 @@
  * 미국 정규장(나스닥/뉴욕/아멕스, 09:30~16:00 ET) 관련 날짜 계산. "지금 뉴욕 날짜가
  * 며칠인지"는 Node에 내장된 IANA 타임존 DB(America/New_York)를 통해 서머타임을 자동
  * 반영시킨다(getCurrentNyDateKey). 반면 "지금이 배치를 돌려야 할 예정 시각인지"는
- * GitHub Actions cron이 UTC 고정 시각만 지원하는 제약 때문에 별도로 날짜 계산
- * 규칙(3월 둘째 일요일~11월 첫째 일요일)을 직접 구현해 판별한다(isUsEasternDst,
- * determineUsBatchSchedule) — 목적이 다른 두 개의 DST 처리 방식이 공존한다.
+ * Supabase pg_cron(GitHub Actions의 schedule 트리거를 대체)이 UTC 고정 시각만 지원하는
+ * 제약 때문에 별도로 날짜 계산 규칙(3월 둘째 일요일~11월 첫째 일요일)을 직접 구현해
+ * 판별한다(isUsEasternDst, determineUsBatchSchedule) — 목적이 다른 두 개의 DST 처리
+ * 방식이 공존한다.
  *
  * 휴장일은 KIS API에서 미국 시장 휴장일 조회 엔드포인트를 찾지 못해(문서 접근 제한),
  * NYSE 공식 휴장일 규칙을 직접 계산한다 — 연도별로 날짜를 하드코딩하지 않고 매년 자동
@@ -127,10 +128,10 @@ export function getUsBatchTradingDate(): { dateKey: string; isTradingDay: boolea
 /**
  * 미국 동부시간이 서머타임(EDT)인지 날짜 계산으로 직접 판별한다(3월 둘째 일요일
  * 00:00 ~ 11월 첫째 일요일 00:00 전, UTC 기준 날짜 단위 비교). Intl 타임존 변환에
- * 기대는 대신 이 배치 전용으로 재사용 가능한 순수 함수로 분리해뒀다 — GitHub Actions
- * cron이 서머타임/표준시 두 스케줄을 모두 등록해두고 이 함수로 오늘 어느 쪽이 맞는
- * 스케줄인지 걸러내는 데 쓴다. 실제 전환 시각(현지 새벽 2시)까지 정밀하게 따지지 않는
- * 이유는, 이 배치가 평일에만 도는데 전환일 자체가 항상 일요일이라 걸릴 일이 없어서다.
+ * 기대는 대신 이 배치 전용으로 재사용 가능한 순수 함수로 분리해뒀다 — pg_cron이
+ * 서머타임/표준시 두 스케줄을 모두 등록해두고 이 함수로 오늘 어느 쪽이 맞는 스케줄인지
+ * 걸러내는 데 쓴다. 실제 전환 시각(현지 새벽 2시)까지 정밀하게 따지지 않는 이유는,
+ * 이 배치가 평일에만 도는데 전환일 자체가 항상 일요일이라 걸릴 일이 없어서다.
  */
 export function isUsEasternDst(date: Date): boolean {
   const year = date.getUTCFullYear();
@@ -153,9 +154,10 @@ export interface UsBatchScheduleDecision {
 }
 
 /**
- * GitHub Actions cron은 고정 UTC 시각만 지원해 서머타임용·표준시용 두 크론을 모두
- * 등록해둔다. 어느 크론이 이번 실행을 발화시켰는지는 "지금 UTC 몇 시인지"를 벽시계로
- * 재는 대신, github.event.schedule 컨텍스트 값(워크플로 시작 시점에 고정되고 이후
+ * pg_cron은 고정 UTC 시각만 지원해 서머타임용·표준시용 두 잡을 모두 등록해둔다(
+ * supabase/migrations 참고). 어느 잡이 이번 실행을 발화시켰는지는 "지금 UTC 몇 시인지"를
+ * 벽시계로 재는 대신, 그 잡이 workflow_dispatch를 호출할 때 함께 넘긴 schedule_cron
+ * 입력값(GITHUB_EVENT_SCHEDULE 환경변수로 전달됨, 워크플로 시작 시점에 고정되고 이후
  * 스텝이 아무리 오래 걸려도 바뀌지 않음)을 그대로 비교해 판별한다 — 이 배치의 스크리닝
  * 스텝이 20분 넘게 걸리는 날, 뒤이은 paper-trade 스텝이 시작될 때는 이미 다음 UTC
  * 시간대로 넘어가 있어 벽시계 비교로는 같은 트리거인데도 스스로를 잘못 스킵하는 문제가

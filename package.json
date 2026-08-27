@@ -14,7 +14,9 @@
     "cleanup:lab-backtests": "tsx --conditions=react-server scripts/cleanup-custom-backtests.ts",
     "run:custom-backtest": "tsx --conditions=react-server scripts/run-custom-backtest.ts",
     "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts",
-    "backfill:dh-krx-prices": "tsx --conditions=react-server scripts/backfill-dh-krx-prices.ts"
+    "backfill:dh-krx-prices": "tsx --conditions=react-server scripts/backfill-dh-krx-prices.ts",
+    "backfill:dh-dart-fundamentals": "tsx --conditions=react-server scripts/backfill-dh-dart-fundamentals.ts",
+    "backfill:dh-dividends": "tsx --conditions=react-server scripts/backfill-dh-dividends.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

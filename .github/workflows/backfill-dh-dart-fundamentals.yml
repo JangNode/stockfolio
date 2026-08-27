@@ -1,0 +1,31 @@
+name: DH전략 백필 - DART 재무제표 (2단계)
+
+# 수동 실행 전용. 1단계(KRX 시세 백필)가 먼저 끝나 있어야 후보종목 발굴이 된다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # 후보종목×연도 조합 수천 건, DART 일일 한도 40,000회 안에서 한 번에 끝날 것으로
+    # 예상되지만 넉넉히 잡는다.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backfill DART fundamentals
+        run: npm run backfill:dh-dart-fundamentals
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -1,0 +1,33 @@
+name: DH전략 백필 - KRX 일별시세 (1단계)
+
+# 수동 실행 전용. 15년치를 한 번에 채우는 일회성 백필이라 자동 스케줄을 두지
+# 않는다 — 완료 후 상시 갱신은 screening.yml에 별도로 붙일 예정.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # 평일 약 4,100일 × 2개 시장(KOSPI/KOSDAQ) ≈ 8,200회 호출, KRX 일일 한도
+    # 10,000회 안에서 한 번에 끝날 것으로 예상되지만, 네트워크 재시도 등을 감안해
+    # 넉넉히 잡는다.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backfill KRX daily prices
+        run: npm run backfill:dh-krx-prices
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -12,6 +12,11 @@ const TR_ID_INQUIRE_OVERSEAS_INDEX = "FHKST03030100";
 const TR_ID_OVERSEAS_PRICE = "HHDFS00000300";
 const TR_ID_OVERSEAS_PRICE_DETAIL = "HHDFS76200200";
 const TR_ID_OVERSEAS_DAILY_PRICE = "HHDFS76240000";
+const TR_ID_FINANCE_INCOME_STATEMENT = "FHKST66430200";
+const TR_ID_FINANCE_BALANCE_SHEET = "FHKST66430100";
+const TR_ID_FINANCE_PROFIT_RATIO = "FHKST66430400";
+const TR_ID_FINANCE_GROWTH_RATIO = "FHKST66430800";
+const TR_ID_KSDINFO_DIVIDEND = "HHKDB669102C0";
 
 // 여러 서버리스 인스턴스가 공유하는 kis_tokens 테이블의 고정 행 ID.
 const TOKEN_ROW_ID = "kis";
@@ -325,11 +330,15 @@ export interface StockPrice {
   volume: number;
   // 시가총액(억원). 스크리닝 배치의 잡주 필터링(저시가총액 제외)에 쓴다.
   marketCapEok: number;
-  // 상장주식수(EPS/BPS 계산용, lib/dart.ts의 가치평가지표 파생 지표에서 씀). 이 환경엔
-  // 라이브 KIS 계정이 없어 응답에 lstn_stcn 필드가 실제로 오는지 확인하지 못했다 —
-  // 없거나 파싱 안 되면 null. null이면 호출부가 DART "주식의 총수 현황" API로
-  // 폴백한다(lib/dart.ts의 resolveSharesOutstanding 참고).
-  sharesOutstanding: number | null;
+  // PER/PBR/EPS/BPS는 KIS가 이 API에서 이미 계산해 내려주는 값이다. 한국투자증권 앱이
+  // 실제로 표시하는 값과 실측 비교해(005930 기준) EPS/PER/PBR/BPS 전부 거의 정확히
+  // 일치함을 확인했다 — DART 재무제표를 재조합해 직접 계산하는 대신 이 값을 그대로
+  // 쓴다(가치평가지표 섹션, app/api/stock/[code]/valuation). 필드가 비어있거나
+  // 파싱 안 되면 null.
+  per: number | null;
+  pbr: number | null;
+  eps: number | null;
+  bps: number | null;
 }
 
 interface InquirePriceResponse extends KisResponse {
@@ -342,7 +351,10 @@ interface InquirePriceResponse extends KisResponse {
     stck_lwpr: string;
     acml_vol: string;
     hts_avls: string;
-    lstn_stcn?: string;
+    per?: string;
+    pbr?: string;
+    eps?: string;
+    bps?: string;
   };
 }
 
@@ -377,7 +389,11 @@ export async function getStockPrice(
 
   const { output } = data;
 
-  const rawShares = output.lstn_stcn !== undefined ? Number(output.lstn_stcn) : NaN;
+  const parsePositive = (raw: string | undefined): number | null => {
+    if (raw === undefined || raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
 
   return {
     stockCode,
@@ -389,7 +405,10 @@ export async function getStockPrice(
     lowPrice: Number(output.stck_lwpr),
     volume: Number(output.acml_vol),
     marketCapEok: Number(output.hts_avls),
-    sharesOutstanding: Number.isFinite(rawShares) && rawShares > 0 ? rawShares : null,
+    per: parsePositive(output.per),
+    pbr: parsePositive(output.pbr),
+    eps: parsePositive(output.eps),
+    bps: parsePositive(output.bps),
   };
 }
 
@@ -1064,4 +1083,288 @@ export async function getOverseasDailyPrices(
   overseasChartCache.set(cacheKey, { prices, fetchedAt: Date.now() });
 
   return prices;
+}
+
+// ── 국내주식 재무제표/비율/배당일정 ──────────────────────────────────────────
+//
+// 종목 상세화면의 재무제표/실적 정보/가치평가지표 섹션은 원래 DART(전자공시) 데이터를
+// 재조합해 계산했는데, 한국투자증권 앱이 표시하는 값과 계속 오차가 났다(005930 실측
+// 비교로 EPS/BPS/ROE 전부 확인). 조사 결과 KIS 자체 API(손익계산서/대차대조표/
+// 수익성비율/성장성비율/예탁원배당일정)가 이미 같은 데이터를 종목별로 제공하고,
+// 한투가 실제로 이 값을 그대로 쓰는 것으로 확인돼(005930 실측: 수익성비율의
+// self_cptl_ntin_inrt=10.85가 한투 ROE 표시값과 정확히 일치) DART 재조합 대신 이
+// API들을 직접 쓴다. DART는 corp_code 매핑(향후 공시 원문 조회용)만 남긴다.
+//
+// 금액 필드는 전부 억원 단위로 온다(005930 실측: 202512 total_cptl=4363203 →
+// 436.32조원, 실제 삼성전자 2025 자본총계와 일치) — 종목 상세화면(원 단위로 억원
+// 환산해 표시하는 StockFinancials 컴포넌트)과 호환되도록 1억을 곱해 원 단위로 변환한다.
+//
+// 응답 output은 배열이며 가장 최근 분기 기준 TTM성 데이터 1건 다음 연도별(YYYY12)
+// 스냅샷이 과거까지 이어진다(005930 실측: 2004~2026). 재무제표/실적 정보 섹션은
+// 확정된 연간 실적만 보여줘야 하므로 stac_yymm이 "12"로 끝나는(연말 결산) 행만
+// 취급한다.
+function eokWonToWon(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n * 100_000_000 : null;
+}
+
+function parsePctField(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** stac_yymm(YYYYMM)이 연말 결산(YYYY12)이면 연도를 반환하고, 아닌 행(가장 최근
+ * 분기 TTM성 데이터 등)은 걸러내기 위해 null을 반환한다. */
+function annualYearFromStacYymm(stacYymm: string): number | null {
+  if (!stacYymm.endsWith("12")) return null;
+  const year = Number(stacYymm.slice(0, 4));
+  return Number.isFinite(year) ? year : null;
+}
+
+export interface IncomeStatementYear {
+  year: number;
+  revenue: number | null;
+  operatingIncome: number | null;
+  netIncome: number | null;
+}
+
+interface FinanceIncomeStatementResponse extends KisResponse {
+  output: { stac_yymm: string; sale_account: string; bsop_prti: string; thtr_ntin: string }[];
+}
+
+/** 국내주식 손익계산서 — 연도별 매출액/영업이익/당기순이익. DART는 KR 종목만 다루므로
+ * 호출부에서 market으로 걸러줘야 한다(이 함수 자체는 그 필터링을 하지 않는다). */
+export async function getIncomeStatementYears(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<IncomeStatementYear[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/finance/income-statement", KIS_BASE_URL);
+  url.searchParams.set("FID_DIV_CLS_CODE", "0");
+  url.searchParams.set("fid_cond_mrkt_div_code", "J");
+  url.searchParams.set("fid_input_iscd", stockCode);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_FINANCE_INCOME_STATEMENT,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as FinanceIncomeStatementResponse;
+
+  return (data.output ?? [])
+    .map((row) => {
+      const year = annualYearFromStacYymm(row.stac_yymm);
+      if (year === null) return null;
+      return {
+        year,
+        revenue: eokWonToWon(row.sale_account),
+        operatingIncome: eokWonToWon(row.bsop_prti),
+        netIncome: eokWonToWon(row.thtr_ntin),
+      };
+    })
+    .filter((row): row is IncomeStatementYear => row !== null)
+    .sort((a, b) => b.year - a.year);
+}
+
+export interface BalanceSheetYear {
+  year: number;
+  totalAssets: number | null;
+  totalLiabilities: number | null;
+  totalEquity: number | null;
+}
+
+interface FinanceBalanceSheetResponse extends KisResponse {
+  output: { stac_yymm: string; total_aset: string; total_lblt: string; total_cptl: string }[];
+}
+
+/** 국내주식 대차대조표 — 연도별 자산총계/부채총계/자본총계. */
+export async function getBalanceSheetYears(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<BalanceSheetYear[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/finance/balance-sheet", KIS_BASE_URL);
+  url.searchParams.set("FID_DIV_CLS_CODE", "0");
+  url.searchParams.set("fid_cond_mrkt_div_code", "J");
+  url.searchParams.set("fid_input_iscd", stockCode);
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_FINANCE_BALANCE_SHEET,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as FinanceBalanceSheetResponse;
+
+  return (data.output ?? [])
+    .map((row) => {
+      const year = annualYearFromStacYymm(row.stac_yymm);
+      if (year === null) return null;
+      return {
+        year,
+        totalAssets: eokWonToWon(row.total_aset),
+        totalLiabilities: eokWonToWon(row.total_lblt),
+        totalEquity: eokWonToWon(row.total_cptl),
+      };
+    })
+    .filter((row): row is BalanceSheetYear => row !== null)
+    .sort((a, b) => b.year - a.year);
+}
+
+export interface ProfitRatioYear {
+  year: number;
+  roePct: number | null;
+  netMarginPct: number | null;
+}
+
+interface FinanceProfitRatioResponse extends KisResponse {
+  output: { stac_yymm: string; self_cptl_ntin_inrt: string; sale_ntin_rate: string }[];
+}
+
+/** 국내주식 수익성비율 — 연도별 ROE(자기자본순이익율)/순이익률(매출액순이익율). */
+export async function getProfitRatioYears(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<ProfitRatioYear[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/finance/profit-ratio", KIS_BASE_URL);
+  url.searchParams.set("fid_input_iscd", stockCode);
+  url.searchParams.set("FID_DIV_CLS_CODE", "0");
+  url.searchParams.set("fid_cond_mrkt_div_code", "J");
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_FINANCE_PROFIT_RATIO,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as FinanceProfitRatioResponse;
+
+  return (data.output ?? [])
+    .map((row) => {
+      const year = annualYearFromStacYymm(row.stac_yymm);
+      if (year === null) return null;
+      return {
+        year,
+        roePct: parsePctField(row.self_cptl_ntin_inrt),
+        netMarginPct: parsePctField(row.sale_ntin_rate),
+      };
+    })
+    .filter((row): row is ProfitRatioYear => row !== null)
+    .sort((a, b) => b.year - a.year);
+}
+
+export interface GrowthRatioYear {
+  year: number;
+  revenueGrowthPct: number | null;
+  operatingIncomeGrowthPct: number | null;
+}
+
+interface FinanceGrowthRatioResponse extends KisResponse {
+  output: { stac_yymm: string; grs: string; bsop_prfi_inrt: string }[];
+}
+
+/** 국내주식 성장성비율 — 연도별 매출액증가율/영업이익증가율. 당기순이익 증감률은 이
+ * API에 없어 호출부(손익계산서 결과)에서 직접 계산해야 한다. */
+export async function getGrowthRatioYears(
+  stockCode: string,
+  priority: "user" | "batch" = "user"
+): Promise<GrowthRatioYear[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/finance/growth-ratio", KIS_BASE_URL);
+  url.searchParams.set("fid_input_iscd", stockCode);
+  url.searchParams.set("fid_div_cls_code", "0");
+  url.searchParams.set("fid_cond_mrkt_div_code", "J");
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_FINANCE_GROWTH_RATIO,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as FinanceGrowthRatioResponse;
+
+  return (data.output ?? [])
+    .map((row) => {
+      const year = annualYearFromStacYymm(row.stac_yymm);
+      if (year === null) return null;
+      return {
+        year,
+        revenueGrowthPct: parsePctField(row.grs),
+        operatingIncomeGrowthPct: parsePctField(row.bsop_prfi_inrt),
+      };
+    })
+    .filter((row): row is GrowthRatioYear => row !== null)
+    .sort((a, b) => b.year - a.year);
+}
+
+export interface DividendYearTotal {
+  year: number;
+  cashDividendPerShare: number;
+}
+
+interface KsdinfoDividendResponse extends KisResponse {
+  output?: { record_date: string; per_sto_divi_amt: string }[];
+}
+
+/** 예탁원정보(배당일정)에서 최근 yearsBack개년의 연간 현금배당금(보통주 1주당)을 모아
+ * 연도별로 합산한다. 삼성전자처럼 분기배당을 하는 종목은 한 해에 결산/분기 배당이
+ * 여러 건 나뉘어 오므로(005930 실측: 분기 3건 + 결산 1건) record_date의 연도로
+ * 묶어서 합산해야 "그 해 총 배당금"이 된다. sht_cd로 종목을 좁혀 호출하므로(KRX는
+ * 보통주/우선주가 서로 다른 종목코드) 별도 보통주/우선주 구분 파라미터는 없다. */
+export async function getDividendYearTotals(
+  stockCode: string,
+  yearsBack: number,
+  priority: "user" | "batch" = "user"
+): Promise<DividendYearTotal[]> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const now = new Date();
+  const toDate = `${now.getFullYear()}1231`;
+  const fromDate = `${now.getFullYear() - yearsBack}0101`;
+
+  const url = new URL("/uapi/domestic-stock/v1/ksdinfo/dividend", KIS_BASE_URL);
+  url.searchParams.set("CTS", "");
+  url.searchParams.set("GB1", "0");
+  url.searchParams.set("F_DT", fromDate);
+  url.searchParams.set("T_DT", toDate);
+  url.searchParams.set("SHT_CD", stockCode);
+  url.searchParams.set("HIGH_GB", "");
+
+  const data = (await kisFetch(
+    url,
+    TR_ID_KSDINFO_DIVIDEND,
+    accessToken,
+    appKey,
+    appSecret,
+    priority
+  )) as KsdinfoDividendResponse;
+
+  const totalsByYear = new Map<number, number>();
+  for (const row of data.output ?? []) {
+    const year = Number(row.record_date.slice(0, 4));
+    const amount = Number(row.per_sto_divi_amt);
+    if (!Number.isFinite(year) || !Number.isFinite(amount)) continue;
+    totalsByYear.set(year, (totalsByYear.get(year) ?? 0) + amount);
+  }
+
+  return Array.from(totalsByYear.entries())
+    .map(([year, cashDividendPerShare]) => ({ year, cashDividendPerShare }))
+    .sort((a, b) => b.year - a.year);
 }

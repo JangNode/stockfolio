@@ -48,10 +48,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }));
 
     const latestDividend = dividends[0] ?? null;
-    const payoutRatioPct =
-      latestDividend !== null && price.eps !== null && price.eps > 0
-        ? (latestDividend.cashDividendPerShareCommon / price.eps) * 100
-        : null;
 
     // "1년간 배당 횟수" — 오늘부터 최근 365일(롤린 윈도우, 달력연도 아님) 안에 지급된
     // 배당 이벤트 건수. 위 5개년 합산과 같은 응답(dividendRecords)을 그대로 재사용해
@@ -66,7 +62,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       pbr: price.pbr,
       roePct: latestRoePct,
       dividendYieldPct: latestDividend?.dividendYieldPct ?? null,
-      payoutRatioPct,
       marketCapEok: price.marketCapEok,
       sharesOutstanding: price.sharesOutstanding,
       eps: price.eps,

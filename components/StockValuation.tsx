@@ -16,7 +16,6 @@ interface ValuationResponse {
   pbr: number | null;
   roePct: number | null;
   dividendYieldPct: number | null;
-  payoutRatioPct: number | null;
   marketCapEok: number | null;
   sharesOutstanding: number | null;
   eps: number | null;
@@ -76,18 +75,14 @@ export default function StockValuation({ code }: { code: string }) {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">가치평가지표 데이터가 없습니다.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatBlock label="시가총액" value={formatMarketCapEok(data.marketCapEok)} />
+            <StatBlock label="상장주식수" value={formatShares(data.sharesOutstanding)} />
             <StatBlock label="PER" value={formatRatio(data.per)} />
             <StatBlock label="PBR" value={formatRatio(data.pbr)} />
             <StatBlock label="ROE" value={formatPct(data.roePct)} />
-            <StatBlock label="배당수익률" value={formatPct(data.dividendYieldPct)} />
-            <StatBlock label="배당성향" value={formatPct(data.payoutRatioPct)} />
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <StatBlock label="시가총액" value={formatMarketCapEok(data.marketCapEok)} />
-            <StatBlock label="상장주식수" value={formatShares(data.sharesOutstanding)} />
             <StatBlock label="EPS" value={formatWon(data.eps)} />
+            <StatBlock label="배당수익률" value={formatPct(data.dividendYieldPct)} />
             <StatBlock label="1년간 배당 횟수" value={data.dividendCountLastYear === null ? "-" : `${data.dividendCountLastYear}회`} />
             <StatBlock
               label="최근 1년 최고/최저"

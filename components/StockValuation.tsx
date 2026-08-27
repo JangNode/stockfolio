@@ -17,6 +17,12 @@ interface ValuationResponse {
   roePct: number | null;
   dividendYieldPct: number | null;
   payoutRatioPct: number | null;
+  marketCapEok: number | null;
+  sharesOutstanding: number | null;
+  eps: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+  dividendCountLastYear: number | null;
 }
 
 function formatRatio(value: number | null, digits = 2): string {
@@ -25,6 +31,22 @@ function formatRatio(value: number | null, digits = 2): string {
 
 function formatPct(value: number | null): string {
   return value === null ? "-" : `${value.toFixed(2)}%`;
+}
+
+/** 시가총액은 KIS가 억원 단위로 내려준다. 삼성전자 같은 대형주는 억원 그대로
+ * 표시하면 자릿수가 너무 커서(1,556만억원 등) 조 단위로 환산해 보여준다. */
+function formatMarketCapEok(eok: number | null): string {
+  if (eok === null) return "-";
+  const jo = eok / 10_000;
+  return `${jo.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}조원`;
+}
+
+function formatShares(value: number | null): string {
+  return value === null ? "-" : `${value.toLocaleString("ko-KR")}주`;
+}
+
+function formatWon(value: number | null): string {
+  return value === null ? "-" : `${value.toLocaleString("ko-KR")}원`;
 }
 
 function StatBlock({ label, value }: { label: string; value: string }) {
@@ -60,6 +82,17 @@ export default function StockValuation({ code }: { code: string }) {
             <StatBlock label="ROE" value={formatPct(data.roePct)} />
             <StatBlock label="배당수익률" value={formatPct(data.dividendYieldPct)} />
             <StatBlock label="배당성향" value={formatPct(data.payoutRatioPct)} />
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <StatBlock label="시가총액" value={formatMarketCapEok(data.marketCapEok)} />
+            <StatBlock label="상장주식수" value={formatShares(data.sharesOutstanding)} />
+            <StatBlock label="EPS" value={formatWon(data.eps)} />
+            <StatBlock label="1년간 배당 횟수" value={data.dividendCountLastYear === null ? "-" : `${data.dividendCountLastYear}회`} />
+            <StatBlock
+              label="최근 1년 최고/최저"
+              value={`${formatWon(data.week52High)} / ${formatWon(data.week52Low)}`}
+            />
           </div>
 
           {data.dividends.length === 0 ? (

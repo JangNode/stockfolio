@@ -47,13 +47,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         dividendYieldPct: price.currentPrice > 0 ? (cashDividendPerShareCommon / price.currentPrice) * 100 : null,
       }));
 
-    const latestDividend = dividends[0] ?? null;
-
-    // "1년간 배당 횟수" — 오늘부터 최근 365일(롤린 윈도우, 달력연도 아님) 안에 지급된
-    // 배당 이벤트 건수. 위 5개년 합산과 같은 응답(dividendRecords)을 그대로 재사용해
-    // API를 추가로 부르지 않는다.
+    // 배당수익률/1년간 배당 횟수(상단 스탯)는 한투 앱 자체 정의를 그대로 따른다 —
+    // "배당수익률 = 최근 1년 주당배당금 합계 / 전일 종가", "1년간 배당 = 지급일
+    // 기준으로 최근 1년동안 지급된 배당지급 횟수"(한투 앱 툴팁 원문). 즉 기준일이
+    // 아니라 지급일(payDate) 기준 롤링 365일이고, 아직 지급 전인(payDate가 미래인)
+    // 예정 배당 건은 제외해야 한다 — 처음엔 이 구분 없이 recordDate만 써서 아직
+    // 지급 안 된 예정 배당까지 포함시키는 바람에 한투보다 값이 더 크게 나왔다(005930
+    // 실측으로 확인). 위 5개년 표(dividends)는 달력연도 기준 합산이라 그대로 두고,
+    // 이 두 값만 별도로 계산한다.
     const oneYearAgo = yyyymmddDaysAgo(365);
-    const dividendCountLastYear = dividendRecords.filter((r) => r.recordDate >= oneYearAgo).length;
+    const today = yyyymmddDaysAgo(0);
+    const paidLastYear = dividendRecords.filter(
+      (r) => r.payDate !== null && r.payDate <= today && r.payDate >= oneYearAgo
+    );
+    const dividendCountLastYear = paidLastYear.length;
+    const paidLastYearTotal = paidLastYear.reduce((sum, r) => sum + r.cashDividendPerShare, 0);
+    const dividendYieldPct = price.currentPrice > 0 ? (paidLastYearTotal / price.currentPrice) * 100 : null;
 
     return NextResponse.json({
       dividends,
@@ -61,7 +70,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       per: price.per,
       pbr: price.pbr,
       roePct: latestRoePct,
-      dividendYieldPct: latestDividend?.dividendYieldPct ?? null,
+      dividendYieldPct,
       marketCapEok: price.marketCapEok,
       sharesOutstanding: price.sharesOutstanding,
       eps: price.eps,

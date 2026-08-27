@@ -422,16 +422,21 @@ async function fetchMultiCompanyFinancials(
 // 대형주 배치당 DART 호출이 종목 수만큼(현재 약 300건/주) 늘어난다 — 다중회사 조회를
 // 지원하지 않는 API라 종목당 1콜씩 개별 호출해야 한다.
 
+// 2026-08-27 실응답으로 확인된 실제 구조: se는 종류주(보통주/우선주/합계/비고)만
+// 구분하고, 한 행 안에 여러 누적 지표 컬럼이 같이 온다. now_to_isu_stock_totqy는
+// "현재까지 발행한 주식의 총수"(누적 발행, 감소분 차감 전)라 유통주식수보다 훨씬 크다
+// — istc_totqy(발행주식총수) - tesstk_co(자기주식수) = distb_stock_co(유통주식수)가
+// 실제로 원하는 값. 삼성전자(005930)로 라이브 검증 완료.
 interface StockTotqySttusItem {
   se: string;
-  now_to_isu_stock_totqy?: string;
+  istc_totqy?: string;
+  tesstk_co?: string;
+  distb_stock_co?: string;
 }
 
-/** DART 주식의 총수 현황에서 유통주식수(자사주 제외)를 가져온다. 못 찾으면 발행주식
- * 총수(자사주 포함)로 폴백한다. alotMatter와 마찬가지로 단일회사·단일연도만 조회
- * 가능하고 다중회사 조회는 지원하지 않는다. 이 환경에선 실응답으로 필드명(se/
- * now_to_isu_stock_totqy)과 "유통주식수" 행의 se 표기를 확인하지 못해 느슨하게
- * 매칭한다 — 배포 후 실응답으로 재확인 필요. */
+/** DART 주식의 총수 현황에서 보통주 유통주식수(자사주 제외)를 가져온다. 못 찾으면
+ * 발행주식총수(자사주 포함)로 폴백한다. alotMatter와 마찬가지로 단일회사·단일연도만
+ * 조회 가능하고 다중회사 조회는 지원하지 않는다. */
 async function fetchSharesOutstandingFromDart(corpCode: string, bsnsYear: number): Promise<number | null> {
   const url =
     `${DART_BASE_URL}/stockTotqySttus.json?crtfc_key=${encodeURIComponent(getDartApiKey())}` +
@@ -463,10 +468,9 @@ async function fetchSharesOutstandingFromDart(corpCode: string, bsnsYear: number
   await logDartCall("stockTotqySttus", "success", { corpCode, dartStatusCode: body.status });
 
   const items = body.list ?? [];
-  const floatingRow = items.find((i) => i.se.includes("유통주식수") && i.se.includes("보통주"));
-  const totalIssuedRow = items.find((i) => i.se.includes("보통주"));
-  const row = floatingRow ?? totalIssuedRow;
-  return row ? parseAmount(row.now_to_isu_stock_totqy) : null;
+  const row = items.find((i) => i.se === "보통주");
+  if (!row) return null;
+  return parseAmount(row.distb_stock_co) ?? parseAmount(row.istc_totqy);
 }
 
 export interface SharesOutstandingStats {
@@ -563,10 +567,14 @@ async function fetchFnlttSinglAcntAll(
 }
 
 /** 지배기업 소유주지분 당기순이익을 가져온다: 연결(CFS)로 먼저 시도하고, 데이터가
- * 없으면(013) 개별(OFS)로 재시도한다. 계정명 표기를 이 환경(DART_API_KEY 없음)에서
- * 실응답으로 확인하지 못해, "지배기업"을 포함하고 "비지배"는 포함하지 않는 당기순이익
- * 관련 계정명을 느슨하게 매칭한다 — 배포 후 실응답으로 재확인 필요. 못 찾으면 null이고
- * 이 경우 EPS/ROE는 전체 당기순이익(netIncome)으로 폴백한다(computeDerivedMetrics). */
+ * 없으면(013) 개별(OFS)로 재시도한다. 2026-08-27 실응답(삼성전자)으로 확인된 실제
+ * 구조: 손익계산서(IS)에 "당기순이익"(전체) 옆에 "지배기업 소유주지분"과
+ * "비지배지분"이 별도 계정으로 나란히 온다("당기순이익" 단어는 포함하지 않음) —
+ * IS를 CIS(포괄손익, 기타포괄손익까지 포함해 값이 다름)보다 먼저 찾아야 순수
+ * 당기순이익귀속분이 잡힌다(items 배열 순서가 항상 IS→CIS라는 전제, DART 표준
+ * 재무제표 섹션 순서를 따름). 개별(OFS)엔 비지배지분 자체가 없어 이 계정이 없는 게
+ * 정상 — 이 경우 못 찾고, EPS/ROE는 전체 당기순이익(netIncome)으로 폴백한다
+ * (computeDerivedMetrics) — OFS는 어차피 전체=지배주주 몫이라 결과가 같다. */
 async function fetchControllingNetIncome(corpCode: string, bsnsYear: number): Promise<number | null> {
   const cfsItems = await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "CFS");
   const items = cfsItems && cfsItems.length > 0 ? cfsItems : await fetchFnlttSinglAcntAll(corpCode, bsnsYear, "OFS");
@@ -576,7 +584,7 @@ async function fetchControllingNetIncome(corpCode: string, bsnsYear: number): Pr
     (i) =>
       (i.sj_div === "IS" || i.sj_div === "CIS") &&
       i.account_nm.includes("지배기업") &&
-      i.account_nm.includes("당기순이익") &&
+      i.account_nm.includes("소유주지분") &&
       !i.account_nm.includes("비지배")
   );
   return match ? parseAmount(match.thstrm_amount) : null;

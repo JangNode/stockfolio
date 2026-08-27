@@ -9,7 +9,12 @@
 drop table if exists public.dart_financial_statement_years;
 drop table if exists public.dart_dividends;
 
--- dart_api_call_log는 이제 corp_code 매핑 동기화 호출만 기록한다.
+-- dart_api_call_log는 이제 corp_code 매핑 동기화 호출만 기록한다. 지금까지 쌓인
+-- 재무제표/배당 관련 엔드포인트(fnlttMultiAcnt/alotMatter/stockTotqySttus/
+-- fnlttSinglAcntAll) 로그는 더 이상 존재하지 않는 기능에 대한 운영 로그일 뿐이라
+-- 새 체크 제약과 함께 지운다(위 두 표를 지우는 것과 같은 성격의 정리).
+delete from public.dart_api_call_log where endpoint <> 'corpCode';
+
 alter table public.dart_api_call_log drop constraint if exists dart_api_call_log_endpoint_check;
 alter table public.dart_api_call_log add constraint dart_api_call_log_endpoint_check
   check (endpoint in ('corpCode'));

@@ -7,6 +7,13 @@ import {
   type StockDividendPayment,
 } from "@/lib/pointInTimeFundamentals";
 import { DH_MIN_MARKET_CAP_EOK, DH_MAX_PER, DH_MAX_PBR, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
+import {
+  selectEpsCagrFiscalYears,
+  computeEpsCagrFromResolvedShares,
+  computePeg,
+  type ListedSharesByFiscalYear,
+} from "@/lib/pegRatio";
+import { PEG_MAX_RATIO } from "@/lib/pegConfig";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
 // /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
@@ -70,12 +77,20 @@ export interface DhValueDividendParams {
   take_profit_pct?: number;
 }
 
+/** 피터린치 PEG전략. DH전략과 같은 이유로 기준값(PEG_MAX_RATIO, lib/pegConfig.ts)을
+ * rule_params가 아니라 상수로 고정한다. */
+export interface PegLynchParams {
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+}
+
 /** rule_type과 rule_params를 항상 짝으로 다루기 위한 판별 유니언. */
 export type StrategyRule =
   | { rule_type: "ma_cross"; rule_params: MaCrossParams }
   | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams }
   | { rule_type: "custom_composite"; rule_params: CustomCompositeParams }
-  | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams };
+  | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams }
+  | { rule_type: "peg_lynch"; rule_params: PegLynchParams };
 
 export type StrategyRuleType = StrategyRule["rule_type"];
 
@@ -338,6 +353,43 @@ function computeDhValueDividendStates(
 }
 
 /**
+ * 피터린치 PEG전략: 매일 재평가되는 상태 조건. 적자기업은 제외하고(당기순이익 > 0),
+ * PEG(=PER÷최근 5년 EPS CAGR)가 PEG_MAX_RATIO(lib/pegConfig.ts) 이하면 참. fundamentals/
+ * listedSharesByFiscalYear 중 하나라도 없으면(호출부가 안 넘겼으면) 전부 undefined.
+ * "그 시점까지 공시된 재무가 아예 없음"/"5년 전 연도 데이터가 없어 성장률 계산
+ * 불가"(상장 초기 등)는 undefined(판정 불가), "적자"/"역성장·PER 계산 불가로 PEG를
+ * 못 구함"/"PEG가 기준 초과"는 false(조건 미달)로 구분한다 — DH전략과 같은 이유
+ * (computeDhValueDividendStates 코멘트 참고).
+ */
+function computePegLynchStates(
+  prices: DailyPrice[],
+  fundamentals: FundamentalsSeries | undefined,
+  listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined
+): (boolean | undefined)[] {
+  if (!fundamentals || !listedSharesByFiscalYear) return prices.map(() => undefined);
+
+  return prices.map((p) => {
+    if (p.listedShares === undefined) return undefined;
+
+    const fund = pickFundamentalsAsOf(fundamentals, p.date);
+    if (!fund) return undefined; // 그 시점까지 공시된 재무 없음(신규상장 직후 등)
+    if (fund.netIncomeParent === null) return undefined; // 순이익 데이터 자체가 없음(공백)
+    if (fund.netIncomeParent <= 0) return false; // 적자기업 제외
+
+    const { per } = computeValuationFromSeries(p.close, p.listedShares, fund);
+
+    const pair = selectEpsCagrFiscalYears(fundamentals, p.date);
+    if (!pair) return undefined; // 5년 전 연도 데이터가 아예 없음(상장 초기 등) — 판정 불가
+
+    const growthPct = computeEpsCagrFromResolvedShares(pair, listedSharesByFiscalYear);
+    const peg = computePeg(per, growthPct);
+    if (peg === null) return false; // 역성장/PER 계산 불가 등은 조건 미달로 취급
+
+    return peg <= PEG_MAX_RATIO;
+  });
+}
+
+/**
  * 전략의 판정 방식.
  * - "event": 교차처럼 순간적으로 발생하는 신호. 오늘 막 발생했는지(직전엔 거짓 → 오늘 참)만 인정.
  * - "state": 미너비니처럼 매일 다시 평가되는 조건. 오늘 조건을 만족하는지만 확인.
@@ -348,6 +400,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   minervini_trend_template: "state",
   custom_composite: "state",
   dh_value_dividend: "state",
+  peg_lynch: "state",
 };
 
 /**
@@ -358,15 +411,18 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
  * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
  *
- * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend 등)만 쓴다 — 순수
- * 가격 기반 전략은 무시한다. 호출부가 lib/stockFundamentals.ts의 loadFundamentalsSeries로
- * 한 번만 로드해 넘기면, pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별
- * point-in-time 판정을 DB 호출 없이 반복한다.
+ * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch)만 쓴다 —
+ * 순수 가격 기반 전략은 무시한다. 호출부가 lib/stockFundamentals.ts의
+ * loadFundamentalsSeries로 한 번만 로드해 넘기면, pickFundamentalsAsOf/
+ * pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB 호출 없이 반복한다.
+ * listedSharesByFiscalYear는 peg_lynch(EPS CAGR 계산)만 쓴다 — 호출부가
+ * loadFundamentalsSeriesWithListedShares로 종목당 한 번만 로드해 넘긴다.
  */
 function computeStates(
   prices: DailyPrice[],
   rule: StrategyRule,
-  fundamentals?: FundamentalsSeries
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
 ): (boolean | undefined)[] {
   switch (rule.rule_type) {
     case "minervini_trend_template":
@@ -377,6 +433,8 @@ function computeStates(
       return computeCustomCompositeStates(prices, rule.rule_params);
     case "dh_value_dividend":
       return computeDhValueDividendStates(prices, fundamentals);
+    case "peg_lynch":
+      return computePegLynchStates(prices, fundamentals, listedSharesByFiscalYear);
   }
 }
 
@@ -455,9 +513,10 @@ export function runBacktest(
   prices: DailyPrice[],
   rule: StrategyRule,
   windowStartDate: string,
-  fundamentals?: FundamentalsSeries
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
 ): BacktestResult {
-  const states = computeStates(prices, rule, fundamentals);
+  const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
 
   if (states.every((s) => s === undefined)) {
     return { trades: [], totalReturnPct: 0, tradeCount: 0, winRate: 0, mddPct: 0, insufficientData: true };
@@ -492,8 +551,13 @@ export function runBacktest(
  * ma_cross는 "방금 골든크로스가 발생"(직전 봉엔 거짓, 이번 봉에 참)했는지만 인정하고,
  * minervini_trend_template은 매일 재평가되는 상태 조건이므로 이번 봉에 참이면 인정한다.
  */
-export function matchesToday(prices: DailyPrice[], rule: StrategyRule, fundamentals?: FundamentalsSeries): boolean {
-  const states = computeStates(prices, rule, fundamentals);
+export function matchesToday(
+  prices: DailyPrice[],
+  rule: StrategyRule,
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
+): boolean {
+  const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
   const lastState = states[states.length - 1];
   if (lastState === undefined || !lastState) return false;
 
@@ -551,6 +615,12 @@ function computeDhValueDividendEntryPrice(prices: DailyPrice[]): number {
   return prices[prices.length - 1].close;
 }
 
+/** peg_lynch도 dh_value_dividend와 같은 이유(가치주 전략, 돌파 개념 없음)로 신호 당일
+ * 종가를 그대로 진입가로 쓴다. */
+function computePegLynchEntryPrice(prices: DailyPrice[]): number {
+  return prices[prices.length - 1].close;
+}
+
 /**
  * 신호가 발생한 시점의 진입/손절/익절가를 계산한다. 손절가/익절가는 rule_params의
  * stop_loss_pct/take_profit_pct(기본 7%/20%)를 진입가 위에 적용한다. 진입가 자체는
@@ -574,6 +644,9 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       break;
     case "dh_value_dividend":
       entryPrice = computeDhValueDividendEntryPrice(prices);
+      break;
+    case "peg_lynch":
+      entryPrice = computePegLynchEntryPrice(prices);
       break;
   }
 

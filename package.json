@@ -16,7 +16,10 @@
     "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts",
     "backfill:dh-krx-prices": "tsx --conditions=react-server scripts/backfill-dh-krx-prices.ts",
     "backfill:dh-dart-fundamentals": "tsx --conditions=react-server scripts/backfill-dh-dart-fundamentals.ts",
-    "backfill:dh-dividends": "tsx --conditions=react-server scripts/backfill-dh-dividends.ts"
+    "backfill:dh-dividends": "tsx --conditions=react-server scripts/backfill-dh-dividends.ts",
+    "seed:dh-daily-prices-recent": "tsx --conditions=react-server scripts/seed-dh-daily-prices-recent.ts",
+    "update:dh-daily-prices-recent": "tsx --conditions=react-server scripts/update-dh-daily-prices-recent.ts",
+    "archive:dh-daily-prices": "tsx --conditions=react-server scripts/archive-dh-daily-prices.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

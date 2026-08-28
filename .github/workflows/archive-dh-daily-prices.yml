@@ -1,0 +1,32 @@
+name: DH전략 hot/cold 아카이빙 (연 1회)
+
+on:
+  # 매년 1월 2일 UTC 01:00(KST 10:00)에 한 번. GitHub Actions의 schedule 지연
+  # 문제(screening.yml 참고)는 연 1회짜리 작업엔 몇 시간 지연돼도 영향이 없어
+  # pg_cron 대신 그냥 schedule을 쓴다.
+  schedule:
+    - cron: "0 1 2 1 *"
+  workflow_dispatch: {}
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Archive stale hot-window prices into Parquet
+        run: npm run archive:dh-daily-prices
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

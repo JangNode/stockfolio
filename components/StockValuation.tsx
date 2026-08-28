@@ -14,6 +14,8 @@ interface ValuationResponse {
   dividends: DividendYearRow[];
   per: number | null;
   pbr: number | null;
+  peg: number | null;
+  epsGrowthPct: number | null;
   roePct: number | null;
   dividendYieldPct: number | null;
   marketCapEok: number | null;
@@ -48,11 +50,12 @@ function formatWon(value: number | null): string {
   return value === null ? "-" : `${value.toLocaleString("ko-KR")}원`;
 }
 
-function StatBlock({ label, value }: { label: string; value: string }) {
+function StatBlock({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-lg border border-black/[.08] p-3 dark:border-white/[.145]">
       <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
     </div>
   );
 }
@@ -80,6 +83,11 @@ export default function StockValuation({ code }: { code: string }) {
             <StatBlock label="상장주식수" value={formatShares(data.sharesOutstanding)} />
             <StatBlock label="PER" value={formatRatio(data.per)} />
             <StatBlock label="PBR" value={formatRatio(data.pbr)} />
+            <StatBlock
+              label="PEG"
+              value={formatRatio(data.peg)}
+              hint={data.epsGrowthPct === null ? undefined : `최근 5년 EPS 성장률 ${formatPct(data.epsGrowthPct)}`}
+            />
             <StatBlock label="ROE" value={formatPct(data.roePct)} />
             <StatBlock label="EPS" value={formatWon(data.eps)} />
             <StatBlock label="배당수익률" value={formatPct(data.dividendYieldPct)} />

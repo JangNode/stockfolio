@@ -159,6 +159,26 @@ export async function getDailyPrice(stockCode: string, date: string): Promise<St
   return lookup.get(toLookupKey(stockCode, date)) ?? null;
 }
 
+const DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS = 10;
+
+/** date 이전(포함) 가장 가까운 거래일의 시세를 찾는다(최대 maxLookbackDays일 전까지
+ * 하루씩 물러나며 시도). 재무 공시일(rcept_date)이 주말/공휴일인 경우가 있어, "그
+ * 시점 상장주식수"가 필요한데 정확히 그날 시세가 없을 수 있는 경우(EPS 성장률 계산
+ * 등)에 쓴다. */
+export async function getDailyPriceOnOrBefore(
+  stockCode: string,
+  date: string,
+  maxLookbackDays: number = DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS
+): Promise<StockDailyPriceRow | null> {
+  let d = date;
+  for (let i = 0; i <= maxLookbackDays; i++) {
+    const row = await getDailyPrice(stockCode, d);
+    if (row) return row;
+    d = addDays(d, -1);
+  }
+  return null;
+}
+
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);

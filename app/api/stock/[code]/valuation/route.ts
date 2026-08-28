@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStockPrice, getProfitRatioYears, getDividendRecords } from "@/lib/kis";
 import { requireApproved } from "@/lib/requireApproved";
+import { computeEpsCagrAsOf } from "@/lib/stockFundamentals";
+import { computePeg } from "@/lib/pegRatio";
 
 const DIVIDEND_YEARS_TO_SHOW = 5;
 
@@ -8,6 +10,10 @@ function yyyymmddDaysAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function todayKstIsoDate(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
 // KIS는 국내(KRX) 상장사만 다루므로 미국 종목은 지원 대상이 아니다 — 프런트에서도
@@ -23,12 +29,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // 값을 그대로 쓴다 — DART 재무제표를 재조합해 직접 계산하던 이전 방식과 달리
     // 한국투자증권 앱 표시값과 실측 비교해 일치함을 확인했다(005930 기준). ROE는 이
     // API에 없어 수익성비율 API(연도별)의 최근 연도 값을 쓴다.
-    const [price, profitRatioYears, dividendRecords] = await Promise.all([
+    const [price, profitRatioYears, dividendRecords, epsCagr] = await Promise.all([
       getStockPrice(code),
       getProfitRatioYears(code),
       getDividendRecords(code, DIVIDEND_YEARS_TO_SHOW),
+      // PEG = PER ÷ 최근 5년 EPS 성장률. PER은 위 KIS 실시간 값을 그대로 분모로 쓰고
+      // (이 카드가 이미 그 PER을 보여주고 있어서), 성장률만 DART 연간 재무(point-in-time)
+      // 기반으로 계산한다 — DART 후보종목 데이터가 없는 소형주는 null(카드엔 "-")로
+      // 자연스럽게 빠진다.
+      computeEpsCagrAsOf(code, todayKstIsoDate()),
     ]);
     const latestRoePct = profitRatioYears[0]?.roePct ?? null;
+    const pegRatio = computePeg(price.per, epsCagr?.growthPct ?? null);
 
     // 배당수익률/배당성향은 오늘 주가·오늘 EPS 기준 스냅샷이라 캐싱하지 않는다.
     // 5개년 표의 과거 연도 배당수익률도 동일하게 "오늘 주가로 계산했다면"의 값으로
@@ -69,6 +81,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       currentPrice: price.currentPrice,
       per: price.per,
       pbr: price.pbr,
+      peg: pegRatio,
+      epsGrowthPct: epsCagr?.growthPct ?? null,
       roePct: latestRoePct,
       dividendYieldPct,
       marketCapEok: price.marketCapEok,

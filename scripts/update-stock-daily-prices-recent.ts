@@ -1,21 +1,21 @@
 /**
- * DH전략 일별시세 hot 구간(dh_daily_prices_recent, Postgres) 매일 갱신 배치. 어제까지
+ * 종목 시세 원자료 hot 구간(stock_daily_prices_recent, Postgres) 매일 갱신 배치. 어제까지
  * 빠진 평일이 있으면(워크플로 실패 등으로 하루 이틀 놓친 경우 포함) 전부 이어서
  * 채운다 — Parquet처럼 파일 전체를 다시 쓸 필요 없이 그날치만 INSERT하면 되므로
  * 가볍다. .github/workflows/screening.yml 마지막 스텝으로 매 평일 실행된다.
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/update-dh-daily-prices-recent.ts
+ *   tsx --conditions=react-server scripts/update-stock-daily-prices-recent.ts
  *
  * 필요 환경변수: KRX_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
-import { getLatestRecentPriceDate, upsertRecentPrices, type DhDailyPriceRow } from "@/lib/dhDailyPricesStorage";
-import { DH_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/dhStrategyConfig";
+import { getLatestRecentPriceDate, upsertRecentPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
-// dh_daily_prices_recent가 아직 비어있을 리 없지만(시딩 스크립트로 먼저 채움),
+// stock_daily_prices_recent가 아직 비어있을 리 없지만(시딩 스크립트로 먼저 채움),
 // 혹시 비어있는 상태로 이 배치가 먼저 돌면 최근 며칠만 채우도록 상한을 둔다 — 그
 // 이상 과거는 시딩 스크립트나 아카이빙 로직의 몫이다.
 const MAX_LOOKBACK_DAYS = 10;
@@ -51,18 +51,18 @@ async function fetchKrxDaily(
   return body.OutBlock_1 ?? [];
 }
 
-async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<DhDailyPriceRow[]> {
+async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<StockDailyPriceRow[]> {
   const basDd = toBasDd(dateKey);
   const [kospi, kosdaq] = await Promise.all([
     fetchKrxDaily("stk_bydd_trd", basDd, apiKey),
     fetchKrxDaily("ksq_bydd_trd", basDd, apiKey),
   ]);
 
-  const rows: DhDailyPriceRow[] = [];
+  const rows: StockDailyPriceRow[] = [];
   for (const row of [...kospi, ...kosdaq]) {
     if (!row.ISU_CD || !row.TDD_CLSPRC || row.TDD_CLSPRC === "-" || !row.LIST_SHRS || row.LIST_SHRS === "-") continue;
     const marketCapEok = Number(row.MKTCAP) / 100_000_000;
-    if (!Number.isFinite(marketCapEok) || marketCapEok < DH_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
+    if (!Number.isFinite(marketCapEok) || marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
     rows.push({
       stockCode: row.ISU_CD,
       tradeDate: dateKey,

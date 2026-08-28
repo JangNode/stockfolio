@@ -1,6 +1,6 @@
 /**
- * DH전략 일별시세 hot/cold 아카이빙 배치 — 연 1회 실행. dh_daily_prices_recent
- * (Postgres)에서 hot 구간(DH_HOT_WINDOW_YEARS년)을 벗어난 행을 연도별로 골라 그
+ * 종목 시세 원자료 hot/cold 아카이빙 배치 — 연 1회 실행. stock_daily_prices_recent
+ * (Postgres)에서 hot 구간(STOCK_DATA_HOT_WINDOW_YEARS년)을 벗어난 행을 연도별로 골라 그
  * 연도의 기존 Parquet 파일과 합쳐 다시 업로드하고, 업로드가 전부 성공한 뒤에만
  * Postgres에서 그 행들을 지운다 — 업로드 실패 시 Postgres에 그대로 남아 다음 실행이
  * 다시 시도한다(두 곳 다에서 사라지는 사고 방지). 기존 Parquet 파일과 합칠 때 같은
@@ -9,7 +9,7 @@
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/archive-dh-daily-prices.ts
+ *   tsx --conditions=react-server scripts/archive-stock-daily-prices.ts
  *
  * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
@@ -20,8 +20,8 @@ import {
   getRecentPricesBefore,
   hotWindowStartDate,
   uploadYearPrices,
-  type DhDailyPriceRow,
-} from "@/lib/dhDailyPricesStorage";
+  type StockDailyPriceRow,
+} from "@/lib/stockDailyPricesStorage";
 
 function toLookupKey(stockCode: string, tradeDate: string): string {
   return `${stockCode}:${tradeDate}`;
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const byYear = new Map<number, DhDailyPriceRow[]>();
+  const byYear = new Map<number, StockDailyPriceRow[]>();
   for (const row of staleRows) {
     const year = Number(row.tradeDate.slice(0, 4));
     const list = byYear.get(year) ?? [];
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 
   for (const year of years) {
     const existing = await downloadYearPrices(year);
-    const merged = new Map<string, DhDailyPriceRow>();
+    const merged = new Map<string, StockDailyPriceRow>();
     for (const row of existing) merged.set(toLookupKey(row.stockCode, row.tradeDate), row);
     for (const row of byYear.get(year) ?? []) merged.set(toLookupKey(row.stockCode, row.tradeDate), row);
 
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
 
   // 모든 연도 업로드가 성공한 뒤에만 Postgres에서 지운다.
   await deleteRecentPricesBefore(cutoff);
-  console.log(`아카이빙 완료: ${staleRows.length}행을 Parquet로 옮기고 dh_daily_prices_recent에서 삭제했습니다.`);
+  console.log(`아카이빙 완료: ${staleRows.length}행을 Parquet로 옮기고 stock_daily_prices_recent에서 삭제했습니다.`);
 }
 
 main().catch((error) => {

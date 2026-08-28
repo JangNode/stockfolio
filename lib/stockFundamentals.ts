@@ -1,17 +1,16 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getDailyPrice } from "@/lib/dhDailyPricesStorage";
+import { getDailyPrice } from "@/lib/stockDailyPricesStorage";
 
 /**
- * DH전략(대형 배당·가치주) 백테스트/스크리닝이 과거 특정 날짜의 재무·배당 데이터를
- * "그 시점에 이미 알려져 있던 것만" 가져오게 강제하는 유일한 통로. 백테스트/스크리닝
- * 어디서든 dh_annual_fundamentals/dh_dividend_history를 직접 쿼리하지 말고 반드시
- * 이 파일의 함수를 거쳐야 한다 — 미래 데이터 누수는 백테스트 결과가 조용히 좋게만
- * 나와서 나중에 알아차리기 어렵기 때문에, 위반 시 값을 걸러내는 정도가 아니라
- * 예외를 던져 즉시 드러나게 한다.
+ * 백테스트/스크리닝이 과거 특정 날짜의 재무·배당 데이터를 "그 시점에 이미 알려져
+ * 있던 것만" 가져오게 강제하는 유일한 통로. 어디서든 stock_annual_fundamentals/
+ * stock_dividend_history를 직접 쿼리하지 말고 반드시 이 파일의 함수를 거쳐야 한다 —
+ * 미래 데이터 누수는 백테스트 결과가 조용히 좋게만 나와서 나중에 알아차리기
+ * 어렵기 때문에, 위반 시 값을 걸러내는 정도가 아니라 예외를 던져 즉시 드러나게 한다.
  */
 
-export interface DhFundamentalsAsOf {
+export interface StockFundamentalsAsOf {
   fiscalYear: number;
   rceptNo: string;
   rceptDate: string; // YYYY-MM-DD
@@ -21,12 +20,12 @@ export interface DhFundamentalsAsOf {
 
 /** date(YYYY-MM-DD) 시점에 이미 공개돼 있던 가장 최신 확정 재무를 반환한다.
  * rcept_date(접수일자)가 date보다 미래인 행은 절대 고르지 않는다 — fiscal_year로
- * 정렬/필터하면 안 되는 이유는 dh_annual_fundamentals 테이블 코멘트 참고(FY2022
+ * 정렬/필터하면 안 되는 이유는 stock_annual_fundamentals 테이블 코멘트 참고(FY2022
  * 보고서가 2023-03-07에야 공개된 것처럼, 회계연도와 실제 공개일 사이에 몇 달 갭이
  * 있어서 fiscal_year 기준으로 고르면 미래 데이터가 샌다). */
-export async function getFundamentalsAsOf(stockCode: string, date: string): Promise<DhFundamentalsAsOf | null> {
+export async function getFundamentalsAsOf(stockCode: string, date: string): Promise<StockFundamentalsAsOf | null> {
   const { data, error } = await supabaseAdmin
-    .from("dh_annual_fundamentals")
+    .from("stock_annual_fundamentals")
     .select("fiscal_year, rcept_no, rcept_date, net_income_parent, equity_parent")
     .eq("stock_code", stockCode)
     .lte("rcept_date", date)
@@ -54,7 +53,7 @@ export async function getFundamentalsAsOf(stockCode: string, date: string): Prom
   };
 }
 
-export interface DhDividendPayment {
+export interface StockDividendPayment {
   recordDate: string;
   cashDividendPerShare: number;
   payDate: string;
@@ -68,9 +67,9 @@ export async function getDividendsPaidAsOf(
   stockCode: string,
   date: string,
   windowStartDate?: string
-): Promise<DhDividendPayment[]> {
+): Promise<StockDividendPayment[]> {
   let query = supabaseAdmin
-    .from("dh_dividend_history")
+    .from("stock_dividend_history")
     .select("record_date, cash_dividend_per_share, pay_date")
     .eq("stock_code", stockCode)
     .not("pay_date", "is", null)
@@ -98,7 +97,7 @@ export async function getDividendsPaidAsOf(
   }));
 }
 
-export interface DhValuationAsOf {
+export interface StockValuationAsOf {
   closePrice: number;
   marketCapEok: number;
   listedShares: number;
@@ -113,7 +112,7 @@ export interface DhValuationAsOf {
  * 그날 시세가 없거나(비영업일 등) 그 시점까지 공개된 재무가 아예 없으면(신규상장 직후
  * 등) null. EPS/BPS가 0 이하(적자/자본잠식)면 PER/PBR도 null로 둔다 — 음수 배수는
  * 의미가 없어 계산 단계에서부터 걸러낸다. */
-export async function computeValuationAsOf(stockCode: string, date: string): Promise<DhValuationAsOf | null> {
+export async function computeValuationAsOf(stockCode: string, date: string): Promise<StockValuationAsOf | null> {
   const [priceRow, fundamentals] = await Promise.all([
     getDailyPrice(stockCode, date),
     getFundamentalsAsOf(stockCode, date),

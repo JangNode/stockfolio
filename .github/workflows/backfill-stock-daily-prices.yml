@@ -1,7 +1,7 @@
-name: DH전략 백필 - KRX 일별시세 (1단계)
+name: 종목 시세 원자료 백필 - KRX 일별시세 (1단계)
 
 # 수동 실행 전용. 15년치를 한 번에 채우는 일회성 백필이라 자동 스케줄을 두지
-# 않는다 — 완료 후 상시 갱신은 screening.yml에 별도로 붙일 예정.
+# 않는다 — 완료 후 상시 갱신은 screening.yml에 별도로 붙어 있다.
 on:
   workflow_dispatch: {}
 
@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Backfill KRX daily prices
-        run: npm run backfill:dh-krx-prices
+        run: npm run backfill:stock-daily-prices
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

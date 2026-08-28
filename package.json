@@ -14,12 +14,13 @@
     "cleanup:lab-backtests": "tsx --conditions=react-server scripts/cleanup-custom-backtests.ts",
     "run:custom-backtest": "tsx --conditions=react-server scripts/run-custom-backtest.ts",
     "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts",
-    "backfill:dh-krx-prices": "tsx --conditions=react-server scripts/backfill-dh-krx-prices.ts",
-    "backfill:dh-dart-fundamentals": "tsx --conditions=react-server scripts/backfill-dh-dart-fundamentals.ts",
-    "backfill:dh-dividends": "tsx --conditions=react-server scripts/backfill-dh-dividends.ts",
-    "seed:dh-daily-prices-recent": "tsx --conditions=react-server scripts/seed-dh-daily-prices-recent.ts",
-    "update:dh-daily-prices-recent": "tsx --conditions=react-server scripts/update-dh-daily-prices-recent.ts",
-    "archive:dh-daily-prices": "tsx --conditions=react-server scripts/archive-dh-daily-prices.ts"
+    "backfill:stock-daily-prices": "tsx --conditions=react-server scripts/backfill-stock-daily-prices.ts",
+    "backfill:stock-annual-fundamentals": "tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts",
+    "backfill:stock-dividends": "tsx --conditions=react-server scripts/backfill-stock-dividends.ts",
+    "seed:stock-daily-prices-recent": "tsx --conditions=react-server scripts/seed-stock-daily-prices-recent.ts",
+    "update:stock-daily-prices-recent": "tsx --conditions=react-server scripts/update-stock-daily-prices-recent.ts",
+    "archive:stock-daily-prices": "tsx --conditions=react-server scripts/archive-stock-daily-prices.ts",
+    "migrate:stock-prices-bucket": "tsx --conditions=react-server scripts/migrate-stock-prices-bucket.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

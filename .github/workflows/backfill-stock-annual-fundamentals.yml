@@ -1,4 +1,4 @@
-name: DH전략 백필 - DART 재무제표 (2단계)
+name: 종목 재무 원자료 백필 - DART 재무제표 (2단계)
 
 # 수동 실행 전용. 1단계(KRX 시세 백필)가 먼저 끝나 있어야 후보종목 발굴이 된다.
 on:
@@ -24,7 +24,7 @@ jobs:
         run: npm ci
 
       - name: Backfill DART fundamentals
-        run: npm run backfill:dh-dart-fundamentals
+        run: npm run backfill:stock-annual-fundamentals
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

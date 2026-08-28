@@ -1,24 +1,24 @@
 /**
- * DH전략(대형 배당·가치주) 백테스트용 백필 3단계 — 후보종목(1단계가 Storage에 쓴
+ * 종목 배당 원자료(여러 전략이 공유) 백필 3단계 — 후보종목(1단계가 Storage에 쓴
  * 연도별 Parquet 파일에서 시가총액 1조원 이상이었던 이력이 있는 종목)의 배당 이력을
- * dh_dividend_history에 채운다. 이미 검증된 lib/kis.ts의 getDividendRecords(예탁원정보/
+ * stock_dividend_history에 채운다. 이미 검증된 lib/kis.ts의 getDividendRecords(예탁원정보/
  * 배당일정, payDate 포함)를 그대로 재사용한다 — 종목당 호출 1번으로 yearsBack년치가
  * 한 번에 온다.
  *
  * server-only로 막힌 lib/kis.ts, lib/supabaseAdmin.ts를 순수 Node 스크립트에서도
  * 재사용하려면 "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/backfill-dh-dividends.ts
+ *   tsx --conditions=react-server scripts/backfill-stock-dividends.ts
  *
  * 필요 환경변수: KIS_APP_KEY, KIS_APP_SECRET, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDividendRecords } from "@/lib/kis";
-import { discoverCandidateStockCodes } from "@/lib/dhDailyPricesStorage";
-import { DH_MIN_MARKET_CAP_EOK } from "@/lib/dhStrategyConfig";
+import { discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
+import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 
-// 1단계(scripts/backfill-dh-krx-prices.ts)의 BACKFILL_START_YEAR와 동일해야 후보종목이
-// 빠짐없이 뽑힌다.
+// 1단계(scripts/backfill-stock-daily-prices.ts)의 BACKFILL_START_YEAR와 동일해야
+// 후보종목이 빠짐없이 뽑힌다.
 const PRICE_BACKFILL_START_YEAR = 2011;
 // 2011년 시작 백테스트의 5년 배당 lookback(2011년 초 조회 시 2006년까지 필요)까지
 // 넉넉히 덮도록 여유를 둔다.
@@ -43,7 +43,7 @@ async function discoverCandidates(): Promise<string[]> {
     { length: currentYear - PRICE_BACKFILL_START_YEAR + 1 },
     (_, i) => PRICE_BACKFILL_START_YEAR + i
   );
-  return discoverCandidateStockCodes(years, DH_MIN_MARKET_CAP_EOK);
+  return discoverCandidateStockCodes(years, STOCK_DATA_CANDIDATE_MARKET_CAP_EOK);
 }
 
 function toIsoDate(yyyymmdd: string): string {
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
           cash_dividend_per_share: r.cashDividendPerShare,
           pay_date: r.payDate ? toIsoDate(r.payDate) : null,
         }));
-        const { error } = await supabaseAdmin.from("dh_dividend_history").upsert(rows);
+        const { error } = await supabaseAdmin.from("stock_dividend_history").upsert(rows);
         if (error) throw new Error(error.message);
         totalRecords += rows.length;
       }
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     }
   });
 
-  const { error: checkpointError } = await supabaseAdmin.from("dh_backfill_runs").insert({
+  const { error: checkpointError } = await supabaseAdmin.from("stock_data_backfill_runs").insert({
     data_source: "dividends",
     last_completed_date: null,
     started_at: startedAt.toISOString(),

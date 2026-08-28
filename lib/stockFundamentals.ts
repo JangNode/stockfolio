@@ -1,6 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getDailyPrice } from "@/lib/stockDailyPricesStorage";
+import { getDailyPrice, getDailyPriceOnOrBefore } from "@/lib/stockDailyPricesStorage";
 import {
   pickFundamentalsAsOf,
   pickDividendsPaidAsOf,
@@ -9,6 +9,8 @@ import {
   type StockFundamentalsAsOf,
   type StockDividendPayment,
 } from "@/lib/pointInTimeFundamentals";
+import { selectEpsCagrFiscalYears, computeEpsCagr } from "@/lib/pegRatio";
+import { PEG_GROWTH_LOOKBACK_YEARS } from "@/lib/pegConfig";
 
 export type {
   FundamentalsSeries,
@@ -127,4 +129,38 @@ export async function computeValuationAsOf(stockCode: string, date: string): Pro
     pbr,
     fundamentalsRceptDate: fundamentals.rceptDate,
   };
+}
+
+export interface EpsCagrAsOf {
+  growthPct: number | null; // 계산 불가(적자/역성장/데이터 부족)면 null
+  startFiscalYear: number;
+  endFiscalYear: number;
+}
+
+/** date 시점 기준 최근 years년 EPS CAGR(%)을 계산한다(PEG 지표의 분모). EPS는 각
+ * 회계연도 지배주주순이익 ÷ 그 회계연도 공시 시점(rcept_date) 상장주식수로 구한다 —
+ * 공시일이 비영업일이면 그 이전 가장 가까운 거래일 상장주식수를 쓴다
+ * (getDailyPriceOnOrBefore). 시작/끝 연도 중 하나라도 공시가 없거나(백필 공백,
+ * 상장 초기 등) 계산 자체가 불가하면(적자, 역성장 등) null. */
+export async function computeEpsCagrAsOf(
+  stockCode: string,
+  date: string,
+  years: number = PEG_GROWTH_LOOKBACK_YEARS
+): Promise<EpsCagrAsOf | null> {
+  const series = await loadFundamentalsSeries(stockCode);
+  const pair = selectEpsCagrFiscalYears(series, date, years);
+  if (!pair) return null;
+
+  const [startPrice, endPrice] = await Promise.all([
+    getDailyPriceOnOrBefore(stockCode, pair.start.rceptDate),
+    getDailyPriceOnOrBefore(stockCode, pair.end.rceptDate),
+  ]);
+
+  const growthPct = computeEpsCagr(
+    { netIncomeParent: pair.start.netIncomeParent, listedShares: startPrice?.listedShares ?? null },
+    { netIncomeParent: pair.end.netIncomeParent, listedShares: endPrice?.listedShares ?? null },
+    years
+  );
+
+  return { growthPct, startFiscalYear: pair.start.fiscalYear, endFiscalYear: pair.end.fiscalYear };
 }

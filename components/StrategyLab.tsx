@@ -7,13 +7,70 @@ import { authFetch, authJsonFetcher } from "@/lib/authFetch";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
-import { CUSTOM_BACKTEST_PERIOD_MONTHS } from "@/lib/customBacktestRequest";
-import type { BacktestTrade, CustomCompositeParams } from "@/lib/backtest";
+import { CUSTOM_BACKTEST_PERIOD_MONTHS, FUNDAMENTAL_CONDITION_COMPARATORS } from "@/lib/customBacktestRequest";
+import type { BacktestTrade, CustomCompositeParams, CustomFundamentalConditions, FundamentalConditionComparator } from "@/lib/backtest";
 
 const PERIOD_LABELS: Record<(typeof CUSTOM_BACKTEST_PERIOD_MONTHS)[number], string> = {
   12: "최근 1년",
   36: "최근 3년",
 };
+
+type FundamentalFieldKey = keyof CustomFundamentalConditions;
+
+const FUNDAMENTAL_FIELD_ORDER: FundamentalFieldKey[] = [
+  "market_cap_eok",
+  "per",
+  "pbr",
+  "peg",
+  "consecutive_dividend_years",
+  "dividend_yield_pct",
+];
+
+const FUNDAMENTAL_FIELD_LABELS: Record<FundamentalFieldKey, string> = {
+  market_cap_eok: "시가총액(억원)",
+  per: "PER(배)",
+  pbr: "PBR(배)",
+  peg: "PEG",
+  consecutive_dividend_years: "배당 연속 지급 연수(년)",
+  dividend_yield_pct: "배당수익률(%)",
+};
+
+const FUNDAMENTAL_COMPARATOR_LABELS: Record<FundamentalConditionComparator, string> = {
+  gte: "이상",
+  lte: "이하",
+  gt: "초과",
+  lt: "미만",
+};
+
+interface FundamentalFieldState {
+  enabled: boolean;
+  comparator: FundamentalConditionComparator;
+  value: number;
+}
+
+type FundamentalFieldsState = Record<FundamentalFieldKey, FundamentalFieldState>;
+
+// 값 자체는 사용자가 화면에서 바꿔가며 반복 실행하는 게 전제라 상수로 강제하지
+// 않는다 — 여기 기본값은 DH전략/PEG전략과 비슷한 감각의 "체크박스를 켰을 때 채워질
+// 초기값"일 뿐이다.
+const DEFAULT_FUNDAMENTAL_FIELDS: FundamentalFieldsState = {
+  market_cap_eok: { enabled: false, comparator: "gte", value: 10000 },
+  per: { enabled: false, comparator: "lte", value: 15 },
+  pbr: { enabled: false, comparator: "lte", value: 1.5 },
+  peg: { enabled: false, comparator: "lte", value: 1 },
+  consecutive_dividend_years: { enabled: false, comparator: "gte", value: 5 },
+  dividend_yield_pct: { enabled: false, comparator: "gte", value: 3 },
+};
+
+/** rule_params.fundamentals(선택된 항목만 comparator+value)를 사람이 읽을 수 있는
+ * 조각 문자열 목록으로 바꾼다(요청 이력 요약, 결과 패널 등에서 재사용). */
+function describeFundamentalConditions(fc: CustomFundamentalConditions | undefined): string[] {
+  if (!fc) return [];
+  return FUNDAMENTAL_FIELD_ORDER.filter((key) => fc[key] !== undefined).map((key) => {
+    const condition = fc[key]!;
+    return `${FUNDAMENTAL_FIELD_LABELS[key]} ${condition.value}${FUNDAMENTAL_COMPARATOR_LABELS[condition.comparator]}`;
+  });
+}
 
 type RunStatus = "pending" | "running" | "completed" | "failed";
 
@@ -72,6 +129,7 @@ function describeRuleParams(params: CustomCompositeParams): string {
   if (params.volume_surge) {
     parts.push(`거래량 ${params.volume_surge.period}일 평균 대비 ${params.volume_surge.multiplier}배 이상`);
   }
+  parts.push(...describeFundamentalConditions(params.fundamentals));
   return parts.length > 0 ? parts.join(", ") : "조건 없음";
 }
 
@@ -261,6 +319,11 @@ export default function StrategyLab({}: { user: User }) {
   const [volumePeriod, setVolumePeriod] = useState(20);
   const [volumeMultiplier, setVolumeMultiplier] = useState(2);
 
+  const [fundamentalFields, setFundamentalFields] = useState<FundamentalFieldsState>(DEFAULT_FUNDAMENTAL_FIELDS);
+  const updateFundamentalField = (key: FundamentalFieldKey, patch: Partial<FundamentalFieldState>) => {
+    setFundamentalFields((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  };
+
   const [stopLossPct, setStopLossPct] = useState(7);
   const [takeProfitPct, setTakeProfitPct] = useState(20);
   const [periodMonths, setPeriodMonths] = useState<(typeof CUSTOM_BACKTEST_PERIOD_MONTHS)[number]>(12);
@@ -308,10 +371,23 @@ export default function StrategyLab({}: { user: User }) {
     }
   };
 
+  // market="US"에서는 펀더멘털 조건을 아예 보낼 수 없으므로(DART 재무는 국내
+  // 상장사만 다룸) 화면에서 체크만 해두고 시장을 KR로 바꾸지 않은 채 제출해도 조용히
+  // 무시되도록, 조건 계산 자체를 market === "KR"일 때로 한정한다.
+  const fundamentals: CustomFundamentalConditions | undefined =
+    market === "KR"
+      ? FUNDAMENTAL_FIELD_ORDER.reduce<CustomFundamentalConditions>((acc, key) => {
+          const field = fundamentalFields[key];
+          if (field.enabled) acc[key] = { comparator: field.comparator, value: field.value };
+          return acc;
+        }, {})
+      : undefined;
+  const hasFundamentals = !!fundamentals && Object.keys(fundamentals).length > 0;
+
   const handleSubmit = async () => {
     setErrorMsg("");
 
-    if (!maCrossEnabled && !rsiEnabled && !volumeEnabled) {
+    if (!maCrossEnabled && !rsiEnabled && !volumeEnabled && !hasFundamentals) {
       setErrorMsg("조건을 최소 1개 이상 선택해주세요.");
       return;
     }
@@ -320,6 +396,7 @@ export default function StrategyLab({}: { user: User }) {
       ...(maCrossEnabled ? { ma_cross: { short_period: maShort, long_period: maLong } } : {}),
       ...(rsiEnabled ? { rsi: { period: rsiPeriod, threshold: rsiThreshold, direction: rsiDirection } } : {}),
       ...(volumeEnabled ? { volume_surge: { period: volumePeriod, multiplier: volumeMultiplier } } : {}),
+      ...(hasFundamentals ? { fundamentals } : {}),
       stop_loss_pct: stopLossPct / 100,
       take_profit_pct: takeProfitPct / 100,
     };
@@ -441,6 +518,59 @@ export default function StrategyLab({}: { user: User }) {
               배 이상
             </div>
           )}
+        </div>
+
+        <div className="mb-4 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
+          <p className="mb-2 text-sm font-medium text-black dark:text-zinc-50">
+            펀더멘털
+            {market === "US" && (
+              <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                (DART 재무 데이터는 국내 상장사만 다뤄 국내(KR) 시장에서만 사용할 수 있습니다)
+              </span>
+            )}
+          </p>
+          <div className="flex flex-col gap-3">
+            {FUNDAMENTAL_FIELD_ORDER.map((key) => {
+              const field = fundamentalFields[key];
+              return (
+                <div key={key}>
+                  <label className="flex items-center gap-2 text-sm text-black dark:text-zinc-50">
+                    <input
+                      type="checkbox"
+                      checked={field.enabled}
+                      disabled={market === "US"}
+                      onChange={(e) => updateFundamentalField(key, { enabled: e.target.checked })}
+                    />
+                    {FUNDAMENTAL_FIELD_LABELS[key]}
+                  </label>
+                  {field.enabled && market === "KR" && (
+                    <div className="ml-6 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                      <select
+                        value={field.comparator}
+                        onChange={(e) =>
+                          updateFundamentalField(key, { comparator: e.target.value as FundamentalConditionComparator })
+                        }
+                        className={selectClassName}
+                      >
+                        {FUNDAMENTAL_CONDITION_COMPARATORS.map((c) => (
+                          <option key={c} value={c}>
+                            {FUNDAMENTAL_COMPARATOR_LABELS[c]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        step={key === "peg" || key === "pbr" ? 0.1 : 1}
+                        value={field.value}
+                        onChange={(e) => updateFundamentalField(key, { value: Number(e.target.value) })}
+                        className={numberInputClassName}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mb-4 flex flex-wrap items-end gap-3 border-t border-black/[.08] pt-4 dark:border-white/[.145]">

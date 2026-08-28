@@ -457,18 +457,67 @@ async function runStrategyScan(
   let lowScore = 0;
   let errors = 0;
 
+  // 실험실에서 채택된 custom_composite 전략은 rule_params.fundamentals(시가총액/PER/
+  // PBR/PEG/배당 연속 지급 연수/배당수익률)를 실을 수 있다 — 이 값은 KIS 일봉(prices)엔
+  // 없고 DH 가격 레이어 + 재무 이력을 종목마다 추가 조회해야 판정할 수 있다. 매번
+  // 전종목에 대해 조회하면 비용이 크므로, 이평/RSI/거래량 같은 기술 조건이 하나라도
+  // 같이 지정돼 있으면 그것부터(DB 호출 없이) 먼저 확인해 이미 기술 조건에서 탈락하는
+  // 종목은 펀더멘털 조회를 건너뛴다(AND 조합이므로 기술 조건이 거짓이면 전체도 거짓).
+  // 기술 조건이 전혀 없는(펀더멘털 단독) 전략은 이 사전 필터를 쓸 수 없어 전종목을
+  // 조회한다.
+  const fundamentalConditions =
+    strategy.rule_type === "custom_composite" ? strategy.rule_params.fundamentals : undefined;
+  const needsListedShares = fundamentalConditions?.peg !== undefined;
+  const hasTechnicalConditions =
+    strategy.rule_type === "custom_composite" &&
+    (strategy.rule_params.ma_cross !== undefined ||
+      strategy.rule_params.rsi !== undefined ||
+      strategy.rule_params.volume_surge !== undefined);
+
   for (const [stockCode, { name: stockName, prices }] of priceByCode) {
     try {
-      if (!matchesToday(prices, strategy)) continue;
+      let evalPrices = prices;
+
+      if (fundamentalConditions && strategy.rule_type === "custom_composite") {
+        if (hasTechnicalConditions) {
+          const technicalOnlyRule: StrategyRule = {
+            rule_type: "custom_composite",
+            rule_params: {
+              ma_cross: strategy.rule_params.ma_cross,
+              rsi: strategy.rule_params.rsi,
+              volume_surge: strategy.rule_params.volume_surge,
+            },
+          };
+          if (!matchesToday(prices, technicalOnlyRule)) continue;
+        }
+
+        const today = prices[prices.length - 1].date;
+        const [priceRow, fundamentalsData] = await Promise.all([
+          getDailyPrice(stockCode, today),
+          needsListedShares
+            ? loadFundamentalsSeriesWithListedShares(stockCode)
+            : loadFundamentalsSeries(stockCode).then((series) => ({ series, listedSharesByFiscalYear: undefined })),
+        ]);
+        if (!priceRow) continue; // DH 가격 레이어에 오늘자 데이터 없음(백필 하한 미달 등) — 판정 불가로 건너뜀
+
+        evalPrices = [
+          ...prices.slice(0, -1),
+          { ...prices[prices.length - 1], marketCapEok: priceRow.marketCapEok, listedShares: priceRow.listedShares },
+        ];
+
+        if (!matchesToday(evalPrices, strategy, fundamentalsData.series, fundamentalsData.listedSharesByFiscalYear)) continue;
+      } else {
+        if (!matchesToday(evalPrices, strategy)) continue;
+      }
 
       const key = `${strategy.id}:${stockCode}`;
       if (activeKeys.has(key)) continue; // 이미 추적 중
 
-      const signalPrice = prices[prices.length - 1].close;
-      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
+      const signalPrice = evalPrices[evalPrices.length - 1].close;
+      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(evalPrices, strategy);
       const marketCapEok = marketCapByCode.get(stockCode) ?? null;
       const score = computeSignalScore(
-        prices,
+        evalPrices,
         strategy,
         marketCapEok === null ? null : marketCapEok / MARKET_CAP_SCORE_FULL_EOK
       );

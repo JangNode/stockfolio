@@ -46,6 +46,19 @@ export function pickFundamentalsAsOf(series: FundamentalsSeries, asOfDate: strin
   return picked;
 }
 
+/** series.annual(rcept_date 오름차순)에서 asOfDate 시점에 이미 공개돼 있던 재무를
+ * 전부(연도 오름차순) 고른다 — pickFundamentalsAsOf는 그중 최신 1건만 반환하는 반면,
+ * EPS 성장률(CAGR)처럼 여러 연도가 동시에 필요한 계산에 쓴다. */
+export function pickFundamentalsVisibleAsOf(series: FundamentalsSeries, asOfDate: string): StockFundamentalsAsOf[] {
+  const result = series.annual.filter((row) => row.rceptDate <= asOfDate);
+
+  if (result.some((row) => row.rceptDate > asOfDate)) {
+    throw new Error(`point-in-time 위반: ${asOfDate} 시점 조회에서 미래 공시 재무가 섞여 있습니다.`);
+  }
+
+  return result;
+}
+
 /** series.dividends(pay_date 오름차순)에서 asOfDate 시점까지 이미 "지급 완료"된 배당만
  * 순수 함수로 고른다. windowStartDate를 주면 그 이후 지급분만 좁혀서 "최근 N년 배당
  * 이력" 판정에 바로 쓸 수 있다. 반환 순서는 pay_date 내림차순. */

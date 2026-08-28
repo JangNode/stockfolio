@@ -1,4 +1,4 @@
-name: DH전략 hot/cold 아카이빙 (연 1회)
+name: 종목 시세 원자료 hot/cold 아카이빙 (연 1회)
 
 on:
   # 매년 1월 2일 UTC 01:00(KST 10:00)에 한 번. GitHub Actions의 schedule 지연
@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Archive stale hot-window prices into Parquet
-        run: npm run archive:dh-daily-prices
+        run: npm run archive:stock-daily-prices
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

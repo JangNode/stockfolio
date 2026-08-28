@@ -1,14 +1,14 @@
 /**
- * DH전략(대형 배당·가치주) 백테스트용 과거 PER/PBR 재구성의 1단계 — KRX
- * 일별매매정보(stk_bydd_trd/ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가총액/
- * 상장주식수를 연도별 Parquet 파일(dh-daily-prices/{year}.parquet, Supabase Storage)로
- * 만든다. Postgres가 아니라 Storage에 쓰는 이유는 supabase/migrations의
+ * 종목 시세 원자료(여러 전략이 공유) 백필 1단계 — KRX 일별매매정보(stk_bydd_trd/
+ * ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가총액/상장주식수를 연도별 Parquet
+ * 파일(stock-daily-prices/{year}.parquet, Supabase Storage)로 만든다. Postgres가
+ * 아니라 Storage에 쓰는 이유는 supabase/migrations의
  * 20260827060000_dh_daily_prices_to_storage.sql 코멘트 참고 — 전종목 15년치를
  * Postgres에 다 넣었더니 무료 플랜 DB 용량(500MB)을 넘겨버렸다(639만 행에서
  * "No space left on device"로 중단됨).
  *
- * 시가총액이 DH_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/dhStrategyConfig.ts, 5천억원) 미만인
- * 행은 애초에 저장하지 않는다 — DH전략 최종 기준(1조원)보다 낮게 잡아 여유를 두면서도,
+ * 시가총액이 STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/stockDataConfig.ts, 5천억원)
+ * 미만인 행은 애초에 저장하지 않는다 — 후보종목 기준(1조원)보다 낮게 잡아 여유를 두면서도,
  * 저장량을 크게 줄인다. 주말(토/일)은 API 호출 없이 요일 계산만으로 건너뛴다. 평일 중
  * 공휴일은 호출은 하되 응답이 비어 있으면 그냥 건너뛴다.
  *
@@ -19,14 +19,14 @@
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/backfill-dh-krx-prices.ts
+ *   tsx --conditions=react-server scripts/backfill-stock-daily-prices.ts
  *
  * 필요 환경변수: KRX_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { uploadYearPrices, yearPricesExist, type DhDailyPriceRow } from "@/lib/dhDailyPricesStorage";
-import { DH_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/dhStrategyConfig";
+import { uploadYearPrices, yearPricesExist, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
@@ -97,7 +97,7 @@ async function recordCheckpoint(
   rowsFetched: number,
   errorCount: number
 ): Promise<void> {
-  const { error } = await supabaseAdmin.from("dh_backfill_runs").insert({
+  const { error } = await supabaseAdmin.from("stock_data_backfill_runs").insert({
     data_source: DATA_SOURCE,
     last_completed_date: lastCompletedDate,
     started_at: startedAt.toISOString(),
@@ -121,7 +121,7 @@ function weekdaysInYear(year: number, endDate: Date): string[] {
 }
 
 async function backfillYear(year: number, targetDates: string[], apiKey: string): Promise<{ rows: number; errors: number }> {
-  const yearRows: DhDailyPriceRow[] = [];
+  const yearRows: StockDailyPriceRow[] = [];
   let errors = 0;
   let completed = 0;
 
@@ -137,7 +137,7 @@ async function backfillYear(year: number, targetDates: string[], apiKey: string)
           continue;
         }
         const marketCapEok = Number(row.MKTCAP) / 100_000_000;
-        if (!Number.isFinite(marketCapEok) || marketCapEok < DH_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
+        if (!Number.isFinite(marketCapEok) || marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
 
         yearRows.push({
           stockCode: row.ISU_CD,
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
   const startedAt = new Date();
   const currentYear = new Date().getUTCFullYear();
   // 오늘 데이터는 장 마감/정산 전일 수 있어 어제까지만 대상으로 한다 — 오늘 이후는
-  // 매일 도는 상시 갱신 배치(추후 screening.yml에 추가 예정)가 처리한다.
+  // 매일 도는 상시 갱신 배치(screening.yml 마지막 스텝)가 처리한다.
   const endDate = new Date();
   endDate.setUTCDate(endDate.getUTCDate() - 1);
 

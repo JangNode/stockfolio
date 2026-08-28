@@ -1,7 +1,7 @@
-name: DH전략 hot/cold 분리 - 최근 구간 시딩 (1회성)
+name: 종목 시세 원자료 hot/cold 분리 - 최근 구간 시딩 (1회성)
 
 # 수동 실행 전용. hot/cold 분리 도입 시 한 번만 돌리면 된다 — 기존 Parquet
-# 백필분에서 최근 구간을 dh_daily_prices_recent로 복사한다(새 API 호출 없음).
+# 백필분에서 최근 구간을 stock_daily_prices_recent로 복사한다(새 API 호출 없음).
 on:
   workflow_dispatch: {}
 
@@ -22,8 +22,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Seed dh_daily_prices_recent from existing Parquet
-        run: npm run seed:dh-daily-prices-recent
+      - name: Seed stock_daily_prices_recent from existing Parquet
+        run: npm run seed:stock-daily-prices-recent
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

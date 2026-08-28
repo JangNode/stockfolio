@@ -1,9 +1,9 @@
 /**
- * DH전략(대형 배당·가치주) 백테스트용 과거 PER/PBR 재구성의 2단계 — 후보종목(백필
- * 기간 중 단 하루라도 시가총액 1조원을 넘은 적 있는 종목)을 1단계가 Storage에 쓴
- * 연도별 Parquet 파일(dh-daily-prices/{year}.parquet)에서 직접 뽑고, 각 종목×연도에
- * 대해 DART fnlttSinglAcntAll(단일회사 전체 재무제표)을 호출해 지배기업 소유주지분
- * 당기순이익/자본총계를 dh_annual_fundamentals에 채운다. "오늘 기준 대형주 리스트"가
+ * 종목 재무 원자료(여러 전략이 공유) 백필 2단계 — 후보종목(백필 기간 중 단 하루라도
+ * 시가총액 1조원을 넘은 적 있는 종목)을 1단계가 Storage에 쓴 연도별 Parquet 파일
+ * (stock-daily-prices/{year}.parquet)에서 직접 뽑고, 각 종목×연도에 대해 DART
+ * fnlttSinglAcntAll(단일회사 전체 재무제표)을 호출해 지배기업 소유주지분
+ * 당기순이익/자본총계를 stock_annual_fundamentals에 채운다. "오늘 기준 대형주 리스트"가
  * 아니라 실제 과거 시가총액으로 후보를 뽑기 때문에 생존편향이 없다(과거엔 컸는데 지금
  * 작아진 회사도 포함, 반대도 마찬가지).
  *
@@ -11,20 +11,20 @@
  * 조회가 항상 유효한 재무를 찾을 수 있도록 FY2009부터(2010년 3월경 공시, 2011년 초
  * 조회 시점에 이미 최신 공개 재무) 최신 사업연도까지를 대상으로 한다.
  *
- * dh_annual_fundamentals는 (stock_code, fiscal_year) 기본키라 이미 있는 조합은
+ * stock_annual_fundamentals는 (stock_code, fiscal_year) 기본키라 이미 있는 조합은
  * upsert로 건너뛰지 않고 다시 채워도 안전하다(idempotent) — 그래서 별도 날짜 체크포인트
  * 대신, 이미 있는 (stock_code, fiscal_year) 조합은 호출 전에 걸러내는 방식으로 재개한다.
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
- *   tsx --conditions=react-server scripts/backfill-dh-dart-fundamentals.ts
+ *   tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts
  *
  * 필요 환경변수: DART_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { discoverCandidateStockCodes } from "@/lib/dhDailyPricesStorage";
-import { DH_MIN_MARKET_CAP_EOK } from "@/lib/dhStrategyConfig";
+import { discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
+import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DATA_SOURCE = "dart_fundamentals" as const;
@@ -52,8 +52,8 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runOne));
 }
 
-// 1단계(scripts/backfill-dh-krx-prices.ts)의 BACKFILL_START_YEAR와 동일해야 후보종목이
-// 빠짐없이 뽑힌다.
+// 1단계(scripts/backfill-stock-daily-prices.ts)의 BACKFILL_START_YEAR와 동일해야
+// 후보종목이 빠짐없이 뽑힌다.
 const PRICE_BACKFILL_START_YEAR = 2011;
 
 /** 백필 기간 중 단 하루라도 시가총액 1조원을 넘은 적 있는 종목을 뽑는다. "오늘 기준"이
@@ -64,7 +64,7 @@ async function discoverCandidates(): Promise<string[]> {
     { length: currentYear - PRICE_BACKFILL_START_YEAR + 1 },
     (_, i) => PRICE_BACKFILL_START_YEAR + i
   );
-  return discoverCandidateStockCodes(years, DH_MIN_MARKET_CAP_EOK);
+  return discoverCandidateStockCodes(years, STOCK_DATA_CANDIDATE_MARKET_CAP_EOK);
 }
 
 async function getCorpCodeMap(stockCodes: string[]): Promise<Map<string, string>> {
@@ -90,7 +90,7 @@ async function getExistingPairs(): Promise<Set<string>> {
   const PAGE = 1000;
   for (;;) {
     const { data, error } = await supabaseAdmin
-      .from("dh_annual_fundamentals")
+      .from("stock_annual_fundamentals")
       .select("stock_code, fiscal_year")
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`기존 재무 데이터 조회 실패: ${error.message}`);
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
     try {
       const result = await fetchFundamentals(target.corpCode, target.fiscalYear, apiKey);
       if (result) {
-        const { error } = await supabaseAdmin.from("dh_annual_fundamentals").upsert({
+        const { error } = await supabaseAdmin.from("stock_annual_fundamentals").upsert({
           stock_code: target.stockCode,
           corp_code: target.corpCode,
           fiscal_year: target.fiscalYear,
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
     }
   });
 
-  const { error: checkpointError } = await supabaseAdmin.from("dh_backfill_runs").insert({
+  const { error: checkpointError } = await supabaseAdmin.from("stock_data_backfill_runs").insert({
     data_source: DATA_SOURCE,
     last_completed_date: null,
     started_at: startedAt.toISOString(),

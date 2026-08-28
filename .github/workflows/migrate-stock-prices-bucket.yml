@@ -1,0 +1,31 @@
+name: 종목 시세 원자료 - dh-daily-prices → stock-daily-prices 버킷 복사 (1회성)
+
+# 수동 실행 전용. dh_ → stock_ 네이밍 정리 시 한 번만 돌리면 된다 — 기존 버킷의
+# 연도별 Parquet 파일을 새 버킷으로 복사한다(원본은 지우지 않음). 먼저
+# supabase/migrations의 20260828010000_rename_dh_tables_to_stock.sql이 적용되어
+# stock-daily-prices 버킷이 만들어져 있어야 한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy Parquet files to new bucket
+        run: npm run migrate:stock-prices-bucket
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

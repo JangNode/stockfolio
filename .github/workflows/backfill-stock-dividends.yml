@@ -1,4 +1,4 @@
-name: DH전략 백필 - 배당 이력 (3단계)
+name: 종목 배당 원자료 백필 - 배당 이력 (3단계)
 
 # 수동 실행 전용. 1단계(KRX 시세 백필)가 먼저 끝나 있어야 후보종목 발굴이 된다.
 on:
@@ -22,7 +22,7 @@ jobs:
         run: npm ci
 
       - name: Backfill dividend history
-        run: npm run backfill:dh-dividends
+        run: npm run backfill:stock-dividends
         env:
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}

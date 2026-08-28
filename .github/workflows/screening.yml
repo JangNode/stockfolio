@@ -75,11 +75,12 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      # DH전략 hot/cold 분리(lib/dhDailyPricesStorage.ts) — 최근 구간(dh_daily_prices_recent)
-      # 하루치만 INSERT하면 되는 가벼운 작업이라 매일 이 워크플로 마지막에 붙인다.
-      # 오래된 구간을 Parquet로 옮기는 아카이빙은 별도 워크플로(연 1회)가 맡는다.
-      - name: Update DH strategy recent daily prices
-        run: npm run update:dh-daily-prices-recent
+      # 종목 시세 원자료 hot/cold 분리(lib/stockDailyPricesStorage.ts) — 최근 구간
+      # (stock_daily_prices_recent) 하루치만 INSERT하면 되는 가벼운 작업이라 매일 이
+      # 워크플로 마지막에 붙인다. 오래된 구간을 Parquet로 옮기는 아카이빙은 별도
+      # 워크플로(연 1회)가 맡는다.
+      - name: Update recent daily stock prices
+        run: npm run update:stock-daily-prices-recent
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

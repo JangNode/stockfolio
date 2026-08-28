@@ -1,10 +1,20 @@
 import { computeSMA } from "@/lib/sma";
+import {
+  pickFundamentalsAsOf,
+  pickDividendsPaidAsOf,
+  computeValuationFromSeries,
+  type FundamentalsSeries,
+  type StockDividendPayment,
+} from "@/lib/pointInTimeFundamentals";
+import { DH_MIN_MARKET_CAP_EOK, DH_MAX_PER, DH_MAX_PBR, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
 // /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
 // listedShares는 KIS 일봉엔 없는 값이라 선택 필드다 — lib/stockDailyPricesStorage.ts
-// 기반으로 구성한 시리즈(다음 PR에서 추가할 dh_value_dividend/peg_lynch, 커스텀
-// 백테스트 펀더멘털 조건)에만 채워질 예정이다.
+// 기반으로 구성한 시리즈(dh_value_dividend 등)에만 채워진다. 이 파일이 클라이언트
+// 컴포넌트(components/Backtest.tsx)에서도 쓰이기 때문에 lib/pointInTimeFundamentals.ts
+// (server-only 아님, 순수 함수만)에서만 값을 import한다 — lib/stockFundamentals.ts를
+// 직접 import하면 그 파일의 "server-only" 표시 때문에 클라이언트 번들 빌드가 깨진다.
 export interface DailyPrice {
   date: string; // YYYY-MM-DD
   open: number;
@@ -48,11 +58,24 @@ export interface CustomCompositeParams {
   take_profit_pct?: number;
 }
 
+/**
+ * DH전략(대형 배당·가치주). 기준값(시가총액/PER/PBR/배당 연속연수)은 lib/dhStrategyConfig.ts
+ * 상수로 고정돼 있어 rule_params엔 다른 전략과 공통인 손절/익절만 남는다 — 종목마다
+ * 다른 이동평균 기간 같은 개인화 여지가 없는 전략이라, ma_cross/minervini처럼
+ * rule_params에 기준값을 담을 이유가 없다(기준값을 바꾸고 싶으면 상수만 고치면
+ * 전체 계정 공통으로 적용된다).
+ */
+export interface DhValueDividendParams {
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+}
+
 /** rule_type과 rule_params를 항상 짝으로 다루기 위한 판별 유니언. */
 export type StrategyRule =
   | { rule_type: "ma_cross"; rule_params: MaCrossParams }
   | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams }
-  | { rule_type: "custom_composite"; rule_params: CustomCompositeParams };
+  | { rule_type: "custom_composite"; rule_params: CustomCompositeParams }
+  | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams };
 
 export type StrategyRuleType = StrategyRule["rule_type"];
 
@@ -261,6 +284,59 @@ function computeCustomCompositeStates(
   });
 }
 
+/** asOfDate 기준 최근 완결된 years개 연도(asOf 연도 자체는 아직 안 끝났을 수 있어
+ * 제외 — asOfYear-years ~ asOfYear-1) 각각 최소 1회 배당을 지급했는지 확인한다.
+ * dividends는 이미 point-in-time으로 필터링된 것(pickDividendsPaidAsOf 결과)을
+ * 받는다고 가정한다. 지급 확인된 연도 목록(내림차순)도 함께 반환해 판단 근거 로그에
+ * 쓸 수 있게 한다. */
+export function evaluateConsecutiveDividendYears(
+  dividends: StockDividendPayment[],
+  asOfDate: string,
+  years: number
+): { consecutiveOk: boolean; paidYears: number[] } {
+  const asOfYear = Number(asOfDate.slice(0, 4));
+  const paidYearSet = new Set(dividends.map((d) => Number(d.payDate.slice(0, 4))));
+
+  const requiredYears: number[] = [];
+  for (let y = asOfYear - years; y <= asOfYear - 1; y++) requiredYears.push(y);
+
+  const consecutiveOk = requiredYears.every((y) => paidYearSet.has(y));
+  const paidYears = requiredYears.filter((y) => paidYearSet.has(y)).sort((a, b) => b - a);
+
+  return { consecutiveOk, paidYears };
+}
+
+/**
+ * DH전략: 매일 재평가되는 상태 조건. 시가총액/PER/PBR/배당 연속연수 기준을 전부
+ * lib/dhStrategyConfig.ts 상수에서 읽는다(값 자체는 나중에 그 파일만 고치면 조정된다).
+ * fundamentals가 없으면(호출부가 안 넘겼으면) 전부 undefined(판정 불가)로 취급한다.
+ * marketCapEok/listedShares가 없는 날(KIS 기반 시리즈를 잘못 넘긴 경우 등)도 마찬가지다.
+ * 조건 미달은 명확히 false로 반환한다(undefined는 "그 시점까지 공시된 재무가 아예
+ * 없다"처럼 진짜 판정 불가 상황에만 쓴다) — false/undefined를 섞어 쓰면
+ * detectStateTransitions가 데이터 공백을 매도 신호로 착각하지 않는다.
+ */
+function computeDhValueDividendStates(
+  prices: DailyPrice[],
+  fundamentals: FundamentalsSeries | undefined
+): (boolean | undefined)[] {
+  if (!fundamentals) return prices.map(() => undefined);
+
+  return prices.map((p) => {
+    if (p.marketCapEok === undefined || p.listedShares === undefined) return undefined;
+    if (p.marketCapEok < DH_MIN_MARKET_CAP_EOK) return false;
+
+    const fund = pickFundamentalsAsOf(fundamentals, p.date);
+    if (!fund) return undefined; // 그 시점까지 공시된 재무 없음(신규상장 직후 등)
+
+    const { per, pbr } = computeValuationFromSeries(p.close, p.listedShares, fund);
+    if (per === null || per <= 0 || per > DH_MAX_PER) return false;
+    if (pbr === null || pbr <= 0 || pbr > DH_MAX_PBR) return false;
+
+    const dividends = pickDividendsPaidAsOf(fundamentals, p.date);
+    return evaluateConsecutiveDividendYears(dividends, p.date, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS).consecutiveOk;
+  });
+}
+
 /**
  * 전략의 판정 방식.
  * - "event": 교차처럼 순간적으로 발생하는 신호. 오늘 막 발생했는지(직전엔 거짓 → 오늘 참)만 인정.
@@ -271,6 +347,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   ma_cross: "event",
   minervini_trend_template: "state",
   custom_composite: "state",
+  dh_value_dividend: "state",
 };
 
 /**
@@ -281,14 +358,16 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
  * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
  *
- * 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch 등, 다음 PR에서 추가)은 이
- * 함수와 runBacktest/matchesToday에 lib/stockFundamentals.ts의 FundamentalsSeries를
- * 받는 선택적 인자가 추가될 예정이다 — 호출부가 loadFundamentalsSeries로 한 번만 로드해
- * 넘기면 pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB
- * 호출 없이 반복할 수 있다. 아직 이를 쓰는 rule_type이 없어 이번 PR에서는 시그니처를
- * 미리 넓히지 않는다(쓰이지 않는 매개변수를 남겨두지 않기 위해).
+ * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend 등)만 쓴다 — 순수
+ * 가격 기반 전략은 무시한다. 호출부가 lib/stockFundamentals.ts의 loadFundamentalsSeries로
+ * 한 번만 로드해 넘기면, pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별
+ * point-in-time 판정을 DB 호출 없이 반복한다.
  */
-function computeStates(prices: DailyPrice[], rule: StrategyRule): (boolean | undefined)[] {
+function computeStates(
+  prices: DailyPrice[],
+  rule: StrategyRule,
+  fundamentals?: FundamentalsSeries
+): (boolean | undefined)[] {
   switch (rule.rule_type) {
     case "minervini_trend_template":
       return computeMinerviniStates(prices, rule.rule_params);
@@ -296,6 +375,8 @@ function computeStates(prices: DailyPrice[], rule: StrategyRule): (boolean | und
       return computeMaCrossStates(prices, rule.rule_params);
     case "custom_composite":
       return computeCustomCompositeStates(prices, rule.rule_params);
+    case "dh_value_dividend":
+      return computeDhValueDividendStates(prices, fundamentals);
   }
 }
 
@@ -373,9 +454,10 @@ export function aggregateTrades(trades: BacktestTrade[]): TradeAggregate {
 export function runBacktest(
   prices: DailyPrice[],
   rule: StrategyRule,
-  windowStartDate: string
+  windowStartDate: string,
+  fundamentals?: FundamentalsSeries
 ): BacktestResult {
-  const states = computeStates(prices, rule);
+  const states = computeStates(prices, rule, fundamentals);
 
   if (states.every((s) => s === undefined)) {
     return { trades: [], totalReturnPct: 0, tradeCount: 0, winRate: 0, mddPct: 0, insufficientData: true };
@@ -410,8 +492,8 @@ export function runBacktest(
  * ma_cross는 "방금 골든크로스가 발생"(직전 봉엔 거짓, 이번 봉에 참)했는지만 인정하고,
  * minervini_trend_template은 매일 재평가되는 상태 조건이므로 이번 봉에 참이면 인정한다.
  */
-export function matchesToday(prices: DailyPrice[], rule: StrategyRule): boolean {
-  const states = computeStates(prices, rule);
+export function matchesToday(prices: DailyPrice[], rule: StrategyRule, fundamentals?: FundamentalsSeries): boolean {
+  const states = computeStates(prices, rule, fundamentals);
   const lastState = states[states.length - 1];
   if (lastState === undefined || !lastState) return false;
 
@@ -461,6 +543,15 @@ function computeCustomCompositeEntryPrice(prices: DailyPrice[]): number {
 }
 
 /**
+ * dh_value_dividend: 가치·배당주 전략이라 돌파 개념이 안 맞는다(추세추종이 아니라
+ * "저평가·고배당 상태"를 사는 전략). ma_cross처럼 신호 당일 종가를 그대로 진입가로
+ * 쓴다.
+ */
+function computeDhValueDividendEntryPrice(prices: DailyPrice[]): number {
+  return prices[prices.length - 1].close;
+}
+
+/**
  * 신호가 발생한 시점의 진입/손절/익절가를 계산한다. 손절가/익절가는 rule_params의
  * stop_loss_pct/take_profit_pct(기본 7%/20%)를 진입가 위에 적용한다. 진입가 자체는
  * 전략마다 성격이 달라 computeXEntryPrice로 분리돼 있다 (위 computeStates 디스패치와
@@ -480,6 +571,9 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       break;
     case "custom_composite":
       entryPrice = computeCustomCompositeEntryPrice(prices);
+      break;
+    case "dh_value_dividend":
+      entryPrice = computeDhValueDividendEntryPrice(prices);
       break;
   }
 

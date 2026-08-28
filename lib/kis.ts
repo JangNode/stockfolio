@@ -27,9 +27,18 @@ const EXPIRY_BUFFER_MS = 60 * 1000;
 // 먼저 성공한 인스턴스가 DB에 쓴 토큰을 재조회하기 전에 기다리는 시간.
 const RETRY_DELAY_MS = 1500;
 
+// 발급 잠금(issuing_until)의 최대 유지 시간 — 실제 발급 API는 보통 1초 안에
+// 끝나지만, 잠금을 쥔 인스턴스가 응답 전에 죽는 등의 사고로 영영 안 풀리는 걸
+// 막기 위한 상한이다(이 시간이 지나면 다음 시도가 잠금을 다시 선점할 수 있다).
+const TOKEN_ISSUE_LOCK_TTL_MS = 15 * 1000;
+// 잠금을 못 얻은 인스턴스가 발급이 끝나길 기다리며 DB를 다시 확인하는 간격/횟수.
+const TOKEN_LOCK_POLL_DELAY_MS = 1000;
+const TOKEN_LOCK_POLL_MAX_RETRIES = 8;
+
 interface TokenRow {
   access_token: string;
   expires_at: string;
+  issuing_until: string | null;
 }
 
 function getCredentials() {
@@ -247,7 +256,7 @@ async function kisFetch(
 async function readTokenFromDb(): Promise<TokenRow | null> {
   const { data, error } = await supabaseAdmin
     .from("kis_tokens")
-    .select("access_token, expires_at")
+    .select("access_token, expires_at, issuing_until")
     .eq("id", TOKEN_ROW_ID)
     .maybeSingle();
 
@@ -264,11 +273,46 @@ async function writeTokenToDb(token: string, expiresAt: Date): Promise<void> {
     access_token: token,
     expires_at: expiresAt.toISOString(),
     updated_at: new Date().toISOString(),
+    issuing_until: null, // 발급이 끝났으니 잠금도 같이 해제한다.
   });
 
   if (error) {
     throw new Error(`토큰 저장 실패: ${error.message}`);
   }
+}
+
+/**
+ * 토큰 재발급 권한을 원자적으로 선점한다. KIS는 앱키당 유효 토큰이 하나뿐이라,
+ * 서로 다른 인스턴스가 동시에 재발급하면 나중에 발급된 토큰이 먼저 발급된
+ * (그리고 이미 어떤 요청이 손에 쥔) 토큰을 즉시 무효화한다 — 이게 우리
+ * expires_at 상으로는 아직 안 지났는데 KIS가 "기간이 만료된 token입니다"
+ * (EGW00123)로 거부하는 원인이다. issuing_until을 조건부 UPDATE(RETURNING)로
+ * 원자적으로 세팅해, 그 순간 딱 한 인스턴스만 실제 발급을 하게 만든다.
+ */
+async function tryClaimIssueLock(): Promise<boolean> {
+  // 행이 아직 없으면(최초 실행) 먼저 만료된 더미 행을 만들어둔다 — 이미 있으면
+  // ignoreDuplicates로 아무 것도 건드리지 않는다(진짜 토큰을 덮어쓰면 안 됨).
+  await supabaseAdmin
+    .from("kis_tokens")
+    .upsert(
+      { id: TOKEN_ROW_ID, access_token: "", expires_at: new Date(0).toISOString() },
+      { onConflict: "id", ignoreDuplicates: true }
+    );
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("kis_tokens")
+    .update({ issuing_until: new Date(Date.now() + TOKEN_ISSUE_LOCK_TTL_MS).toISOString() })
+    .eq("id", TOKEN_ROW_ID)
+    .or(`issuing_until.is.null,issuing_until.lt.${now}`)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`토큰 발급 잠금 획득 실패: ${error.message}`);
+  }
+
+  return data !== null;
 }
 
 async function issueAccessToken(): Promise<{ token: string; expiresAt: Date }> {
@@ -302,21 +346,39 @@ async function getAccessToken(): Promise<string> {
     return existing.access_token;
   }
 
+  const claimed = await tryClaimIssueLock();
+  if (!claimed) {
+    // 다른 인스턴스가 지금 막 재발급 중이다 — 내가 같이 발급하면 방금 그
+    // 인스턴스가 받은 토큰을 무효화시켜버리므로(위 tryClaimIssueLock 코멘트
+    // 참고), 직접 발급하지 않고 끝나길 기다렸다가 DB에서 결과만 가져온다.
+    for (let attempt = 0; attempt < TOKEN_LOCK_POLL_MAX_RETRIES; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, TOKEN_LOCK_POLL_DELAY_MS));
+      const retried = await readTokenFromDb();
+      if (isValid(retried)) {
+        return retried.access_token;
+      }
+    }
+    throw new Error("KIS 토큰 발급을 기다리는 동안 시간이 초과됐습니다.");
+  }
+
   try {
     const { token, expiresAt } = await issueAccessToken();
     await writeTokenToDb(token, expiresAt);
     return token;
   } catch (issueError) {
-    // 다른 서버리스 인스턴스가 동시에 먼저 토큰을 발급했을 수 있다.
-    // (KIS는 앱키당 토큰 발급을 1분당 1회로 제한하므로, 뒤늦게 시도한
-    // 이 인스턴스는 여기서 거부당했을 가능성이 크다.) 잠시 기다렸다가
-    // DB에 저장된 최신 토큰을 다시 확인해본다.
+    // 잠금은 획득했지만 발급 자체가 실패한 경우(KIS의 1분당 1회 제한 등).
+    // 잠시 기다렸다가 혹시 그 사이 다른 경로로 갱신된 토큰이 있는지 다시 확인한다.
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     const retried = await readTokenFromDb();
     if (isValid(retried)) {
       return retried.access_token;
     }
     throw issueError;
+  } finally {
+    // 발급 성공 시엔 writeTokenToDb가 이미 잠금을 풀지만, 실패 경로에서도
+    // TTL(TOKEN_ISSUE_LOCK_TTL_MS)까지 기다리지 않고 바로 다음 시도가 잠금을
+    // 다시 선점할 수 있도록 명시적으로 풀어준다.
+    await supabaseAdmin.from("kis_tokens").update({ issuing_until: null }).eq("id", TOKEN_ROW_ID);
   }
 }
 

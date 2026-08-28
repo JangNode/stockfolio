@@ -2,12 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { runBacktest, type BacktestResult, type DailyPrice } from "@/lib/backtest";
+import { runBacktest, type BacktestResult, type DailyPrice, type StrategyRuleType } from "@/lib/backtest";
 import { authFetch } from "@/lib/authFetch";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice } from "@/lib/market";
 import SubTabs, { STRATEGY_BACKTEST_TABS } from "@/components/SubTabs";
+import type { FundamentalsSeries } from "@/lib/pointInTimeFundamentals";
+import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
+
+// dh_value_dividend/peg_lynch는 KIS 일봉이 아니라 DH 가격 레이어+재무 이력을 쓰므로
+// /api/stock/[code]/fundamentals-backtest를 통해 별도로 데이터를 가져와야 한다.
+const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["dh_value_dividend", "peg_lynch"]);
 
 const WINDOW_OPTIONS = [
   { months: 3, label: "3개월" },
@@ -133,22 +139,44 @@ export default function Backtest({ user }: { user: User }) {
         resolved = data;
       }
 
-      // 모든 전략이 일봉 기준으로 계산되므로 항상 일봉을 가져온다.
-      const historyRes = await authFetch(
-        `/api/stock/${resolved.code}/history?period=D&market=${market}`
-      );
-      const prices: DailyPrice[] | { error: string } = await historyRes.json();
-      if (!historyRes.ok) {
-        setErrorMsg(
-          (prices as { error?: string }).error ?? "시세 데이터를 불러오지 못했습니다."
+      const startDate = windowStartDate(months);
+      let prices: DailyPrice[];
+      let fundamentals: FundamentalsSeries | undefined;
+      let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
+
+      if (FUNDAMENTAL_RULE_TYPES.has(selectedStrategy.rule_type)) {
+        const fundamentalsRes = await authFetch(
+          `/api/stock/${resolved.code}/fundamentals-backtest?start=${startDate}`
         );
-        return;
+        const data = await fundamentalsRes.json();
+        if (!fundamentalsRes.ok) {
+          setErrorMsg(data.error ?? "재무 데이터를 불러오지 못했습니다.");
+          return;
+        }
+        prices = data.prices as DailyPrice[];
+        fundamentals = data.fundamentals as FundamentalsSeries;
+        listedSharesByFiscalYear = new Map(data.listedSharesByFiscalYear) as ListedSharesByFiscalYear;
+      } else {
+        // 그 외 전략(이평 교차, 미너비니, 커스텀 등)은 전부 일봉 기준이므로 항상 KIS 일봉을 가져온다.
+        const historyRes = await authFetch(
+          `/api/stock/${resolved.code}/history?period=D&market=${market}`
+        );
+        const historyData: DailyPrice[] | { error: string } = await historyRes.json();
+        if (!historyRes.ok) {
+          setErrorMsg(
+            (historyData as { error?: string }).error ?? "시세 데이터를 불러오지 못했습니다."
+          );
+          return;
+        }
+        prices = historyData as DailyPrice[];
       }
 
       const backtestResult = runBacktest(
-        prices as DailyPrice[],
+        prices,
         selectedStrategy,
-        windowStartDate(months)
+        startDate,
+        fundamentals,
+        listedSharesByFiscalYear
       );
 
       setStockLabel(`${resolved.name} (${resolved.code})`);

@@ -13,10 +13,10 @@ async function main(): Promise<void> {
   const { data: rows, error } = await supabaseAdmin
     .from("screening_results")
     .select(
-      "id, strategy_id, stock_code, stock_name, signal_price, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, status, score, market, created_at, closed_at"
+      "id, strategy_id, stock_code, stock_name, signal_price, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, status, score, market, matched_at, closed_at"
     )
     .eq("stock_code", CODE)
-    .order("created_at", { ascending: true });
+    .order("matched_at", { ascending: true });
   if (error) throw new Error(`screening_results 조회 실패: ${error.message}`);
   console.log(JSON.stringify(rows, null, 2));
 

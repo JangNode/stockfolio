@@ -70,3 +70,39 @@ export function computePeg(per: number | null, growthPct: number | null): number
   if (growthPct === null || growthPct <= 0) return null;
   return per / growthPct;
 }
+
+/** fiscalYear → 그 시점(rcept_date) 상장주식수(모르면 null). computeEpsCagrFromResolvedShares/
+ * computeEpsCagrPure가 DB 호출 없이 순수하게 EPS CAGR을 계산할 수 있도록, 호출부(백테스트
+ * 등)가 종목당 한 번만 미리 조회해 넘겨준다 — lib/stockFundamentals.ts의
+ * loadFundamentalsSeriesWithListedShares 참고. */
+export type ListedSharesByFiscalYear = Map<number, number | null>;
+
+/** selectEpsCagrFiscalYears가 고른 연도쌍 + 미리 조회해둔 연도별 상장주식수로 EPS
+ * CAGR을 계산한다(순수 함수, DB 호출 없음). */
+export function computeEpsCagrFromResolvedShares(
+  pair: EpsCagrFiscalYearPair,
+  listedSharesByFiscalYear: ListedSharesByFiscalYear,
+  years: number = PEG_GROWTH_LOOKBACK_YEARS
+): number | null {
+  return computeEpsCagr(
+    { netIncomeParent: pair.start.netIncomeParent, listedShares: listedSharesByFiscalYear.get(pair.start.fiscalYear) ?? null },
+    { netIncomeParent: pair.end.netIncomeParent, listedShares: listedSharesByFiscalYear.get(pair.end.fiscalYear) ?? null },
+    years
+  );
+}
+
+/** asOfDate 시점 EPS CAGR(%)을 순수 함수로 계산한다(selectEpsCagrFiscalYears +
+ * computeEpsCagrFromResolvedShares를 합친 편의 함수). 연도쌍을 못 고르면(데이터 부족)
+ * null. 백테스트/스크리닝처럼 여러 날짜를 반복 판정할 때, series와
+ * listedSharesByFiscalYear를 종목당 한 번만 로드해 두고 매일 이 함수만 반복 호출하면
+ * DB 호출이 없다. */
+export function computeEpsCagrPure(
+  series: FundamentalsSeries,
+  asOfDate: string,
+  listedSharesByFiscalYear: ListedSharesByFiscalYear,
+  years: number = PEG_GROWTH_LOOKBACK_YEARS
+): number | null {
+  const pair = selectEpsCagrFiscalYears(series, asOfDate, years);
+  if (!pair) return null;
+  return computeEpsCagrFromResolvedShares(pair, listedSharesByFiscalYear, years);
+}

@@ -8,13 +8,19 @@ import { z } from "zod";
 export type PaperStyle = "aggressive" | "conservative" | "custom";
 export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
 
-// 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/dh_value_dividend)이
-// 만들어내는 rule_type과 동일한 값. 새 원 전략이 추가되면 여기도 같이 늘어난다.
-// custom_composite는 실험실에서 채택한 커스텀 전략이 스크리닝 신호원이 될 때 쓴다(채택
-// 플로우 작업에서 실제로 값이 채워지기 시작한다). dh_value_dividend를 실제로 참조하는
-// paper-strategies JSON을 만들지는 이 저장소 밖의 별도 Routine(매일 도는 전략 생성
-// 세션)이 판단한다 — 여기서는 참조를 "허용"만 해둔다.
-const SOURCE_RULE_TYPES = ["ma_cross", "minervini_trend_template", "custom_composite", "dh_value_dividend"] as const;
+// 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/dh_value_dividend/
+// peg_lynch)이 만들어내는 rule_type과 동일한 값. 새 원 전략이 추가되면 여기도 같이
+// 늘어난다. custom_composite는 실험실에서 채택한 커스텀 전략이 스크리닝 신호원이 될
+// 때 쓴다(채택 플로우 작업에서 실제로 값이 채워지기 시작한다). dh_value_dividend/
+// peg_lynch를 실제로 참조하는 paper-strategies JSON을 만들지는 이 저장소 밖의 별도
+// Routine(매일 도는 전략 생성 세션)이 판단한다 — 여기서는 참조를 "허용"만 해둔다.
+const SOURCE_RULE_TYPES = [
+  "ma_cross",
+  "minervini_trend_template",
+  "custom_composite",
+  "dh_value_dividend",
+  "peg_lynch",
+] as const;
 
 // 매일 정해진 시각(paper-strategy.yml, screening.yml보다 앞선 KST 14:10)에 별도
 // Claude Code 세션(Routine)이 이 스키마에 맞춰 data/paper-strategies/{style}.json을

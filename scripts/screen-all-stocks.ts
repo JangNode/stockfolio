@@ -24,7 +24,15 @@ import {
 } from "@/lib/backtest";
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 import { getDailyPrice, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
-import { loadFundamentalsSeries, pickFundamentalsAsOf, pickDividendsPaidAsOf, computeValuationFromSeries } from "@/lib/stockFundamentals";
+import {
+  loadFundamentalsSeries,
+  loadFundamentalsSeriesWithListedShares,
+  pickFundamentalsAsOf,
+  pickDividendsPaidAsOf,
+  computeValuationFromSeries,
+  type FundamentalsSeries,
+} from "@/lib/stockFundamentals";
+import { selectEpsCagrFiscalYears, computeEpsCagrFromResolvedShares, computePeg, type ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 import { DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
 
@@ -608,7 +616,7 @@ async function scanAllStocks(
 // 전략들. 위 scanAllStocks/collectDailyPrices와는 데이터 소스 자체가 달라 별도 경로로
 // 처리한다(가격 히스토리도 필요 없다 — 조건 자체가 매일 재평가되는 단일 시점 재무
 // 스냅샷 판정이라 오늘 하루치 데이터면 충분하다).
-const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["dh_value_dividend"]);
+const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["dh_value_dividend", "peg_lynch"]);
 
 // 1단계(scripts/backfill-stock-daily-prices.ts)의 BACKFILL_START_YEAR와 동일해야
 // 후보종목이 빠짐없이 뽑힌다.
@@ -634,7 +642,7 @@ function buildFundamentalSignalDetails(
   closePrice: number,
   marketCapEok: number,
   listedShares: number,
-  fundamentals: Awaited<ReturnType<typeof loadFundamentalsSeries>>,
+  fundamentals: FundamentalsSeries,
   today: string
 ): Record<string, unknown> {
   const fund = pickFundamentalsAsOf(fundamentals, today);
@@ -650,13 +658,35 @@ function buildFundamentalSignalDetails(
   };
 }
 
+/** 판단 근거 로그에 남길 PER/EPS 성장률/PEG를 만든다. 실제 매칭 판정
+ * (computePegLynchStates)과 같은 point-in-time 규칙을 재사용한다. */
+function buildPegLynchSignalDetails(
+  closePrice: number,
+  listedShares: number,
+  fundamentals: FundamentalsSeries,
+  listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined,
+  today: string
+): Record<string, unknown> {
+  const fund = pickFundamentalsAsOf(fundamentals, today);
+  const { per } = computeValuationFromSeries(closePrice, listedShares, fund);
+
+  const pair = selectEpsCagrFiscalYears(fundamentals, today);
+  const growthPct = pair && listedSharesByFiscalYear ? computeEpsCagrFromResolvedShares(pair, listedSharesByFiscalYear) : null;
+  const peg = computePeg(per, growthPct);
+
+  return { per, eps_growth_pct: growthPct, peg };
+}
+
 /**
- * dh_value_dividend 등 펀더멘털 전략을 스캔한다. 대상은 discoverFundamentalCandidates로
- * 좁힌 뒤(DH 데이터 자체가 그만큼만 있음) 마스터 필터(스팩/리츠/ETF/ETN/상장폐지 위험)를
- * 적용하고, 종목당 오늘자 시세 1건 + 재무/배당 전체 이력 1회만 조회한다(가격 히스토리
- * 불필요). 신호 품질 점수(computeSignalScore)는 이평선/추세 기반이라 이 전략엔 안 맞아
- * 계산하지 않는다(score를 null로 저장) — 조건 자체가 이미 엄격한 임계값 필터라 별도
- * 품질 등급이 필요하지 않다.
+ * dh_value_dividend/peg_lynch 등 펀더멘털 전략을 스캔한다. 대상은
+ * discoverFundamentalCandidates로 좁힌 뒤(DH 데이터 자체가 그만큼만 있음) 마스터
+ * 필터(스팩/리츠/ETF/ETN/상장폐지 위험)를 적용하고, 종목당 오늘자 시세 1건 + 재무/
+ * 배당 전체 이력 1회만 조회한다(가격 히스토리 불필요). peg_lynch가 등록돼 있으면
+ * EPS 성장률 계산에 필요한 연도별 상장주식수도 함께 조회한다(loadFundamentalsSeriesWithListedShares
+ * — dh_value_dividend만 있으면 이 추가 조회를 하지 않는다). 신호 품질 점수
+ * (computeSignalScore)는 이평선/추세 기반이라 이 전략들엔 안 맞아 계산하지 않는다
+ * (score를 null로 저장) — 조건 자체가 이미 엄격한 임계값 필터라 별도 품질 등급이
+ * 필요하지 않다.
  */
 async function scanFundamentalStrategies(
   strategies: StrategyRow[]
@@ -665,6 +695,8 @@ async function scanFundamentalStrategies(
   if (targets.length === 0) return { matched: 0, errors: 0 };
 
   console.log(`=== 펀더멘털 전략 판정 (${targets.length}개: ${targets.map((s) => s.rule_type).join(", ")}) ===`);
+
+  const needsListedShares = targets.some((s) => s.rule_type === "peg_lynch");
 
   const [allStocks, candidateCodes] = await Promise.all([getAllStocks(), discoverFundamentalCandidates()]);
   const { survivors: masterSurvivors } = filterByMaster(allStocks);
@@ -691,11 +723,14 @@ async function scanFundamentalStrategies(
 
   await runWithConcurrency(candidates, BATCH_CONCURRENCY, async (stock) => {
     try {
-      const [priceRow, fundamentals] = await Promise.all([
+      const [priceRow, fundamentalsData] = await Promise.all([
         getDailyPrice(stock.code, today),
-        loadFundamentalsSeries(stock.code),
+        needsListedShares
+          ? loadFundamentalsSeriesWithListedShares(stock.code)
+          : loadFundamentalsSeries(stock.code).then((series) => ({ series, listedSharesByFiscalYear: undefined })),
       ]);
       if (!priceRow) return; // 오늘 시세 없음(휴장, 데이터 지연 등)
+      const { series: fundamentals, listedSharesByFiscalYear } = fundamentalsData;
 
       const prices: DailyPrice[] = [
         {
@@ -711,19 +746,16 @@ async function scanFundamentalStrategies(
       ];
 
       for (const strategy of targets) {
-        if (!matchesToday(prices, strategy, fundamentals)) continue;
+        if (!matchesToday(prices, strategy, fundamentals, listedSharesByFiscalYear)) continue;
 
         const key = `${strategy.id}:${stock.code}`;
         if (activeKeys.has(key)) continue;
 
         const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
-        const signalDetails = buildFundamentalSignalDetails(
-          priceRow.closePrice,
-          priceRow.marketCapEok,
-          priceRow.listedShares,
-          fundamentals,
-          today
-        );
+        const signalDetails =
+          strategy.rule_type === "peg_lynch"
+            ? buildPegLynchSignalDetails(priceRow.closePrice, priceRow.listedShares, fundamentals, listedSharesByFiscalYear, today)
+            : buildFundamentalSignalDetails(priceRow.closePrice, priceRow.marketCapEok, priceRow.listedShares, fundamentals, today);
 
         const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
           strategy_id: strategy.id,

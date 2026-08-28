@@ -1,0 +1,30 @@
+name: 종목 시세 원자료 - 기존 dh-daily-prices 버킷 삭제 (1회성)
+
+# 수동 실행 전용. scripts/migrate-stock-prices-bucket.ts로 모든 파일을
+# stock-daily-prices 버킷에 복사하고 정상 동작을 확인한 뒤에만 실행해야 한다 —
+# 되돌릴 수 없는 삭제다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Delete old dh-daily-prices bucket
+        run: npm run cleanup:dh-daily-prices-bucket
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

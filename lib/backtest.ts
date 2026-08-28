@@ -1,7 +1,10 @@
 import { computeSMA } from "@/lib/sma";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
-// /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다.
+// /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
+// listedShares는 KIS 일봉엔 없는 값이라 선택 필드다 — lib/stockDailyPricesStorage.ts
+// 기반으로 구성한 시리즈(다음 PR에서 추가할 dh_value_dividend/peg_lynch, 커스텀
+// 백테스트 펀더멘털 조건)에만 채워질 예정이다.
 export interface DailyPrice {
   date: string; // YYYY-MM-DD
   open: number;
@@ -9,6 +12,8 @@ export interface DailyPrice {
   low: number;
   close: number;
   volume: number;
+  marketCapEok?: number;
+  listedShares?: number;
 }
 
 export interface MaCrossParams {
@@ -275,6 +280,13 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 3) 위 STRATEGY_KIND에 "event" 또는 "state"로 등록.
  * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
  * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
+ *
+ * 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch 등, 다음 PR에서 추가)은 이
+ * 함수와 runBacktest/matchesToday에 lib/stockFundamentals.ts의 FundamentalsSeries를
+ * 받는 선택적 인자가 추가될 예정이다 — 호출부가 loadFundamentalsSeries로 한 번만 로드해
+ * 넘기면 pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB
+ * 호출 없이 반복할 수 있다. 아직 이를 쓰는 rule_type이 없어 이번 PR에서는 시그니처를
+ * 미리 넓히지 않는다(쓰이지 않는 매개변수를 남겨두지 않기 위해).
  */
 function computeStates(prices: DailyPrice[], rule: StrategyRule): (boolean | undefined)[] {
   switch (rule.rule_type) {

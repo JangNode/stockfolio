@@ -2,17 +2,24 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { parquetReadObjects } from "hyparquet";
 import { parquetWriteBuffer } from "hyparquet-writer";
+import { DH_HOT_WINDOW_YEARS } from "@/lib/dhStrategyConfig";
 
 /**
- * DH전략 일별시세(종가/시가총액/상장주식수)는 연도별 Parquet 파일로 Supabase
- * Storage(dh-daily-prices 버킷)에 저장한다 — Postgres DB 대신 쓰는 이유는
- * supabase/migrations의 20260827060000_dh_daily_prices_to_storage.sql 코멘트 참고
- * (DB 500MB 무료 한도를 이미 넘겨서, 별도 쿼터인 Storage로 옮김). 조회 시 그 시점
- * 재무(dh_annual_fundamentals, 여전히 Postgres)와 조합해 PER/PBR을 계산하는 건
- * lib/dhFundamentals.ts가 한다.
+ * DH전략 일별시세(종가/시가총액/상장주식수)는 hot/cold로 나눠 저장한다(용량 예산
+ * 재산정, 2026-08-28) — 최근 DH_HOT_WINDOW_YEARS년치는 Postgres(dh_daily_prices_recent,
+ * 매일 INSERT만 하면 됨)에, 그보다 오래된 건 연도별 Parquet 파일(dh-daily-prices
+ * 버킷, Storage)에 둔다. Parquet만 쓰던 이전 버전은 매일 갱신하려면 그 해 파일
+ * 전체를 다시 써야 해서 부담이 컸다(supabase/migrations의
+ * 20260827060000_dh_daily_prices_to_storage.sql 참고 — 애초에 Postgres 단일
+ * 표였다가 DB 500MB 한도를 넘겨 Storage로 옮긴 전례가 있어, 이번엔 반대로 최근
+ * 구간만 다시 Postgres로 가져와 매일 갱신 부담을 없앤다). 연 1회
+ * scripts/archive-dh-daily-prices.ts가 hot 구간을 벗어난 행을 Parquet에 합쳐 넣고
+ * Postgres에서 지운다. 조회 시 그 시점 재무(dh_annual_fundamentals, 여전히
+ * Postgres)와 조합해 PER/PBR을 계산하는 건 lib/dhFundamentals.ts가 한다.
  */
 
 const BUCKET = "dh-daily-prices";
+const HOT_TABLE = "dh_daily_prices_recent";
 
 export interface DhDailyPriceRow {
   stockCode: string;
@@ -62,7 +69,9 @@ interface ParquetRawRow {
   listed_shares: number;
 }
 
-async function downloadYearPrices(year: number): Promise<DhDailyPriceRow[]> {
+/** year 파일을 그대로 다운로드+파싱한다(내부용) — 아카이빙 배치가 기존 파일과 새로
+ * 옮길 행을 합칠 때 직접 쓴다. */
+export async function downloadYearPrices(year: number): Promise<DhDailyPriceRow[]> {
   const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(objectPath(year));
   if (error) {
     // 아직 그 연도 파일이 없는 경우(예: 미래 연도, 백필 전)는 빈 배열로 취급한다.
@@ -102,9 +111,48 @@ async function getYearLookup(year: number): Promise<Map<string, DhDailyPriceRow>
   return cached;
 }
 
-/** date(YYYY-MM-DD) 시점 종목의 종가/시가총액/상장주식수를 찾는다. 그 연도 파일에
- * 없으면(비영업일, 백필 하한 미달 등) null. */
+/** 오늘 기준 hot 구간(Postgres에 두는 최근 구간)의 시작 날짜(YYYY-MM-DD). 이 날짜
+ * 이후는 dh_daily_prices_recent, 이전은 Parquet에서 찾는다. */
+export function hotWindowStartDate(referenceDate: Date = new Date()): string {
+  const d = new Date(referenceDate);
+  d.setUTCFullYear(d.getUTCFullYear() - DH_HOT_WINDOW_YEARS);
+  return d.toISOString().slice(0, 10);
+}
+
+interface HotTableRow {
+  stock_code: string;
+  trade_date: string;
+  close_price: number;
+  market_cap_eok: number;
+  listed_shares: number;
+}
+
+function fromHotRow(row: HotTableRow): DhDailyPriceRow {
+  return {
+    stockCode: row.stock_code,
+    tradeDate: row.trade_date,
+    closePrice: Number(row.close_price),
+    marketCapEok: Number(row.market_cap_eok),
+    listedShares: Number(row.listed_shares),
+  };
+}
+
+/** date(YYYY-MM-DD) 시점 종목의 종가/시가총액/상장주식수를 찾는다. hot 구간이면
+ * Postgres, 아니면 그 연도 Parquet 파일에서 찾는다(비영업일, 백필 하한 미달 등이면
+ * null). hot 구간인데 dh_daily_prices_recent에 아직 없으면(시딩 전 등) Parquet에도
+ * 한 번 더 확인한다 — 원래 15년 백필이 이미 최근 구간도 채워뒀을 수 있어서다. */
 export async function getDailyPrice(stockCode: string, date: string): Promise<DhDailyPriceRow | null> {
+  if (date >= hotWindowStartDate()) {
+    const { data, error } = await supabaseAdmin
+      .from(HOT_TABLE)
+      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares")
+      .eq("stock_code", stockCode)
+      .eq("trade_date", date)
+      .maybeSingle();
+    if (error) throw new Error(`${stockCode} ${date} 최근 시세 조회 실패: ${error.message}`);
+    if (data) return fromHotRow(data as HotTableRow);
+  }
+
   const year = Number(date.slice(0, 4));
   const lookup = await getYearLookup(year);
   return lookup.get(toLookupKey(stockCode, date)) ?? null;
@@ -113,7 +161,8 @@ export async function getDailyPrice(stockCode: string, date: string): Promise<Dh
 /** 여러 연도에 걸쳐 minMarketCapEok(억원) 이상이었던 적 있는 종목코드 집합을 반환한다
  * — DART/배당 백필의 후보종목 발굴에 쓴다. 저장 자체는 더 낮은 하한
  * (DH_BACKFILL_MARKET_CAP_FLOOR_EOK)으로 돼 있으므로, 여기서 DH전략 실제 기준
- * (DH_MIN_MARKET_CAP_EOK)으로 다시 걸러야 한다. */
+ * (DH_MIN_MARKET_CAP_EOK)으로 다시 걸러야 한다. hot 구간(Postgres)에는 원래 15년
+ * Parquet 백필 이후 새로 쌓인 행이 있을 수 있어 별도로 한 번 더 확인한다. */
 export async function discoverCandidateStockCodes(years: number[], minMarketCapEok: number): Promise<string[]> {
   const codes = new Set<string>();
   for (const year of years) {
@@ -122,5 +171,62 @@ export async function discoverCandidateStockCodes(years: number[], minMarketCapE
       if (row.marketCapEok >= minMarketCapEok) codes.add(row.stockCode);
     }
   }
+
+  const { data, error } = await supabaseAdmin
+    .from(HOT_TABLE)
+    .select("stock_code")
+    .gte("market_cap_eok", minMarketCapEok)
+    .gte("trade_date", hotWindowStartDate());
+  if (error) throw new Error(`최근 후보종목 조회 실패: ${error.message}`);
+  for (const row of data ?? []) codes.add(row.stock_code);
+
   return Array.from(codes);
+}
+
+/** dh_daily_prices_recent에 오늘치(또는 특정일) 시세를 저장한다(upsert) — 매일 갱신
+ * 배치가 쓴다. */
+export async function upsertRecentPrices(rows: DhDailyPriceRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await supabaseAdmin.from(HOT_TABLE).upsert(
+    rows.map((r) => ({
+      stock_code: r.stockCode,
+      trade_date: r.tradeDate,
+      close_price: r.closePrice,
+      market_cap_eok: r.marketCapEok,
+      listed_shares: r.listedShares,
+    }))
+  );
+  if (error) throw new Error(`최근 시세 저장 실패: ${error.message}`);
+}
+
+/** dh_daily_prices_recent에 이미 있는 가장 최근 날짜(YYYY-MM-DD). 매일 갱신 배치가
+ * "어디부터 이어받을지" 판단하는 데 쓴다. 표가 비어있으면 null. */
+export async function getLatestRecentPriceDate(): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from(HOT_TABLE)
+    .select("trade_date")
+    .order("trade_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`최근 시세 최신 날짜 조회 실패: ${error.message}`);
+  return data?.trade_date ?? null;
+}
+
+/** cutoffDate(YYYY-MM-DD) 이전(미포함하지 않음, cutoffDate 당일은 hot 구간에 남김)
+ * 행을 전부 가져온다 — 연 1회 아카이빙 배치가 Parquet로 옮길 대상을 고를 때 쓴다. */
+export async function getRecentPricesBefore(cutoffDate: string): Promise<DhDailyPriceRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from(HOT_TABLE)
+    .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares")
+    .lt("trade_date", cutoffDate);
+  if (error) throw new Error(`아카이빙 대상 조회 실패: ${error.message}`);
+  return (data ?? []).map((row) => fromHotRow(row as HotTableRow));
+}
+
+/** cutoffDate 이전 행을 dh_daily_prices_recent에서 지운다 — 아카이빙 배치가 Parquet
+ * 업로드에 성공한 뒤에만 불러야 한다(그래야 실패 시 데이터가 두 군데 다 없어지는
+ * 사고를 막는다). */
+export async function deleteRecentPricesBefore(cutoffDate: string): Promise<void> {
+  const { error } = await supabaseAdmin.from(HOT_TABLE).delete().lt("trade_date", cutoffDate);
+  if (error) throw new Error(`아카이빙 완료 행 삭제 실패: ${error.message}`);
 }

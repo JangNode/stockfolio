@@ -15,12 +15,18 @@ import { getDailyPrices, getKisCallStats, getStockPrice } from "@/lib/kis";
 import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import {
   computeEntryPlan,
+  evaluateConsecutiveDividendYears,
   evaluateTrackingStatus,
   matchesToday,
   type DailyPrice,
   type StrategyRule,
+  type StrategyRuleType,
 } from "@/lib/backtest";
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
+import { getDailyPrice, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
+import { loadFundamentalsSeries, pickFundamentalsAsOf, pickDividendsPaidAsOf, computeValuationFromSeries } from "@/lib/stockFundamentals";
+import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
+import { DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
 
 // ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
 // 종목명에 이 문자열이 포함되면 제외한다 (스팩).
@@ -133,11 +139,13 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
       target = Math.max(target, MINERVINI_DAILY_TARGET_ROWS);
     } else if (strategy.rule_type === "ma_cross") {
       target = Math.max(target, strategy.rule_params.long_period + 20);
-    } else {
+    } else if (strategy.rule_type === "custom_composite") {
       const { ma_cross, rsi, volume_surge } = strategy.rule_params;
       const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
       target = Math.max(target, maxPeriod + 20);
     }
+    // dh_value_dividend는 KIS 일봉을 아예 안 쓰므로(scanFundamentalStrategies가 별도
+    // 경로로 처리) 여기 대상에서 제외한다 — target에 영향 없음.
   }
 
   return target;
@@ -595,6 +603,170 @@ async function scanAllStocks(
   return { scanned: finalStocks.length, matched: totalMatched, errors: totalErrors };
 }
 
+// dh_value_dividend처럼 KIS 일봉이 아니라 lib/stockDailyPricesStorage.ts(종가/시가총액/
+// 상장주식수, DH 백필 인프라) + lib/stockFundamentals.ts(point-in-time 재무/배당)를 쓰는
+// 전략들. 위 scanAllStocks/collectDailyPrices와는 데이터 소스 자체가 달라 별도 경로로
+// 처리한다(가격 히스토리도 필요 없다 — 조건 자체가 매일 재평가되는 단일 시점 재무
+// 스냅샷 판정이라 오늘 하루치 데이터면 충분하다).
+const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["dh_value_dividend"]);
+
+// 1단계(scripts/backfill-stock-daily-prices.ts)의 BACKFILL_START_YEAR와 동일해야
+// 후보종목이 빠짐없이 뽑힌다.
+const FUNDAMENTAL_CANDIDATE_START_YEAR = 2011;
+
+/** 백필 기간 중 단 하루라도 후보 기준(STOCK_DATA_CANDIDATE_MARKET_CAP_EOK) 시가총액을
+ * 넘은 적 있는 종목을 뽑는다 — dh_value_dividend 등 펀더멘털 전략의 스캔 대상 풀이다.
+ * "오늘 기준"이 아니라 실측 과거 시가총액을 쓰므로 생존편향이 없고, 그보다 작은
+ * 종목은 애초에 DH 가격 레이어에 데이터가 없다. */
+async function discoverFundamentalCandidates(): Promise<string[]> {
+  const currentYear = new Date().getUTCFullYear();
+  const years = Array.from(
+    { length: currentYear - FUNDAMENTAL_CANDIDATE_START_YEAR + 1 },
+    (_, i) => FUNDAMENTAL_CANDIDATE_START_YEAR + i
+  );
+  return discoverCandidateStockCodes(years, STOCK_DATA_CANDIDATE_MARKET_CAP_EOK);
+}
+
+/** 판단 근거 로그(screening_results.signal_details)에 남길 시가총액/PER/PBR/배당
+ * 지급 연도를 만든다. 실제 매칭 판정(computeDhValueDividendStates)과 같은 point-in-time
+ * 규칙을 재사용한다. */
+function buildFundamentalSignalDetails(
+  closePrice: number,
+  marketCapEok: number,
+  listedShares: number,
+  fundamentals: Awaited<ReturnType<typeof loadFundamentalsSeries>>,
+  today: string
+): Record<string, unknown> {
+  const fund = pickFundamentalsAsOf(fundamentals, today);
+  const { per, pbr } = computeValuationFromSeries(closePrice, listedShares, fund);
+  const dividends = pickDividendsPaidAsOf(fundamentals, today);
+  const { paidYears } = evaluateConsecutiveDividendYears(dividends, today, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS);
+
+  return {
+    market_cap_eok: marketCapEok,
+    per,
+    pbr,
+    dividend_years_paid: paidYears,
+  };
+}
+
+/**
+ * dh_value_dividend 등 펀더멘털 전략을 스캔한다. 대상은 discoverFundamentalCandidates로
+ * 좁힌 뒤(DH 데이터 자체가 그만큼만 있음) 마스터 필터(스팩/리츠/ETF/ETN/상장폐지 위험)를
+ * 적용하고, 종목당 오늘자 시세 1건 + 재무/배당 전체 이력 1회만 조회한다(가격 히스토리
+ * 불필요). 신호 품질 점수(computeSignalScore)는 이평선/추세 기반이라 이 전략엔 안 맞아
+ * 계산하지 않는다(score를 null로 저장) — 조건 자체가 이미 엄격한 임계값 필터라 별도
+ * 품질 등급이 필요하지 않다.
+ */
+async function scanFundamentalStrategies(
+  strategies: StrategyRow[]
+): Promise<{ matched: number; errors: number }> {
+  const targets = strategies.filter((s) => FUNDAMENTAL_RULE_TYPES.has(s.rule_type));
+  if (targets.length === 0) return { matched: 0, errors: 0 };
+
+  console.log(`=== 펀더멘털 전략 판정 (${targets.length}개: ${targets.map((s) => s.rule_type).join(", ")}) ===`);
+
+  const [allStocks, candidateCodes] = await Promise.all([getAllStocks(), discoverFundamentalCandidates()]);
+  const { survivors: masterSurvivors } = filterByMaster(allStocks);
+  const survivorByCode = new Map(masterSurvivors.map((s) => [s.code, s]));
+  const candidates = candidateCodes
+    .map((code) => survivorByCode.get(code))
+    .filter((s): s is StockEntry => s !== undefined);
+
+  console.log(`  후보종목 ${candidateCodes.length}개 중 마스터 필터 통과 ${candidates.length}개`);
+
+  const today = todayKstDate();
+
+  const { data: existingActive, error: activeError } = await supabaseAdmin
+    .from("screening_results")
+    .select("strategy_id, stock_code")
+    .eq("status", "active")
+    .in("strategy_id", targets.map((s) => s.id));
+  if (activeError) throw new Error(`추적 중인 종목 조회 실패: ${activeError.message}`);
+  const activeKeys = new Set((existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`));
+
+  let matched = 0;
+  let errors = 0;
+  let completed = 0;
+
+  await runWithConcurrency(candidates, BATCH_CONCURRENCY, async (stock) => {
+    try {
+      const [priceRow, fundamentals] = await Promise.all([
+        getDailyPrice(stock.code, today),
+        loadFundamentalsSeries(stock.code),
+      ]);
+      if (!priceRow) return; // 오늘 시세 없음(휴장, 데이터 지연 등)
+
+      const prices: DailyPrice[] = [
+        {
+          date: priceRow.tradeDate,
+          open: priceRow.closePrice,
+          high: priceRow.closePrice,
+          low: priceRow.closePrice,
+          close: priceRow.closePrice,
+          volume: 0,
+          marketCapEok: priceRow.marketCapEok,
+          listedShares: priceRow.listedShares,
+        },
+      ];
+
+      for (const strategy of targets) {
+        if (!matchesToday(prices, strategy, fundamentals)) continue;
+
+        const key = `${strategy.id}:${stock.code}`;
+        if (activeKeys.has(key)) continue;
+
+        const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
+        const signalDetails = buildFundamentalSignalDetails(
+          priceRow.closePrice,
+          priceRow.marketCapEok,
+          priceRow.listedShares,
+          fundamentals,
+          today
+        );
+
+        const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
+          strategy_id: strategy.id,
+          stock_code: stock.code,
+          stock_name: stock.name,
+          signal_price: priceRow.closePrice,
+          entry_price: entryPrice,
+          stop_loss_price: stopLossPrice,
+          take_profit_price: takeProfitPrice,
+          current_price: priceRow.closePrice,
+          return_pct: 0,
+          status: "active",
+          score: null,
+          market: "KR",
+          signal_details: signalDetails,
+        });
+
+        if (insertError) {
+          errors++;
+          console.error(`    [${strategy.rule_type}] ${stock.code} 저장 실패: ${insertError.message}`);
+          continue;
+        }
+
+        activeKeys.add(key);
+        matched++;
+        console.log(`    [${strategy.rule_type}] ✓ 신규 매칭: ${stock.name}(${stock.code})`, signalDetails);
+      }
+    } catch (error) {
+      errors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`    ${stock.code}(${stock.name}) 펀더멘털 판정 중 오류, 건너뜁니다: ${message}`);
+    } finally {
+      completed++;
+      if (completed === 1 || completed % PROGRESS_LOG_INTERVAL === 0 || completed === candidates.length) {
+        console.log(`  [${completed}/${candidates.length}] 펀더멘털 전략 판정 진행 중...`);
+      }
+    }
+  });
+
+  console.log(`  --- 펀더멘털 전략 판정 완료: 신규 매칭 ${matched}건, 오류 ${errors}건 ---`);
+  return { matched, errors };
+}
+
 async function recordRun(
   startedAt: Date,
   scanned: number,
@@ -660,10 +832,18 @@ async function main(): Promise<void> {
   const strategies = await loadStrategies();
   console.log(`등록된 전략 수: ${strategies.length}`);
 
-  await updateActiveTracking();
-  const { scanned, matched, errors } = await scanAllStocks(strategies);
+  // dh_value_dividend 등은 KIS 일봉이 아니라 DH 가격 레이어를 쓰는 별도 경로
+  // (scanFundamentalStrategies)로 처리한다 — scanAllStocks/collectDailyPrices에는
+  // 순수 가격 기반 전략만 넘긴다.
+  const technicalStrategies = strategies.filter((s) => !FUNDAMENTAL_RULE_TYPES.has(s.rule_type));
+  const fundamentalStrategies = strategies.filter((s) => FUNDAMENTAL_RULE_TYPES.has(s.rule_type));
 
-  await recordRun(startedAt, scanned, matched, errors);
+  await updateActiveTracking();
+  const { scanned, matched, errors } = await scanAllStocks(technicalStrategies);
+  const { matched: fundamentalMatched, errors: fundamentalErrors } =
+    await scanFundamentalStrategies(fundamentalStrategies);
+
+  await recordRun(startedAt, scanned, matched + fundamentalMatched, errors + fundamentalErrors);
 
   const elapsedSec = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
   const kisStats = getKisCallStats();

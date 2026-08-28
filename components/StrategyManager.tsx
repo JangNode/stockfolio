@@ -20,6 +20,7 @@ const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
   minervini_trend_template: "미너비니 트렌드 템플릿",
   custom_composite: "커스텀 조건 조합",
   dh_value_dividend: "DH전략(대형 배당·가치주)",
+  peg_lynch: "피터린치 PEG전략",
 };
 
 const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
@@ -31,6 +32,8 @@ const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
     "실험실에서 직접 구성한 전략입니다. 지정한 조건(이동평균 교차, RSI, 거래량 급증 등)을 모두 동시에 만족해야 신호로 판단합니다.",
   dh_value_dividend:
     "대형 배당·가치주를 노리는 전략입니다. 시가총액이 충분히 크면서 PER/PBR이 낮고(저평가) 배당을 여러 해 연속으로 지급해온 종목을 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/dhStrategyConfig.ts)에서 관리되며 종목마다 다르게 지정할 수 없습니다.",
+  peg_lynch:
+    "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
 };
 
 function describeParams(strategy: StrategyRow): string {
@@ -48,7 +51,7 @@ function describeParams(strategy: StrategyRow): string {
     if (take_profit_pct !== undefined) parts.push(`익절 ${take_profit_pct * 100}%`);
     return parts.length > 0 ? parts.join(", ") : "조건 미지정";
   }
-  if (strategy.rule_type === "dh_value_dividend") {
+  if (strategy.rule_type === "dh_value_dividend" || strategy.rule_type === "peg_lynch") {
     return "서버 설정 기준값 적용";
   }
   const { short_period, long_period } = strategy.rule_params;

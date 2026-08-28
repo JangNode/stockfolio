@@ -9,7 +9,7 @@ import {
   type StockFundamentalsAsOf,
   type StockDividendPayment,
 } from "@/lib/pointInTimeFundamentals";
-import { selectEpsCagrFiscalYears, computeEpsCagr } from "@/lib/pegRatio";
+import { selectEpsCagrFiscalYears, computeEpsCagr, type ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import { PEG_GROWTH_LOOKBACK_YEARS } from "@/lib/pegConfig";
 
 export type {
@@ -163,4 +163,24 @@ export async function computeEpsCagrAsOf(
   );
 
   return { growthPct, startFiscalYear: pair.start.fiscalYear, endFiscalYear: pair.end.fiscalYear };
+}
+
+/** annual 이력의 각 회계연도 공시 시점(rcept_date) 상장주식수를 전부 미리 조회해
+ * 함께 반환한다(공시일이 비영업일이면 그 이전 가장 가까운 거래일 값). 백테스트/
+ * 스크리닝처럼 여러 날짜에 대해 반복 판정할 때, 이 함수로 종목당 한 번만 불러온 뒤
+ * lib/pegRatio.ts의 computeEpsCagrPure(순수 함수, DB 호출 없음)로 날짜별 EPS CAGR을
+ * 반복 계산한다 — computeEpsCagrAsOf(단건 조회)처럼 필요한 두 연도만 조회하는 것보다
+ * 호출이 더 들지만(연도 수만큼), 같은 종목을 여러 날짜에 반복 조회할 때는 이쪽이
+ * DB 왕복을 줄인다. */
+export async function loadFundamentalsSeriesWithListedShares(
+  stockCode: string
+): Promise<{ series: FundamentalsSeries; listedSharesByFiscalYear: ListedSharesByFiscalYear }> {
+  const series = await loadFundamentalsSeries(stockCode);
+  const entries = await Promise.all(
+    series.annual.map(async (row) => {
+      const priceRow = await getDailyPriceOnOrBefore(stockCode, row.rceptDate);
+      return [row.fiscalYear, priceRow?.listedShares ?? null] as const;
+    })
+  );
+  return { series, listedSharesByFiscalYear: new Map(entries) };
 }

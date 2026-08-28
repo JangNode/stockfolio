@@ -87,6 +87,11 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
     return computeCustomCompositeConditionScore(prices, rule.rule_params);
   }
 
+  // dh_value_dividend는 이평선/추세 기반 품질 점수 체계와 안 맞는 전략이라(단일 시점
+  // 재무 스냅샷 판정) scripts/screen-all-stocks.ts가 애초에 이 함수를 안 부른다(score를
+  // null로 저장) — 여기 도달하면 호출부 버그이므로 0으로 안전하게 처리한다.
+  if (rule.rule_type === "dh_value_dividend") return 0;
+
   // minervini_trend_template: 현재가가 단/중/장기 이평선을 얼마나 여유 있게 웃도는지 평균 이격도.
   const { ma_short, ma_mid, ma_long } = rule.rule_params;
   const price = closes[i];
@@ -104,6 +109,8 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
 function referenceLongPeriod(rule: StrategyRule): number {
   if (rule.rule_type === "ma_cross") return rule.rule_params.long_period;
   if (rule.rule_type === "minervini_trend_template") return rule.rule_params.ma_long;
+  // dh_value_dividend는 computeConditionScore와 같은 이유로 이 함수까지 오면 안 된다.
+  if (rule.rule_type === "dh_value_dividend") return CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS;
 
   const { ma_cross, rsi, volume_surge } = rule.rule_params;
   return Math.max(

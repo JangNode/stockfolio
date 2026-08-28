@@ -22,6 +22,13 @@ import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import { getAllOverseasStocks, type OverseasStockEntry } from "@/lib/stockMasterOverseas";
 import { runBacktest, aggregateTrades, type CustomCompositeParams, type DailyPrice } from "@/lib/backtest";
 import { uploadCustomBacktestResult, type CustomBacktestMatchedStock } from "@/lib/customBacktestStorage";
+import { getDailyPriceSeries } from "@/lib/stockDailyPricesStorage";
+import {
+  loadFundamentalsSeries,
+  loadFundamentalsSeriesWithListedShares,
+  type FundamentalsSeries,
+} from "@/lib/stockFundamentals";
+import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import type { Market } from "@/lib/market";
 
 const BATCH_CONCURRENCY = 10;
@@ -323,6 +330,41 @@ async function collectUniverse(
   return collectUsDailyPrices(quoted, targetRows);
 }
 
+/** KIS 일봉 배열(prices)에 DH 가격 레이어(시가총액/상장주식수)를 날짜로 매칭해
+ * 덮어씌운다 — OHLC/거래량 등 기존 필드는 그대로 두고 marketCapEok/listedShares만
+ * 채운다("전량 교체"가 아니라 "병합"인 이유는 volume_surge 등 기술 조건이 KIS의 실제
+ * 거래량을 그대로 써야 하기 때문). DH 레이어가 그 날짜를 아예 커버하지 않으면(백필
+ * 하한 미달 등) 그 날은 marketCapEok/listedShares가 undefined로 남아, 펀더멘털 조건
+ * 판정이 그 날만 point-in-time 규칙에 따라 자연스럽게 undefined(판정 불가)로
+ * 떨어진다. */
+async function mergeDhPriceFields(stockCode: string, prices: DailyPrice[]): Promise<DailyPrice[]> {
+  if (prices.length === 0) return prices;
+
+  const dhRows = await getDailyPriceSeries(stockCode, prices[0].date, prices[prices.length - 1].date);
+  const dhByDate = new Map(dhRows.map((row) => [row.tradeDate, row]));
+
+  return prices.map((p) => {
+    const dhRow = dhByDate.get(p.date);
+    if (!dhRow) return p;
+    return { ...p, marketCapEok: dhRow.marketCapEok, listedShares: dhRow.listedShares };
+  });
+}
+
+interface FundamentalsForStock {
+  series: FundamentalsSeries;
+  listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
+}
+
+/** rule_params.fundamentals.peg가 지정된 경우에만 연도별 상장주식수까지 함께
+ * 로드한다(EPS CAGR 계산에 필요 — peg_lynch 전략과 동일한 이유). */
+async function loadFundamentalsForStock(stockCode: string, needsListedShares: boolean): Promise<FundamentalsForStock> {
+  if (needsListedShares) {
+    return loadFundamentalsSeriesWithListedShares(stockCode);
+  }
+  const series = await loadFundamentalsSeries(stockCode);
+  return { series, listedSharesByFiscalYear: undefined };
+}
+
 async function main(): Promise<void> {
   const runId = process.env.CUSTOM_BACKTEST_RUN_ID;
   if (!runId) throw new Error("CUSTOM_BACKTEST_RUN_ID 환경변수가 필요합니다.");
@@ -342,21 +384,50 @@ async function main(): Promise<void> {
     const priceByCode = await collectUniverse(run.market, targetRows);
     console.log(`일봉 확보: ${priceByCode.size}개 종목`);
 
+    // 펀더멘털 조건은 스키마 단계(lib/customBacktestRequest.ts)에서부터 market="KR"에만
+    // 허용된다 — US 요청엔 fundamentals가 아예 없으므로 이 분기가 항상 false라 US
+    // 흐름은 이전과 동일하게 동작한다.
+    const fundamentalsRequested = run.market === "KR" && run.rule_params.fundamentals !== undefined;
+    const needsListedShares = fundamentalsRequested && run.rule_params.fundamentals?.peg !== undefined;
+    if (fundamentalsRequested) {
+      console.log("펀더멘털 조건이 지정돼 있어 종목별로 DH 가격 레이어(시가총액/상장주식수) + 재무 이력을 함께 조회합니다.");
+    }
+
     console.log("=== 종목별 백테스트 판정 ===");
     const matchedStocks: CustomBacktestMatchedStock[] = [];
     let completed = 0;
 
-    for (const [stockCode, { name: stockName, prices }] of priceByCode) {
+    for (const [stockCode, { name: stockName, prices: kisPrices }] of priceByCode) {
       completed++;
       if (completed === 1 || completed % PROGRESS_LOG_INTERVAL === 0 || completed === priceByCode.size) {
         console.log(`  [${completed}/${priceByCode.size}] 백테스트 판정 중... (매칭 ${matchedStocks.length}건)`);
       }
 
-      const windowStartIndex = Math.max(0, prices.length - periodBars);
-      const windowStartDate = prices[windowStartIndex]?.date ?? prices[0]?.date;
+      const windowStartIndex = Math.max(0, kisPrices.length - periodBars);
+      const windowStartDate = kisPrices[windowStartIndex]?.date ?? kisPrices[0]?.date;
       if (!windowStartDate) continue;
 
-      const result = runBacktest(prices, rule, windowStartDate);
+      let prices = kisPrices;
+      let fundamentals: FundamentalsSeries | undefined;
+      let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
+
+      if (fundamentalsRequested) {
+        try {
+          const [merged, fundamentalsData] = await Promise.all([
+            mergeDhPriceFields(stockCode, kisPrices),
+            loadFundamentalsForStock(stockCode, needsListedShares),
+          ]);
+          prices = merged;
+          fundamentals = fundamentalsData.series;
+          listedSharesByFiscalYear = fundamentalsData.listedSharesByFiscalYear;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`    ${stockCode}(${stockName}) 펀더멘털 조회 실패, 건너뜁니다: ${message}`);
+          continue;
+        }
+      }
+
+      const result = runBacktest(prices, rule, windowStartDate, fundamentals, listedSharesByFiscalYear);
       if (result.insufficientData || result.tradeCount === 0) continue;
 
       matchedStocks.push({

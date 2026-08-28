@@ -42,11 +42,12 @@ function describeParams(strategy: StrategyRow): string {
     return `${ma_short}/${ma_mid}/${ma_long}일`;
   }
   if (strategy.rule_type === "custom_composite") {
-    const { ma_cross, rsi, volume_surge, stop_loss_pct, take_profit_pct } = strategy.rule_params;
+    const { ma_cross, rsi, volume_surge, fundamentals, stop_loss_pct, take_profit_pct } = strategy.rule_params;
     const parts: string[] = [];
     if (ma_cross) parts.push(`이평 ${ma_cross.short_period}/${ma_cross.long_period}일 교차`);
     if (rsi) parts.push(`RSI(${rsi.period}) ${rsi.direction === "above" ? "≥" : "≤"} ${rsi.threshold}`);
     if (volume_surge) parts.push(`거래량 ${volume_surge.period}일 평균 대비 ${volume_surge.multiplier}배 이상`);
+    if (fundamentals) parts.push(`펀더멘털 조건 ${Object.keys(fundamentals).length}개`);
     if (stop_loss_pct !== undefined) parts.push(`손절 ${stop_loss_pct * 100}%`);
     if (take_profit_pct !== undefined) parts.push(`익절 ${take_profit_pct * 100}%`);
     return parts.length > 0 ? parts.join(", ") : "조건 미지정";

@@ -10,6 +10,7 @@ import { DH_MIN_MARKET_CAP_EOK, DH_MAX_PER, DH_MAX_PBR, DH_MIN_CONSECUTIVE_DIVID
 import {
   selectEpsCagrFiscalYears,
   computeEpsCagrFromResolvedShares,
+  computeEpsCagrPure,
   computePeg,
   type ListedSharesByFiscalYear,
 } from "@/lib/pegRatio";
@@ -49,6 +50,29 @@ export interface MinerviniParams {
   take_profit_pct?: number;
 }
 
+/** 커스텀 백테스트 펀더멘털 조건의 비교 연산자. */
+export type FundamentalConditionComparator = "gte" | "lte" | "gt" | "lt";
+
+/** 펀더멘털 조건 하나(비교 연산자 + 값). 기준값을 상수로 고정하는 DH전략/PEG전략과
+ * 달리, 커스텀 백테스트는 사용자가 화면에서 직접 값을 입력하므로 값 자체를
+ * rule_params에 담는다. */
+export interface FundamentalCondition {
+  comparator: FundamentalConditionComparator;
+  value: number;
+}
+
+/** custom_composite에 추가할 수 있는 펀더멘털 조건 카테고리. 지정된 항목끼리만 모두
+ * 만족해야 하고(다른 카테고리와 동일하게 AND), 값 계산은 전부 lib/pointInTimeFundamentals.ts/
+ * lib/pegRatio.ts의 point-in-time 순수 함수를 재사용한다(새 판정 로직을 만들지 않는다). */
+export interface CustomFundamentalConditions {
+  market_cap_eok?: FundamentalCondition;
+  per?: FundamentalCondition;
+  pbr?: FundamentalCondition;
+  peg?: FundamentalCondition;
+  consecutive_dividend_years?: FundamentalCondition;
+  dividend_yield_pct?: FundamentalCondition;
+}
+
 /**
  * 사용자가 직접 고른 조건들을 AND로 조합하는 커스텀 전략. 각 필드는 선택 사항이며,
  * 지정된 필드끼리만 모두 만족해야 참으로 판정한다(최소 1개 이상 지정돼야 의미가 있다 —
@@ -61,6 +85,10 @@ export interface CustomCompositeParams {
   rsi?: { period: number; threshold: number; direction: "above" | "below" };
   // 당일 거래량이 최근 period일 평균 거래량의 multiplier배 이상이면 참.
   volume_surge?: { period: number; multiplier: number };
+  // 시가총액/PER/PBR/PEG/배당 연속 지급 연수/배당수익률 조건(선택). market="US" 요청은
+  // 스키마 단계(lib/customBacktestRequest.ts)에서부터 거부한다 — DART/KRX 재무 데이터는
+  // 국내 상장사만 다루기 때문이다.
+  fundamentals?: CustomFundamentalConditions;
   stop_loss_pct?: number;
   take_profit_pct?: number;
 }
@@ -234,14 +262,123 @@ export function computeRSI(closes: number[], period: number): (number | undefine
   return result;
 }
 
+function compareFundamentalCondition(actual: number, condition: FundamentalCondition): boolean {
+  switch (condition.comparator) {
+    case "gte":
+      return actual >= condition.value;
+    case "lte":
+      return actual <= condition.value;
+    case "gt":
+      return actual > condition.value;
+    case "lt":
+      return actual < condition.value;
+  }
+}
+
+function isoDateDaysAgo(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** asOfDate 기준 최근 완결년도(asOfYear-1)부터 거슬러 올라가며 배당을 지급한 연속
+ * 연수를 센다(끊기는 순간 멈춘다). dividends는 이미 point-in-time으로 필터링된 것
+ * (pickDividendsPaidAsOf 결과)을 받는다고 가정한다. 커스텀 백테스트의 "배당 연속
+ * 지급 연수" 조건 판정에 쓴다 — evaluateConsecutiveDividendYears(고정 임계값 하나만
+ * 확인)와 달리 실제 연속 연수를 숫자로 반환해 비교 연산자(gte/lte/gt/lt)와 자유롭게
+ * 조합할 수 있게 한다. */
+export function computeConsecutiveDividendYearsCount(dividends: StockDividendPayment[], asOfDate: string): number {
+  const asOfYear = Number(asOfDate.slice(0, 4));
+  const paidYearSet = new Set(dividends.map((d) => Number(d.payDate.slice(0, 4))));
+
+  let count = 0;
+  let year = asOfYear - 1;
+  while (paidYearSet.has(year)) {
+    count++;
+    year--;
+  }
+  return count;
+}
+
 /**
- * custom_composite: 지정된 조건들(ma_cross/rsi/volume_surge)을 매일 재평가해 모두
- * 만족하면 참인 상태 조건. 지정되지 않은 조건은 판정에서 제외된다. 조건이 하나도
- * 지정되지 않으면 항상 undefined(데이터 부족과 동일하게 취급 — 매칭 없음).
+ * custom_composite의 "펀더멘털" 조건 카테고리(시가총액/PER/PBR/PEG/배당 연속 지급
+ * 연수/배당수익률 중 지정된 항목만 전부 AND로 판정)를 계산한다. 재무 자체가 그
+ * 시점까지 공시되지 않았거나(fund가 null) 필요한 시세(marketCapEok/listedShares,
+ * DH 가격 레이어에서만 채워짐)가 없으면 undefined(판정 불가) — 적자/역성장 등으로
+ * PER·PBR·PEG 계산 자체가 불가능한 경우는 DH전략/PEG전략과 같은 이유로 false(조건
+ * 미달)로 구분한다. PER/PBR/PEG를 여러 개 동시에 요청해도 재무 조회는 날짜당 1회만
+ * 한다.
+ */
+function computeCustomFundamentalStates(
+  prices: DailyPrice[],
+  fc: CustomFundamentalConditions,
+  fundamentals: FundamentalsSeries | undefined,
+  listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined
+): (boolean | undefined)[] {
+  if (!fundamentals) return prices.map(() => undefined);
+
+  return prices.map((p) => {
+    if (fc.market_cap_eok) {
+      if (p.marketCapEok === undefined) return undefined;
+      if (!compareFundamentalCondition(p.marketCapEok, fc.market_cap_eok)) return false;
+    }
+
+    const needsValuation = fc.per !== undefined || fc.pbr !== undefined || fc.peg !== undefined;
+    if (needsValuation) {
+      if (p.listedShares === undefined) return undefined;
+      const fund = pickFundamentalsAsOf(fundamentals, p.date);
+      if (!fund) return undefined; // 그 시점까지 공시된 재무 없음(신규상장 직후 등)
+
+      const { per, pbr } = computeValuationFromSeries(p.close, p.listedShares, fund);
+
+      if (fc.per) {
+        if (per === null) return false;
+        if (!compareFundamentalCondition(per, fc.per)) return false;
+      }
+      if (fc.pbr) {
+        if (pbr === null) return false;
+        if (!compareFundamentalCondition(pbr, fc.pbr)) return false;
+      }
+      if (fc.peg) {
+        if (!listedSharesByFiscalYear) return undefined;
+        const growthPct = computeEpsCagrPure(fundamentals, p.date, listedSharesByFiscalYear);
+        const peg = computePeg(per, growthPct);
+        if (peg === null) return false;
+        if (!compareFundamentalCondition(peg, fc.peg)) return false;
+      }
+    }
+
+    if (fc.consecutive_dividend_years) {
+      const dividends = pickDividendsPaidAsOf(fundamentals, p.date);
+      const count = computeConsecutiveDividendYearsCount(dividends, p.date);
+      if (!compareFundamentalCondition(count, fc.consecutive_dividend_years)) return false;
+    }
+
+    if (fc.dividend_yield_pct) {
+      const windowStart = isoDateDaysAgo(p.date, 365);
+      const dividends = pickDividendsPaidAsOf(fundamentals, p.date, windowStart);
+      const total = dividends.reduce((sum, d) => sum + d.cashDividendPerShare, 0);
+      const yieldPct = p.close > 0 ? (total / p.close) * 100 : 0;
+      if (!compareFundamentalCondition(yieldPct, fc.dividend_yield_pct)) return false;
+    }
+
+    return true;
+  });
+}
+
+/**
+ * custom_composite: 지정된 조건들(ma_cross/rsi/volume_surge/fundamentals)을 매일
+ * 재평가해 모두 만족하면 참인 상태 조건. 지정되지 않은 조건은 판정에서 제외된다.
+ * 조건이 하나도 지정되지 않으면 항상 undefined(데이터 부족과 동일하게 취급 — 매칭
+ * 없음). fundamentals/listedSharesByFiscalYear는 rule_params.fundamentals가 지정된
+ * 경우에만 쓰인다(dh_value_dividend/peg_lynch와 동일한 인자 — 호출부가 한 번만 로드해
+ * 넘긴다).
  */
 function computeCustomCompositeStates(
   prices: DailyPrice[],
-  params: CustomCompositeParams
+  params: CustomCompositeParams,
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
 ): (boolean | undefined)[] {
   const closes = prices.map((p) => p.close);
   const volumes = prices.map((p) => p.volume);
@@ -282,6 +419,10 @@ function computeCustomCompositeStates(
         return volumes[i] >= avg * multiplier;
       })
     );
+  }
+
+  if (params.fundamentals) {
+    activeStates.push(computeCustomFundamentalStates(prices, params.fundamentals, fundamentals, listedSharesByFiscalYear));
   }
 
   if (activeStates.length === 0) {
@@ -411,11 +552,12 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
  * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
  *
- * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch)만 쓴다 —
- * 순수 가격 기반 전략은 무시한다. 호출부가 lib/stockFundamentals.ts의
- * loadFundamentalsSeries로 한 번만 로드해 넘기면, pickFundamentalsAsOf/
- * pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB 호출 없이 반복한다.
- * listedSharesByFiscalYear는 peg_lynch(EPS CAGR 계산)만 쓴다 — 호출부가
+ * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch, rule_params에
+ * fundamentals가 지정된 custom_composite)만 쓴다 — 순수 가격 기반 전략은 무시한다.
+ * 호출부가 lib/stockFundamentals.ts의 loadFundamentalsSeries로 한 번만 로드해 넘기면,
+ * pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB 호출
+ * 없이 반복한다. listedSharesByFiscalYear는 EPS CAGR(PEG) 계산이 필요한 경우(peg_lynch,
+ * fundamentals.peg가 지정된 custom_composite)만 쓴다 — 호출부가
  * loadFundamentalsSeriesWithListedShares로 종목당 한 번만 로드해 넘긴다.
  */
 function computeStates(
@@ -430,7 +572,7 @@ function computeStates(
     case "ma_cross":
       return computeMaCrossStates(prices, rule.rule_params);
     case "custom_composite":
-      return computeCustomCompositeStates(prices, rule.rule_params);
+      return computeCustomCompositeStates(prices, rule.rule_params, fundamentals, listedSharesByFiscalYear);
     case "dh_value_dividend":
       return computeDhValueDividendStates(prices, fundamentals);
     case "peg_lynch":

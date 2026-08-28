@@ -159,6 +159,60 @@ export async function getDailyPrice(stockCode: string, date: string): Promise<St
   return lookup.get(toLookupKey(stockCode, date)) ?? null;
 }
 
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** stockCode의 [startDate, endDate](양 끝 포함) 구간 일별시세를 tradeDate 오름차순으로
+ * 반환한다 — 백테스트/스크리닝이 날짜별로 매번 getDailyPrice를 부르지 않고 한 번에
+ * 확보하는 용도(예: DH전략처럼 재무 시계열을 매일 재평가하는 전략의 백테스트). cold
+ * 구간(연도별 Parquet, getYearLookup 캐시 재사용)은 날짜별로 맵 조회만 하고, hot
+ * 구간(Postgres)은 단일 range 쿼리로 가져와 합친다. */
+export async function getDailyPriceSeries(
+  stockCode: string,
+  startDate: string,
+  endDate: string
+): Promise<StockDailyPriceRow[]> {
+  if (startDate > endDate) return [];
+
+  const hotStart = hotWindowStartDate();
+  const rows: StockDailyPriceRow[] = [];
+
+  if (startDate < hotStart) {
+    const coldEndDate = endDate < hotStart ? endDate : addDays(hotStart, -1);
+    const startYear = Number(startDate.slice(0, 4));
+    const coldEndYear = Number(coldEndDate.slice(0, 4));
+
+    for (let year = startYear; year <= coldEndYear; year++) {
+      const lookup = await getYearLookup(year);
+      const yearStart = year === startYear ? startDate : `${year}-01-01`;
+      const yearEnd = year === coldEndYear ? coldEndDate : `${year}-12-31`;
+
+      for (let d = yearStart; d <= yearEnd; d = addDays(d, 1)) {
+        const row = lookup.get(toLookupKey(stockCode, d));
+        if (row) rows.push(row);
+      }
+    }
+  }
+
+  if (endDate >= hotStart) {
+    const hotQueryStart = startDate > hotStart ? startDate : hotStart;
+    const { data, error } = await supabaseAdmin
+      .from(HOT_TABLE)
+      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares")
+      .eq("stock_code", stockCode)
+      .gte("trade_date", hotQueryStart)
+      .lte("trade_date", endDate);
+    if (error) throw new Error(`${stockCode} 최근 구간 시세 조회 실패: ${error.message}`);
+    for (const row of data ?? []) rows.push(fromHotRow(row as HotTableRow));
+  }
+
+  rows.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  return rows;
+}
+
 /** 여러 연도에 걸쳐 minMarketCapEok(억원) 이상이었던 적 있는 종목코드 집합을 반환한다
  * — 재무/배당 백필의 후보종목 발굴에 쓴다. 저장 자체는 더 낮은 하한
  * (STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK)으로 돼 있으므로, 여기서 실제 후보

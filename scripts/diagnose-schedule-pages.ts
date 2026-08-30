@@ -1,27 +1,30 @@
 /**
  * FOMC/금통위 일정 자동 수집기를 만들기 전, 실제 페이지 HTML 구조를 확인하기 위한
- * 1회성 진단 스크립트. 이 샌드박스는 federalreserve.gov/bok.or.kr을 직접 못 붙어
- * GitHub Actions(비프록시 환경)에서 실행해 원본 HTML을 로그로 남긴다. 파서 작성 후
- * 곧바로 삭제한다.
- *
- * 원본 HTML을 그대로 console.log하면 GitHub Actions 로그가 줄 단위로 쪼개져 수만
- * 줄이 생겨 tail_lines로 못 읽는 문제가 있었다 — 공백을 한 줄로 뭉치고, 연도/월
- * 패턴 주변만 잘라서 로그 줄 수를 억제한다.
+ * 1회성 진단 스크립트. 2차: FOMC/RSS 구조는 1차에서 확인했으니, BOK 페이지의
+ * 실제 회의 목록 테이블(사이트 내비게이션 밖 본문 영역)만 집중적으로 살핀다 —
+ * 1차 시도에서는 "결정회의|통화정책방향|금융안정" 키워드가 상단 내비게이션 메뉴에도
+ * 많이 걸려 있어 실제 테이블(본문, 대략 6만자 이후)까지 도달하지 못했다.
  */
 
 function collapse(html: string): string {
   return html.replace(/\s+/g, " ").trim();
 }
 
-function printSnippetsAround(label: string, text: string, pattern: RegExp, windowChars: number, maxSnippets: number) {
-  const matches = [...text.matchAll(pattern)];
-  console.log(`--- ${label}: ${matches.length}개 매치 ---`);
+function printSnippetsAround(
+  label: string,
+  text: string,
+  pattern: RegExp,
+  windowChars: number,
+  maxSnippets: number,
+  minIndex = 0
+) {
+  const matches = [...text.matchAll(pattern)].filter((m) => (m.index ?? 0) >= minIndex);
+  console.log(`--- ${label}: ${matches.length}개 매치(minIndex=${minIndex} 이후) ---`);
   const seen = new Set<number>();
   let printed = 0;
   for (const m of matches) {
     if (printed >= maxSnippets) break;
     const idx = m.index ?? 0;
-    // 너무 가까운 매치는 스니펫이 겹치므로 건너뛴다.
     const bucket = Math.floor(idx / windowChars);
     if (seen.has(bucket)) continue;
     seen.add(bucket);
@@ -32,52 +35,34 @@ function printSnippetsAround(label: string, text: string, pattern: RegExp, windo
   }
 }
 
-async function fetchAndAnalyze(label: string, url: string, opts: { yearPattern?: boolean; keyword?: string } = {}) {
+async function fetchAndAnalyze(label: string, url: string) {
   console.log(`\n===== ${label} =====`);
   console.log(`URL: ${url}`);
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; stockfolio-schedule-diagnose/1.0)",
-      },
-    });
-    console.log(`status: ${res.status}`);
-    const raw = await res.text();
-    console.log(`raw length: ${raw.length}`);
-    const text = collapse(raw);
-    console.log(`collapsed length: ${text.length}`);
-    console.log(`HEAD 800자: ${text.slice(0, 800)}`);
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; stockfolio-schedule-diagnose/1.0)" },
+  });
+  console.log(`status: ${res.status}`);
+  const raw = await res.text();
+  const text = collapse(raw);
+  console.log(`collapsed length: ${text.length}`);
 
-    if (opts.yearPattern) {
-      printSnippetsAround("연도(2025~2028) 주변", text, /20(2[5-8])/g, 500, 12);
-    }
-    if (opts.keyword) {
-      printSnippetsAround(`키워드 "${opts.keyword}" 주변`, text, new RegExp(opts.keyword, "g"), 400, 15);
-    }
-  } catch (e) {
-    console.log(`FETCH ERROR: ${e instanceof Error ? e.message : String(e)}`);
-  }
+  // 내비게이션 메뉴를 지나 본문에 도달했을 법한 지점부터 다양한 날짜/회차 패턴을 찾는다.
+  const minIndex = 55000;
+  printSnippetsAround("YYYY.MM.DD 형식 날짜", text, /\d{4}\.\s?\d{1,2}\.\s?\d{1,2}/g, 300, 15, minIndex);
+  printSnippetsAround("YYYY년 M월 D일 형식 날짜", text, /\d{4}년\s?\d{1,2}월\s?\d{1,2}일/g, 300, 15, minIndex);
+  printSnippetsAround("제N차 (회차)", text, /제\s?\d+\s?차/g, 300, 20, minIndex);
+  printSnippetsAround("테이블/리스트 구조(table|tbody|tr|board)", text, /<(table|tbody|tr|thead)[ >]/g, 250, 15, minIndex);
+  printSnippetsAround("연도 셀렉트박스(select|option)", text, /<select[^>]*>|pYear/g, 300, 10, 0);
+
+  // 혹시나 해서 본문 영역 자체를 몇 조각으로 나눠 원문 그대로도 남긴다(구조 파악용).
+  console.log(`--- RAW 슬라이스(6만~7.5만) ---`);
+  console.log(text.slice(60000, 75000));
 }
 
 async function main() {
-  await fetchAndAnalyze("FOMC calendar page", "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", {
-    yearPattern: true,
-  });
-
-  await fetchAndAnalyze("Fed press_monetary RSS feed", "https://www.federalreserve.gov/feeds/press_monetary.xml", {
-    keyword: "item",
-  });
-
   await fetchAndAnalyze(
     "BOK 통화정책방향 결정회의 목록 (2026, mtgSe=A)",
-    "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?menuNo=200755&mtgSe=A&pYear=2026",
-    { keyword: "결정회의|통화정책방향|금융안정" }
-  );
-
-  await fetchAndAnalyze(
-    "BOK 통화정책방향 결정회의 목록 (파라미터 없이 기본)",
-    "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?menuNo=200755",
-    { keyword: "결정회의|통화정책방향|금융안정" }
+    "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?menuNo=200755&mtgSe=A&pYear=2026"
   );
 }
 

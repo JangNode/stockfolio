@@ -34,13 +34,29 @@ async function main(): Promise<void> {
   console.log(`저장된 변경점 총 ${usHistory.length}건`);
   console.log("최근 5건:", JSON.stringify(usHistory.slice(-5), null, 2));
 
-  console.log("\n=== ECOS 원본 응답 진단 ===");
+  console.log("\n=== ECOS KeyStatisticList(100대 통계지표)에서 '기준금리' 검색 ===");
   const apiKey = process.env.ECOS_API_KEY;
-  const diagUrl = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/20/902Y006/D/20250101/20260830/0101000`;
-  const diagRes = await fetch(diagUrl);
-  const diagText = await diagRes.text();
-  console.log(`상태: ${diagRes.status}`);
-  console.log(`본문(앞 2000자): ${diagText.slice(0, 2000)}`);
+  const keyStatUrl = `https://ecos.bok.or.kr/api/KeyStatisticList/${apiKey}/json/kr/1/100`;
+  const keyStatRes = await fetch(keyStatUrl);
+  const keyStatData: { KeyStatisticList?: { row?: { CLASS_NAME: string; KEYSTAT_NAME: string; DATA_VALUE: string; CYCLE?: string; UNIT_NAME?: string }[] }; RESULT?: { CODE: string; MESSAGE: string } } =
+    await keyStatRes.json();
+  console.log(`상태: ${keyStatRes.status}, RESULT: ${JSON.stringify(keyStatData.RESULT ?? null)}`);
+  const rows = keyStatData.KeyStatisticList?.row ?? [];
+  console.log(`전체 ${rows.length}건 중 '기준금리' 포함 항목:`);
+  console.log(JSON.stringify(rows.filter((r) => r.KEYSTAT_NAME?.includes("기준금리")), null, 2));
+
+  console.log("\n=== 후보 조합 직접 테스트 ===");
+  const candidates: { statCode: string; itemCode: string; cycle: string }[] = [
+    { statCode: "722Y001", itemCode: "0101000", cycle: "D" },
+    { statCode: "722Y001", itemCode: "0101000", cycle: "M" },
+    { statCode: "902Y006", itemCode: "KR", cycle: "M" },
+  ];
+  for (const c of candidates) {
+    const url = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/10/${c.statCode}/${c.cycle}/20240101/20260830/${c.itemCode}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    console.log(`[${c.statCode}/${c.itemCode}/${c.cycle}] 상태 ${res.status}: ${text.slice(0, 500)}`);
+  }
 
   console.log("\n=== 한국 기준금리(ECOS) 동기화 ===");
   const krResult = await syncKrBaseRate();

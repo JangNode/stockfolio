@@ -34,6 +34,14 @@ async function main(): Promise<void> {
   console.log(`저장된 변경점 총 ${usHistory.length}건`);
   console.log("최근 5건:", JSON.stringify(usHistory.slice(-5), null, 2));
 
+  console.log("\n=== ECOS 원본 응답 진단 ===");
+  const apiKey = process.env.ECOS_API_KEY;
+  const diagUrl = `https://ecos.bok.or.kr/api/StatisticSearch/${apiKey}/json/kr/1/20/902Y006/D/20250101/20260830/0101000`;
+  const diagRes = await fetch(diagUrl);
+  const diagText = await diagRes.text();
+  console.log(`상태: ${diagRes.status}`);
+  console.log(`본문(앞 2000자): ${diagText.slice(0, 2000)}`);
+
   console.log("\n=== 한국 기준금리(ECOS) 동기화 ===");
   const krResult = await syncKrBaseRate();
   console.log(`동기화 결과: changed=${krResult.changed}, latest=${JSON.stringify(krResult.latest)}`);

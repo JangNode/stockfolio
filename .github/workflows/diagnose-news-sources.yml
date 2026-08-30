@@ -1,0 +1,27 @@
+name: Diagnose News Sources (temporary)
+
+# FOMC/한국은행 뉴스 수집 기능을 만들기 전, 실제 소스 구조를 확인하기 위한
+# 1회성 진단 워크플로. 샌드박스에서 federalreserve.gov/bok.or.kr에 직접 접근이
+# 막혀 있어 비프록시 환경인 GitHub Actions에서 실행한다. 확인 후 삭제한다.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch news source pages
+        run: npx tsx --conditions=react-server scripts/diagnose-news-sources.ts

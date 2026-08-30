@@ -1,0 +1,49 @@
+name: Rate Announcement Check
+
+# Supabase pg_cron(trigger_rate_check_dispatch, supabase/migrations의
+# 20260828090000_add_rate_check_dispatch_cron.sql)이 이 워크플로를 직접
+# workflow_dispatch로 호출한다 — 매일 정기 배치(offsets_min="0")와 FOMC/금통위
+# 발표 예정일 집중 확인(offsets_min="0,5,15,30,60,120") 양쪽 다 이 워크플로를 쓴다.
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: "확인할 시장(US 또는 KR)"
+        required: true
+        type: choice
+        options:
+          - US
+          - KR
+      offsets_min:
+        description: "확인할 오프셋(분, 콤마 구분). 예: 0 또는 0,5,15,30,60,120"
+        required: true
+        default: "0"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # 오프셋이 0,5,15,30,60,120이면 워크플로 안에서 최대 2시간을 sleep하며 순회한다 —
+    # 여유를 두고 넉넉하게 잡는다.
+    timeout-minutes: 150
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check rate announcement
+        run: npx tsx --conditions=react-server scripts/check-rate-announcement.ts
+        env:
+          MARKET: ${{ inputs.market }}
+          OFFSETS_MIN: ${{ inputs.offsets_min }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

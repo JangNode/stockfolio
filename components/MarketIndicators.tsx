@@ -30,6 +30,19 @@ interface RatesResponse {
   upcoming: UpcomingMeeting[];
 }
 
+interface CentralBankNewsItem {
+  source: "FED" | "BOK";
+  title: string;
+  link: string;
+  publishedAt: string;
+}
+
+interface NewsResponse {
+  news: CentralBankNewsItem[];
+}
+
+const NEWS_SOURCE_LABELS: Record<"FED" | "BOK", string> = { FED: "연준", BOK: "한국은행" };
+
 const PERIOD_OPTIONS = [
   { years: 1, label: "최근 1년" },
   { years: 3, label: "최근 3년" },
@@ -53,6 +66,18 @@ function todayIsoDate(): string {
 function formatShortDate(date: string): string {
   const [year, month, day] = date.split("-");
   return `${year.slice(2)}/${month}/${day}`;
+}
+
+function formatNewsDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** 변경점(회의가 있었던 날)만 담긴 시계열을, 지정한 기간 창 안에서 계단식으로 그릴 수
@@ -112,6 +137,11 @@ const RECENT_CHANGES_LIMIT = 10;
 export default function MarketIndicators() {
   const [years, setYears] = useState<(typeof PERIOD_OPTIONS)[number]["years"]>(5);
   const { data, error, isLoading } = useSWR<RatesResponse>("/api/market-indicators/rates", authJsonFetcher);
+  const {
+    data: newsData,
+    error: newsError,
+    isLoading: newsLoading,
+  } = useSWR<NewsResponse>("/api/market-indicators/news", authJsonFetcher);
 
   const usWindowed = useMemo(() => (data ? buildWindowedSeries(data.us, years) : []), [data, years]);
   const krWindowed = useMemo(() => (data ? buildWindowedSeries(data.kr, years) : []), [data, years]);
@@ -327,6 +357,38 @@ export default function MarketIndicators() {
           </div>
         </>
       )}
+
+      <div className="mt-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">관련 뉴스</p>
+        {newsLoading ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+        ) : newsError || !newsData ? (
+          <p className="text-sm text-blue-600 dark:text-blue-400">뉴스를 불러오지 못했습니다.</p>
+        ) : newsData.news.length === 0 ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">표시할 뉴스가 없습니다.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {newsData.news.map((item) => (
+              <li key={item.link} className="flex items-start justify-between gap-3 text-sm">
+                <a
+                  href={item.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-black hover:underline dark:text-zinc-50"
+                >
+                  <span className="mr-2 rounded bg-black/[.04] px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-white/[.08] dark:text-zinc-400">
+                    {NEWS_SOURCE_LABELS[item.source]}
+                  </span>
+                  {item.title}
+                </a>
+                <span className="shrink-0 whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">
+                  {formatNewsDateTime(item.publishedAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

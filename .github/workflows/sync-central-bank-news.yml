@@ -1,0 +1,33 @@
+name: Central Bank News Sync
+
+# FOMC/한국은행 관련 뉴스를 연준·한국은행 공식 RSS에서 20분 간격으로 수집해
+# DB에 반영한다. "실시간에 가깝게"가 목적이라 GitHub Actions의 schedule 트리거
+# 지연(부하 시 몇 시간씩 밀릴 수 있음)이 목적을 해칠 수 있어, 다른 정시성 중요
+# 배치(스크리닝, 금리 발표 backoff)와 같은 이유로 Supabase pg_cron이
+# workflow_dispatch API를 직접 호출한다(supabase/migrations의
+# 20260830130000_create_central_bank_news.sql).
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync central bank news
+        run: npx tsx --conditions=react-server scripts/sync-central-bank-news.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

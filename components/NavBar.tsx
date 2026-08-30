@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/strategies", label: "전략 관리", activePaths: ["/strategies", "/backtest"] },
   { href: "/screening", label: "스크리닝", activePaths: ["/screening"] },
   { href: "/paper-trading", label: "실험실", activePaths: ["/lab", "/paper-trading"] },
+  { href: "/market-indicators", label: "시장 지표", activePaths: ["/market-indicators"] },
 ] as const;
 
 const MARKET_TABS: Market[] = ["KR", "US"];
@@ -40,21 +41,23 @@ export default function NavBar() {
         ))}
       </nav>
 
-      <div className="ml-auto flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
-        {MARKET_TABS.map((m) => (
-          <button
-            key={m}
-            onClick={() => setMarket(m)}
-            className={`h-7 rounded-full px-3 text-xs font-medium transition-colors ${
-              market === m
-                ? "bg-foreground text-background"
-                : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
-            }`}
-          >
-            {MARKET_LABELS[m]}
-          </button>
-        ))}
-      </div>
+      {pathname !== "/market-indicators" && (
+        <div className="ml-auto flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
+          {MARKET_TABS.map((m) => (
+            <button
+              key={m}
+              onClick={() => setMarket(m)}
+              className={`h-7 rounded-full px-3 text-xs font-medium transition-colors ${
+                market === m
+                  ? "bg-foreground text-background"
+                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+              }`}
+            >
+              {MARKET_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

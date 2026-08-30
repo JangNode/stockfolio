@@ -1,10 +1,18 @@
 name: Rate Schedule Sync
 
 # FOMC/금통위 회의 일정을 매주 한 번 공식 페이지에서 자동 수집해 DB에 반영한다.
-# 다른 배치와 같은 이유로 GitHub Actions의 schedule 트리거 대신 Supabase pg_cron이
-# workflow_dispatch API를 직접 호출한다(supabase/migrations의
-# 20260830110000_add_meeting_backoff_cron_registration.sql, 매주 월요일 KST 06:00).
+# 스크리닝 배치나 금리 발표 backoff 재시도(scripts/check-rate-announcement.ts)는
+# 정시성이 실제로 중요해서(장 시작 시각, 발표 순간) GitHub Actions의 schedule
+# 트리거 지연(부하 시 몇 시간씩 밀릴 수 있음, 공식 문서에 명시된 동작) 문제를
+# 피하려고 Supabase pg_cron이 workflow_dispatch API를 직접 호출하는 방식을 쓴다.
+# 이 배치는 연 1~2회만 새 회의가 추가되는 정적인 일정을 최신 상태로 맞춰두는
+# 것뿐이라 몇 시간 밀려도 다음 주 실행에서 자동으로 따라잡는다(스크립트가 매번
+# 전체 재수집·비교라 멱등) — 정시성이 필요 없으므로 굳이 pg_cron을 거치지 않고
+# GitHub Actions의 schedule 트리거를 그대로 쓴다.
 on:
+  schedule:
+    # 매주 월요일 한국시간(KST) 06:00 = UTC 일요일 21:00.
+    - cron: "0 21 * * 0"
   workflow_dispatch:
 
 jobs:

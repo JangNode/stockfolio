@@ -35,3 +35,46 @@ export function hasLatestChanged(previous: RatePoint | null, current: RatePoint 
   if (!previous) return true;
   return previous.effectiveDate !== current.effectiveDate || !valuesEqual(previous.values, current.values);
 }
+
+/** 변경점 배열(effectiveDate 오름차순)에서 asOfDate 시점에 적용 중이던 값을 고른다
+ * (그 날짜 이하의 가장 최근 변경점). "회의 결과" 화면이 특정 회의 날짜에 실제로
+ * 적용된 값을 찾는 데 쓴다 — 변경점 저장소에는 값이 안 바뀐 회의(동결)의 행이 아예
+ * 없으므로, 회의 일정 날짜를 그대로 넣어도 "그 날 기준 적용 중이던 값"을 정확히
+ * 돌려준다. */
+export function pickValueAsOf<T extends { effectiveDate: string }>(points: T[], asOfDate: string): T | null {
+  let picked: T | null = null;
+  for (const p of points) {
+    if (p.effectiveDate > asOfDate) break;
+    picked = p;
+  }
+  return picked;
+}
+
+/** pickValueAsOf와 같지만 asOfDate 당일은 제외하고 그 이전(strictly before) 값만
+ * 고른다 — "이 회의 직전까지 적용되고 있던 값"을 구해 이번 회의 결과와 비교하는 데
+ * 쓴다. */
+export function pickValueBefore<T extends { effectiveDate: string }>(points: T[], date: string): T | null {
+  let picked: T | null = null;
+  for (const p of points) {
+    if (p.effectiveDate >= date) break;
+    picked = p;
+  }
+  return picked;
+}
+
+/** 저장된 변경점의 날짜 + 알려진 회의 일정 날짜(오늘 이하만)를 합쳐, "회의 결과"
+ * 목록에 쓸 날짜 집합을 만든다. 변경점 날짜만 쓰면 "동결"로 끝난 회의가 아예
+ * 빠지므로(값이 안 바뀐 날은 애초에 저장되지 않음), 일정에 있는 과거 회의 날짜를
+ * 반드시 함께 포함해야 한다. */
+export function buildMeetingResultDates<T extends { effectiveDate: string }>(
+  points: T[],
+  scheduleDates: string[],
+  todayDate: string
+): string[] {
+  const dates = new Set<string>();
+  for (const p of points) dates.add(p.effectiveDate);
+  for (const d of scheduleDates) {
+    if (d <= todayDate) dates.add(d);
+  }
+  return Array.from(dates).sort((a, b) => a.localeCompare(b));
+}

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
+import { FOMC_SCHEDULE, MPC_SCHEDULE } from "@/lib/rateScheduleConfig";
 
 interface UsRatePoint {
   effectiveDate: string;
@@ -75,24 +77,27 @@ function buildWindowedSeries<T extends { effectiveDate: string }>(points: T[], y
 
 interface RateChangeRow {
   effectiveDate: string;
-  label: string; // "인상"/"인하"/"동결" 등
-  deltaText: string;
+  label: string; // "인상"/"인하"/"동결"/"기록 시작"
+  deltaText: string; // "+25bp" 등(기록 시작이면 빈 문자열)
+  valueText: string; // 그 회의 결과로 적용된 실제 값(예: "3.75~4.00%", "3.00%")
 }
 
-function describeUsChange(prev: UsRatePoint | undefined, cur: UsRatePoint): RateChangeRow {
-  if (!prev) return { effectiveDate: cur.effectiveDate, label: "기록 시작", deltaText: `${cur.targetLowerPct}~${cur.targetUpperPct}%` };
+function describeUsChange(prev: UsRatePoint | null, cur: UsRatePoint): RateChangeRow {
+  const valueText = `${cur.targetLowerPct}~${cur.targetUpperPct}%`;
+  if (!prev) return { effectiveDate: cur.effectiveDate, label: "기록 시작", deltaText: "", valueText };
   const deltaUpper = cur.targetUpperPct - prev.targetUpperPct;
   const label = deltaUpper > 0 ? "인상" : deltaUpper < 0 ? "인하" : "동결";
-  const deltaText = deltaUpper === 0 ? "변동 없음" : `${deltaUpper > 0 ? "+" : ""}${(deltaUpper * 100).toFixed(0)}bp`;
-  return { effectiveDate: cur.effectiveDate, label, deltaText };
+  const deltaText = deltaUpper === 0 ? "" : `${deltaUpper > 0 ? "+" : ""}${(deltaUpper * 100).toFixed(0)}bp`;
+  return { effectiveDate: cur.effectiveDate, label, deltaText, valueText };
 }
 
-function describeKrChange(prev: KrRatePoint | undefined, cur: KrRatePoint): RateChangeRow {
-  if (!prev) return { effectiveDate: cur.effectiveDate, label: "기록 시작", deltaText: `${cur.ratePct}%` };
+function describeKrChange(prev: KrRatePoint | null, cur: KrRatePoint): RateChangeRow {
+  const valueText = `${cur.ratePct}%`;
+  if (!prev) return { effectiveDate: cur.effectiveDate, label: "기록 시작", deltaText: "", valueText };
   const delta = cur.ratePct - prev.ratePct;
   const label = delta > 0 ? "인상" : delta < 0 ? "인하" : "동결";
-  const deltaText = delta === 0 ? "변동 없음" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)}bp`;
-  return { effectiveDate: cur.effectiveDate, label, deltaText };
+  const deltaText = delta === 0 ? "" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)}bp`;
+  return { effectiveDate: cur.effectiveDate, label, deltaText, valueText };
 }
 
 function changeLabelColorClass(label: string): string {
@@ -110,18 +115,35 @@ export default function MarketIndicators() {
   const usWindowed = useMemo(() => (data ? buildWindowedSeries(data.us, years) : []), [data, years]);
   const krWindowed = useMemo(() => (data ? buildWindowedSeries(data.kr, years) : []), [data, years]);
 
+  // "지난 회의 결과"는 저장된 변경점 날짜만으로 만들면 "동결"로 끝난 회의가 아예
+  // 빠진다(값이 안 바뀐 날은 애초에 저장되지 않으므로) — 그래서 알려진 회의 일정
+  // 날짜(과거분)를 함께 합쳐, 그 날짜에 실제로 적용 중이던 값을 직전 값과 비교한다.
   const usRecentChanges = useMemo(() => {
     if (!data) return [];
-    return data.us
-      .map((p, i) => describeUsChange(data.us[i - 1], p))
+    const today = todayIsoDate();
+    const dates = buildMeetingResultDates(data.us, FOMC_SCHEDULE.map((s) => s.date), today);
+    return dates
+      .map((d) => {
+        const cur = pickValueAsOf(data.us, d);
+        if (!cur) return null;
+        return describeUsChange(pickValueBefore(data.us, d), cur);
+      })
+      .filter((row): row is RateChangeRow => row !== null)
       .reverse()
       .slice(0, RECENT_CHANGES_LIMIT);
   }, [data]);
 
   const krRecentChanges = useMemo(() => {
     if (!data) return [];
-    return data.kr
-      .map((p, i) => describeKrChange(data.kr[i - 1], p))
+    const today = todayIsoDate();
+    const dates = buildMeetingResultDates(data.kr, MPC_SCHEDULE.map((s) => s.date), today);
+    return dates
+      .map((d) => {
+        const cur = pickValueAsOf(data.kr, d);
+        if (!cur) return null;
+        return describeKrChange(pickValueBefore(data.kr, d), cur);
+      })
+      .filter((row): row is RateChangeRow => row !== null)
       .reverse()
       .slice(0, RECENT_CHANGES_LIMIT);
   }, [data]);
@@ -265,10 +287,14 @@ export default function MarketIndicators() {
               ) : (
                 <ul className="flex flex-col gap-2 text-sm">
                   {usRecentChanges.map((row) => (
-                    <li key={row.effectiveDate} className="flex items-center justify-between">
+                    <li key={row.effectiveDate} className="flex items-center justify-between gap-2">
                       <span className="text-zinc-500 dark:text-zinc-400">{row.effectiveDate}</span>
-                      <span className={changeLabelColorClass(row.label)}>
-                        {row.label} ({row.deltaText})
+                      <span className="flex items-baseline gap-1.5">
+                        <span className={changeLabelColorClass(row.label)}>
+                          {row.label}
+                          {row.deltaText && ` (${row.deltaText})`}
+                        </span>
+                        <span className="font-medium text-black dark:text-zinc-50">{row.valueText}</span>
                       </span>
                     </li>
                   ))}
@@ -283,10 +309,14 @@ export default function MarketIndicators() {
               ) : (
                 <ul className="flex flex-col gap-2 text-sm">
                   {krRecentChanges.map((row) => (
-                    <li key={row.effectiveDate} className="flex items-center justify-between">
+                    <li key={row.effectiveDate} className="flex items-center justify-between gap-2">
                       <span className="text-zinc-500 dark:text-zinc-400">{row.effectiveDate}</span>
-                      <span className={changeLabelColorClass(row.label)}>
-                        {row.label} ({row.deltaText})
+                      <span className="flex items-baseline gap-1.5">
+                        <span className={changeLabelColorClass(row.label)}>
+                          {row.label}
+                          {row.deltaText && ` (${row.deltaText})`}
+                        </span>
+                        <span className="font-medium text-black dark:text-zinc-50">{row.valueText}</span>
                       </span>
                     </li>
                   ))}

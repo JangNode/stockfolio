@@ -9,9 +9,11 @@ export const FRED_US_LOWER_SERIES_ID = "DFEDTARL"; // 연방기금 목표금리 
 // 목표금리(DFEDTAR, 이 앱에서는 다루지 않음) 체계였다.
 export const FRED_US_SERIES_START_DATE = "2008-12-16";
 
-// 한국은행 ECOS(ecos.bok.or.kr) StatisticSearch. 902Y006=시장금리 통계표,
-// 0101000=그 안의 "한국은행 기준금리" 통계항목.
-export const ECOS_KR_BASE_RATE_STAT_CODE = "902Y006";
+// 한국은행 ECOS(ecos.bok.or.kr) StatisticSearch. 722Y001="한국은행 기준금리 및
+// 여수신금리" 통계표, 0101000=그 안의 "한국은행 기준금리" 통계항목(실제 응답의
+// ITEM_NAME1으로 확인). 처음에 902Y006(실제로는 "주요국 정책금리" 국제 비교표라
+// 한국 전용 상세 이력이 없음)으로 잘못 짚었던 걸 실데이터 검증 중 바로잡았다.
+export const ECOS_KR_BASE_RATE_STAT_CODE = "722Y001";
 export const ECOS_KR_BASE_RATE_ITEM_CODE = "0101000";
 export const ECOS_KR_BASE_RATE_START_DATE = "19990101"; // ECOS 날짜 형식(YYYYMMDD)
 

@@ -5,7 +5,6 @@ import useSWR from "swr";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
-import { FOMC_SCHEDULE, MPC_SCHEDULE } from "@/lib/rateScheduleConfig";
 
 interface UsRatePoint {
   effectiveDate: string;
@@ -26,6 +25,8 @@ interface UpcomingMeeting {
 interface RatesResponse {
   us: UsRatePoint[];
   kr: KrRatePoint[];
+  usSchedule: string[];
+  krSchedule: string[];
   upcoming: UpcomingMeeting[];
 }
 
@@ -121,7 +122,7 @@ export default function MarketIndicators() {
   const usRecentChanges = useMemo(() => {
     if (!data) return [];
     const today = todayIsoDate();
-    const dates = buildMeetingResultDates(data.us, FOMC_SCHEDULE.map((s) => s.date), today);
+    const dates = buildMeetingResultDates(data.us, data.usSchedule, today);
     return dates
       .map((d) => {
         const cur = pickValueAsOf(data.us, d);
@@ -136,7 +137,7 @@ export default function MarketIndicators() {
   const krRecentChanges = useMemo(() => {
     if (!data) return [];
     const today = todayIsoDate();
-    const dates = buildMeetingResultDates(data.kr, MPC_SCHEDULE.map((s) => s.date), today);
+    const dates = buildMeetingResultDates(data.kr, data.krSchedule, today);
     return dates
       .map((d) => {
         const cur = pickValueAsOf(data.kr, d);

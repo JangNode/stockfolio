@@ -1,8 +1,7 @@
 /**
  * FOMC/한국은행 뉴스 수집 기능을 만들기 전, 실제 소스 구조를 확인하기 위한
- * 1회성 진단 스크립트(3차). BOK RSS 안내 팝업 전체(3000자에서 잘렸던 나머지)를
- * 확인해 총재 연설 관련 피드가 있는지 보고, 실제로 몇몇 피드를 fetch해 아이템
- * 구조(제목/링크/날짜 필드명)도 확인한다.
+ * 1회성 진단 스크립트(4차). BOK RSS 응답에 pubDate(또는 대체 가능한 날짜) 필드가
+ * 있는지, 총재 연설 RSS도 같은 구조인지 확인한다.
  */
 
 function collapse(html: string): string {
@@ -16,22 +15,31 @@ async function fetchText(url: string): Promise<{ status: number; text: string }>
   return { status: res.status, text: await res.text() };
 }
 
+async function inspectFeed(label: string, url: string) {
+  console.log(`\n===== ${label} =====`);
+  const res = await fetchText(url);
+  console.log(`status: ${res.status}, raw length: ${res.text.length}`);
+  const text = collapse(res.text);
+  const hasPubDate = text.includes("<pubDate>");
+  console.log(`pubDate 포함 여부: ${hasPubDate}`);
+  // 첫 item 전체를 뽑아본다.
+  const itemMatch = text.match(/<item>([\s\S]*?)<\/item>/);
+  if (itemMatch) {
+    console.log(`첫 item 전체: ${itemMatch[0].slice(0, 1500)}`);
+  }
+  const itemCount = [...text.matchAll(/<item>/g)].length;
+  console.log(`item 개수: ${itemCount}`);
+}
+
 async function main() {
-  console.log("\n===== BOK RSS 안내 팝업 전체 =====");
-  const popup = await fetchText("https://www.bok.or.kr/static/view/popup/rss_popup.html");
-  const popupText = collapse(popup.text);
-  console.log(`raw length: ${popup.text.length}, collapsed length: ${popupText.length}`);
-  console.log(popupText.slice(2500));
-
-  console.log("\n===== BOK 보도자료(통화정책) RSS 실제 응답 =====");
-  const bokRss = await fetchText("https://www.bok.or.kr/portal/bbs/P0000559/news.rss?menuNo=200690");
-  console.log(`status: ${bokRss.status}, raw length: ${bokRss.text.length}`);
-  console.log(collapse(bokRss.text).slice(0, 3000));
-
-  console.log("\n===== Fed press_monetary.xml 아이템 필드 재확인(참고) =====");
-  const fedRss = await fetchText("https://www.federalreserve.gov/feeds/speeches_and_testimony.xml");
-  console.log(`status: ${fedRss.status}, raw length: ${fedRss.text.length}`);
-  console.log(collapse(fedRss.text).slice(0, 2000));
+  await inspectFeed(
+    "BOK 보도자료(통화정책) RSS",
+    "https://www.bok.or.kr/portal/bbs/P0000559/news.rss?menuNo=200690"
+  );
+  await inspectFeed(
+    "BOK 총재 연설 및 강연 RSS",
+    "https://www.bok.or.kr/portal/bbs/P0002575/news.rss?menuNo=200041"
+  );
 }
 
 main().catch((e) => {

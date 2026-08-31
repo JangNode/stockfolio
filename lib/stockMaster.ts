@@ -273,3 +273,33 @@ export async function searchStocks(
     .filter((e) => e.name.toLowerCase().includes(q) || e.code.includes(q))
     .slice(0, limit);
 }
+
+/** 하나 이상의 테마에 속한 종목코드 집합. 시세 백필 저장 필터(scripts/backfill-stock-
+ * daily-prices.ts, scripts/update-stock-daily-prices-recent.ts,
+ * scripts/backfill-theme-stock-prices.ts)에서 "시가총액 기준 미달이어도 테마
+ * 소속이면 저장" 조건에 쓴다. */
+export async function getThemeFlaggedStockCodes(): Promise<Set<string>> {
+  const { entries } = await getCache();
+  const codes = new Set<string>();
+  for (const stock of entries) {
+    if (THEME_CODES.some((code) => stock.themeFlags[code])) codes.add(stock.code);
+  }
+  return codes;
+}
+
+/** 오늘 기준 종목마스터의 themeFlags로 테마별 구성종목 코드 목록을 만든다. 과거
+ * 마스터 파일이 없어, 과거 시점 테마 등락률 계산(lib/themeReturns.ts)에도 이 오늘
+ * 기준 소속을 그대로 근사 적용한다 — 한 종목이 여러 테마에 동시에 속할 수 있다. */
+export async function getStockCodesByTheme(): Promise<Record<ThemeCode, string[]>> {
+  const { entries } = await getCache();
+  const result = Object.fromEntries(THEME_CODES.map((code) => [code, [] as string[]])) as Record<
+    ThemeCode,
+    string[]
+  >;
+  for (const stock of entries) {
+    for (const code of THEME_CODES) {
+      if (stock.themeFlags[code]) result[code].push(stock.code);
+    }
+  }
+  return result;
+}

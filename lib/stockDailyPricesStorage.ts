@@ -185,6 +185,52 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** 여러 종목의 date 이전(포함) 가장 가까운 거래일 시세를 배치로 찾는다(최대
+ * maxLookbackDays일 전까지 하루씩 물러나며 시도) — getDailyPriceOnOrBefore와 계산
+ * 규칙은 같지만, 종목마다 개별 쿼리하지 않고 날짜별로 아직 못 찾은 종목들만 모아
+ * 한 번에 조회한다(hot: `.in("stock_code", codes)` 단일 쿼리, cold: 그 연도
+ * lookup을 코드 집합으로 필터). 테마 등락률 계산(lib/themeReturns.ts)처럼 한 번에
+ * 수십~수백 종목의 시작/종료 시점 종가가 필요한 경우, 종목별 개별 조회 대비 쿼리
+ * 횟수가 종목 수와 무관하게 날짜 수(최대 maxLookbackDays)만큼으로 줄어든다. */
+export async function getDailyPricesForStocksOnOrBefore(
+  stockCodes: string[],
+  date: string,
+  maxLookbackDays: number = DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS
+): Promise<Map<string, StockDailyPriceRow>> {
+  const remaining = new Set(stockCodes);
+  const result = new Map<string, StockDailyPriceRow>();
+  let d = date;
+
+  for (let i = 0; i <= maxLookbackDays && remaining.size > 0; i++) {
+    const codes = Array.from(remaining);
+    let rows: StockDailyPriceRow[];
+
+    if (d >= hotWindowStartDate()) {
+      const { data, error } = await supabaseAdmin
+        .from(HOT_TABLE)
+        .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares")
+        .in("stock_code", codes)
+        .eq("trade_date", d);
+      if (error) throw new Error(`${d} 최근 시세 배치 조회 실패: ${error.message}`);
+      rows = (data ?? []).map((row) => fromHotRow(row as HotTableRow));
+    } else {
+      const lookup = await getYearLookup(Number(d.slice(0, 4)));
+      rows = codes
+        .map((code) => lookup.get(toLookupKey(code, d)))
+        .filter((row): row is StockDailyPriceRow => row !== undefined);
+    }
+
+    for (const row of rows) {
+      result.set(row.stockCode, row);
+      remaining.delete(row.stockCode);
+    }
+
+    d = addDays(d, -1);
+  }
+
+  return result;
+}
+
 /** stockCode의 [startDate, endDate](양 끝 포함) 구간 일별시세를 tradeDate 오름차순으로
  * 반환한다 — 백테스트/스크리닝이 날짜별로 매번 getDailyPrice를 부르지 않고 한 번에
  * 확보하는 용도(예: DH전략처럼 재무 시계열을 매일 재평가하는 전략의 백테스트). cold

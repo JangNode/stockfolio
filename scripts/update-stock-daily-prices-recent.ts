@@ -2,7 +2,9 @@
  * 종목 시세 원자료 hot 구간(stock_daily_prices_recent, Postgres) 매일 갱신 배치. 어제까지
  * 빠진 평일이 있으면(워크플로 실패 등으로 하루 이틀 놓친 경우 포함) 전부 이어서
  * 채운다 — Parquet처럼 파일 전체를 다시 쓸 필요 없이 그날치만 INSERT하면 되므로
- * 가볍다. .github/workflows/screening.yml 마지막 스텝으로 매 평일 실행된다.
+ * 가볍다. .github/workflows/screening.yml 마지막 스텝으로 매 평일 실행된다. 시가총액
+ * 하한(STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) 미달이어도 테마(lib/themeConfig.ts)
+ * 소속 종목이면 저장한다(scripts/backfill-stock-daily-prices.ts와 동일한 필터).
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
@@ -13,6 +15,7 @@
 
 import { getLatestRecentPriceDate, upsertRecentPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
+import { getThemeFlaggedStockCodes } from "@/lib/stockMaster";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 // stock_daily_prices_recent가 아직 비어있을 리 없지만(시딩 스크립트로 먼저 채움),
@@ -51,7 +54,11 @@ async function fetchKrxDaily(
   return body.OutBlock_1 ?? [];
 }
 
-async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<StockDailyPriceRow[]> {
+async function fetchAndFilterDay(
+  dateKey: string,
+  apiKey: string,
+  themeFlaggedCodes: Set<string>
+): Promise<StockDailyPriceRow[]> {
   const basDd = toBasDd(dateKey);
   const [kospi, kosdaq] = await Promise.all([
     fetchKrxDaily("stk_bydd_trd", basDd, apiKey),
@@ -62,7 +69,10 @@ async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<Stock
   for (const row of [...kospi, ...kosdaq]) {
     if (!row.ISU_CD || !row.TDD_CLSPRC || row.TDD_CLSPRC === "-" || !row.LIST_SHRS || row.LIST_SHRS === "-") continue;
     const marketCapEok = Number(row.MKTCAP) / 100_000_000;
-    if (!Number.isFinite(marketCapEok) || marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
+    if (!Number.isFinite(marketCapEok)) continue;
+    // 시가총액 하한 미달이어도 테마(lib/themeConfig.ts) 소속 종목이면 저장한다 —
+    // 테마/업종별 등락률 순위 기능이 필요로 하는 소형주 시세도 같이 채워 넣는다.
+    if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !themeFlaggedCodes.has(row.ISU_CD)) continue;
     rows.push({
       stockCode: row.ISU_CD,
       tradeDate: dateKey,
@@ -78,6 +88,7 @@ async function main(): Promise<void> {
   const apiKey = process.env.KRX_API_KEY;
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
 
+  const themeFlaggedCodes = await getThemeFlaggedStockCodes();
   const latestStored = await getLatestRecentPriceDate();
 
   const endDate = new Date(); // 오늘 데이터는 정산 전일 수 있어 어제까지만.
@@ -105,7 +116,7 @@ async function main(): Promise<void> {
 
   let total = 0;
   for (const dateKey of targetDates) {
-    const rows = await fetchAndFilterDay(dateKey, apiKey);
+    const rows = await fetchAndFilterDay(dateKey, apiKey, themeFlaggedCodes);
     if (rows.length > 0) {
       await upsertRecentPrices(rows);
       total += rows.length;

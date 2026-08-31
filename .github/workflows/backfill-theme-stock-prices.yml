@@ -1,0 +1,33 @@
+name: 종목 시세 원자료 백필 - 테마 소속 소형주 (1회성)
+
+# 수동 실행 전용. 테마/업종별 등락률 순위 히스토리 기능을 위해, 시가총액 하한 미달로
+# 기존엔 저장하지 않았던 테마 소속 소형주의 최근 시세를 채워 넣는 1회성 백필이라
+# 자동 스케줄을 두지 않는다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # cold 구간(연도별 Parquet)은 대상 연도 전체를 KRX에서 다시 받으므로
+    # backfill-stock-daily-prices.yml과 비슷한 호출량이 든다. 넉넉히 잡는다.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backfill theme constituent stock prices
+        run: npm run backfill:theme-stock-prices
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

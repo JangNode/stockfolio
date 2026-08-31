@@ -8,9 +8,12 @@
  * "No space left on device"로 중단됨).
  *
  * 시가총액이 STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/stockDataConfig.ts, 5천억원)
- * 미만인 행은 애초에 저장하지 않는다 — 후보종목 기준(1조원)보다 낮게 잡아 여유를 두면서도,
- * 저장량을 크게 줄인다. 주말(토/일)은 API 호출 없이 요일 계산만으로 건너뛴다. 평일 중
- * 공휴일은 호출은 하되 응답이 비어 있으면 그냥 건너뛴다.
+ * 미만인 행은, 오늘 기준 KIS 종목마스터에서 테마(lib/themeConfig.ts) 플래그가 하나라도
+ * 있는 종목이 아닌 한 저장하지 않는다 — 후보종목 기준(1조원)보다 낮게 잡아 여유를
+ * 두면서도, 저장량을 크게 줄인다. 테마 소속은 과거 마스터 파일이 없어 오늘 기준을 전체
+ * 구간에 근사 적용한다(테마/업종별 등락률 순위 기능, lib/stockMaster.ts의
+ * getThemeFlaggedStockCodes 참고). 주말(토/일)은 API 호출 없이 요일 계산만으로
+ * 건너뛴다. 평일 중 공휴일은 호출은 하되 응답이 비어 있으면 그냥 건너뛴다.
  *
  * 연도 단위로 파일을 통째로 쓰기 때문에(한 해가 전부 성공해야 업로드) 재개 로직도
  * 연도 단위다 — 이미 Storage에 있는 연도는(현재 진행 중인 최신 연도 제외) 통째로
@@ -27,6 +30,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uploadYearPrices, yearPricesExist, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
+import { getThemeFlaggedStockCodes } from "@/lib/stockMaster";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
@@ -120,7 +124,12 @@ function weekdaysInYear(year: number, endDate: Date): string[] {
   return dates;
 }
 
-async function backfillYear(year: number, targetDates: string[], apiKey: string): Promise<{ rows: number; errors: number }> {
+async function backfillYear(
+  year: number,
+  targetDates: string[],
+  apiKey: string,
+  themeFlaggedCodes: Set<string>
+): Promise<{ rows: number; errors: number }> {
   const yearRows: StockDailyPriceRow[] = [];
   let errors = 0;
   let completed = 0;
@@ -137,7 +146,8 @@ async function backfillYear(year: number, targetDates: string[], apiKey: string)
           continue;
         }
         const marketCapEok = Number(row.MKTCAP) / 100_000_000;
-        if (!Number.isFinite(marketCapEok) || marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) continue;
+        if (!Number.isFinite(marketCapEok)) continue;
+        if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !themeFlaggedCodes.has(row.ISU_CD)) continue;
 
         yearRows.push({
           stockCode: row.ISU_CD,
@@ -177,6 +187,9 @@ async function main(): Promise<void> {
   const endDate = new Date();
   endDate.setUTCDate(endDate.getUTCDate() - 1);
 
+  const themeFlaggedCodes = await getThemeFlaggedStockCodes();
+  console.log(`오늘 기준 테마 소속 종목 ${themeFlaggedCodes.size}개(시가총액 하한 미달이어도 저장 대상에 포함)`);
+
   let totalRows = 0;
   let totalErrors = 0;
 
@@ -191,7 +204,7 @@ async function main(): Promise<void> {
     if (targetDates.length === 0) continue;
 
     console.log(`${year}년 백필 시작: ${targetDates.length}개 평일 (${targetDates[0]} ~ ${targetDates[targetDates.length - 1]})`);
-    const { rows, errors } = await backfillYear(year, targetDates, apiKey);
+    const { rows, errors } = await backfillYear(year, targetDates, apiKey, themeFlaggedCodes);
     totalRows += rows;
     totalErrors += errors;
 

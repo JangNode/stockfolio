@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
 import type { ThemeCode } from "@/lib/themeConfig";
-import { THEME_CONSTITUENTS_RETENTION_YEARS } from "@/lib/themeConfig";
+import { THEME_CODES, THEME_CONSTITUENTS_RETENTION_YEARS } from "@/lib/themeConfig";
 import type { ThemePeriod } from "@/lib/themeReturns";
 
 interface ThemeRankingItem {
@@ -65,6 +65,25 @@ function changeRateColorClass(value: number): string {
 
 function formatChangeRate(value: number): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+// 로딩 전/후 헤더가 흔들리지 않도록, 서버 응답(asOfDate)을 기다리지 않고 선택된
+// 기간 값으로 바로 라벨을 만든다 — 길이가 로딩 상태에 따라 바뀌지 않아야 좁은
+// 화면에서 flex-wrap 줄 수가 안 변하고, 그래야 기간 탭 위치가 안 흔들린다.
+function formatPeriodLabel(period: ThemePeriod, dateValue: string, monthValue: string, yearValue: string): string {
+  if (period === "daily") return `${dateValue} 기준`;
+  if (period === "monthly") {
+    const [y, m] = monthValue.split("-");
+    return `${y}년 ${Number(m)}월 기준`;
+  }
+  return `${yearValue}년 기준`;
+}
+
+const SKELETON_ROW_COUNT = THEME_CODES.length;
+const CONSTITUENT_SKELETON_ROW_COUNT = 5;
+
+function SkeletonBar({ className = "" }: { className?: string }) {
+  return <span className={`inline-block h-3 animate-pulse rounded bg-black/[.08] dark:bg-white/[.12] ${className}`} />;
 }
 
 interface TopMovers {
@@ -135,7 +154,7 @@ export default function ThemeRankings() {
     <div className="w-full max-w-3xl">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {data ? `${data.asOfDate} 기준` : "국내 KRX 섹터 테마별 등락률 순위입니다."}
+          {formatPeriodLabel(period, dateValue, monthValue, yearValue)}
         </p>
         <div className="flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
           {PERIOD_OPTIONS.map((opt) => (
@@ -188,7 +207,34 @@ export default function ThemeRankings() {
 
       <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         {isLoading ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-zinc-500 dark:text-zinc-400">
+                <th className="pb-2 pr-2 font-normal">#</th>
+                <th className="pb-2 pr-4 font-normal">테마</th>
+                <th className="pb-2 pr-4 font-normal">등락률</th>
+                <th className="pb-2 font-normal">구성종목 수</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: SKELETON_ROW_COUNT }).map((_, index) => (
+                <tr key={index} className="border-t border-black/[.08] dark:border-white/[.145]">
+                  <td className="py-2 pr-2">
+                    <SkeletonBar className="w-3" />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <SkeletonBar className="w-16" />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <SkeletonBar className="w-12" />
+                  </td>
+                  <td className="py-2">
+                    <SkeletonBar className="w-10" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : error || !data ? (
           <p className="text-sm text-blue-600 dark:text-blue-400">테마 등락률을 불러오지 못했습니다.</p>
         ) : data.insufficientData ? (
@@ -246,7 +292,17 @@ export default function ThemeRankings() {
           </div>
 
           {detailLoading ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+            <ul className="flex flex-col gap-2 text-sm">
+              {Array.from({ length: CONSTITUENT_SKELETON_ROW_COUNT }).map((_, index) => (
+                <li key={index} className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 text-xs text-zinc-400 dark:text-zinc-500">{index + 1}</span>
+                    <SkeletonBar className="w-24" />
+                  </span>
+                  <SkeletonBar className="w-12" />
+                </li>
+              ))}
+            </ul>
           ) : detailError || !detail ? (
             <p className="text-sm text-blue-600 dark:text-blue-400">구성종목을 불러오지 못했습니다.</p>
           ) : detail.insufficientData || detail.constituents.length === 0 ? (

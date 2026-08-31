@@ -22,7 +22,7 @@ export const THEME_CODES = [
 
 export type ThemeCode = (typeof THEME_CODES)[number];
 
-// 종목마스터 필드명 기준 한글 표시명. '선박' 필드는 흔히 부르는 업종명인 '조선'으로 표시한다.
+// 종목마스터 필드명 기준 한글 표시명.
 export const THEME_LABELS: Record<ThemeCode, string> = {
   krx_semiconductor: "반도체",
   krx_bio: "바이오",
@@ -32,7 +32,11 @@ export const THEME_LABELS: Record<ThemeCode, string> = {
   krx_insurance: "보험",
   krx_energy_chemical: "에너지화학",
   krx_steel: "철강",
-  krx_shipbuilding: "조선",
+  // '선박' 필드('조선'으로 표시했던 이전 라벨)를 실제 구성종목으로 검증(2026-08-31)한
+  // 결과, 조선사 5~6개 외에 전선/중전기/승강기/밸브/절삭공구 등 기계·산업재 업종이
+  // 다수 섞여 있음을 확인했다 — 오프셋/필드명(KIS 스펙상 정확히 'KRX선박') 자체는
+  // 맞고, KRX 실제 지수 구성이 조선업보다 넓은 그룹이라 라벨만 넓혀 맞춘다.
+  krx_shipbuilding: "조선·기계",
   krx_construction: "건설",
   krx_media_telecom: "미디어통신",
   krx_transport: "운송",

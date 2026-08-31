@@ -138,15 +138,22 @@ function weekdaysInRange(start: Date, end: Date): string[] {
   return dates;
 }
 
-/** year년 중 [rangeStart, rangeEnd]와 겹치는 평일만 뽑는다(연도 경계에 걸친
- * backfillStartDate/coldRangeEnd를 그 해 안으로 잘라낸다). */
-function weekdaysInYearRange(year: number, rangeStart: Date, rangeEnd: Date): string[] {
+/** year년의 1월 1일부터 rangeEnd(그 해를 넘으면 12월 31일)까지 평일을 뽑는다.
+ *
+ * 시작을 backfillStartDate로 자르지 않고 항상 1월 1일부터 받는 이유: uploadYearPrices는
+ * 그 해 파일을 통째로 덮어쓴다. backfillStartDate가 연도 중간(예: 2023-08-31)이면,
+ * 시작을 거기서 잘라 그 이후 날짜만 다시 받아 올리면 원래 있던 그 해 1월~
+ * backfillStartDate 이전 대형주 데이터가 통째로 사라진다(재현: 2023년 파일에 이미
+ * 1~8월 대형주 시세가 들어있는데, 9~12월치만 다시 받아 덮어쓰면 1~8월분이 날아감).
+ * 끝은 coldRangeEnd(hot 구간 시작 직전)로 자르는 게 맞다 — 그건 hot/cold 경계와
+ * 일치해서(archive-stock-daily-prices.ts가 매년 그 경계로 이미 나눠 옮겨둠) 잘라도
+ * 데이터가 없어지지 않는다. */
+function weekdaysInYearRange(year: number, rangeEnd: Date): string[] {
   const yearStart = new Date(Date.UTC(year, 0, 1));
   const yearEnd = new Date(Date.UTC(year, 11, 31));
-  const start = yearStart > rangeStart ? yearStart : rangeStart;
   const end = yearEnd < rangeEnd ? yearEnd : rangeEnd;
-  if (start > end) return [];
-  return weekdaysInRange(start, end);
+  if (yearStart > end) return [];
+  return weekdaysInRange(yearStart, end);
 }
 
 async function backfillHotDates(
@@ -256,7 +263,7 @@ async function main(): Promise<void> {
     const endYear = coldRangeEnd.getUTCFullYear();
 
     for (let year = startYear; year <= endYear; year++) {
-      const targetDates = weekdaysInYearRange(year, backfillStartDate, coldRangeEnd);
+      const targetDates = weekdaysInYearRange(year, coldRangeEnd);
       if (targetDates.length === 0) continue;
 
       console.log(`${year}년 cold 구간 재백필 시작: ${targetDates.length}개 평일`);

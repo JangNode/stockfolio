@@ -9,6 +9,7 @@
     "lint": "eslint",
     "screen:all-stocks": "tsx --conditions=react-server scripts/screen-all-stocks.ts",
     "screen:us-stocks": "tsx --conditions=react-server scripts/screen-us-stocks.ts",
+    "verify:kr-theme-flags": "tsx --conditions=react-server scripts/verify-kr-theme-flags.ts",
     "paper:trade": "tsx --conditions=react-server scripts/paper-trade.ts",
     "cleanup:logs": "tsx --conditions=react-server scripts/cleanup-logs.ts",
     "cleanup:lab-backtests": "tsx --conditions=react-server scripts/cleanup-custom-backtests.ts",

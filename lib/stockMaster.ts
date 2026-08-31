@@ -1,6 +1,7 @@
 import "server-only";
 import AdmZip from "adm-zip";
 import iconv from "iconv-lite";
+import { THEME_CODES, type ThemeCode } from "@/lib/themeConfig";
 
 const MASTER_URLS = {
   KOSPI: "https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip",
@@ -36,6 +37,50 @@ const MARKET_LAYOUT: Record<
   KOSDAQ: { tailLength: 222, listedDateOffset: 101, listedDateWidth: 8, statusFlagsOffset: 56 },
 };
 
+// KRX 섹터 테마 플래그(lib/themeConfig.ts의 THEME_CODES) 오프셋. KIS 공식 스펙
+// (github.com/koreainvestment/open-trading-api의 stocks_info/kis_kospi_code_mst.py,
+// kis_kosdaq_code_mst.py의 part2_columns/field_specs)에서 필드 순서대로 계산한 위치는,
+// 위 listedDateOffset/statusFlagsOffset과 마찬가지로 실제 파일에서는 정확히 1바이트씩
+// 밀려 있다 — 이미 실파일로 검증된 두 앵커(코스피: 스펙상 상장일자 105→실제 106,
+// 스펙상 상태플래그(거래정지) 60→실제 61 / 코스닥: 스펙상 상장일자 100→실제 101,
+// 스펙상 상태플래그(거래정지) 55→실제 56) 모두 정확히 +1로 밀려 있다는 걸 근거로,
+// 스펙에서 계산한 테마 플래그 위치에도 동일한 +1을 적용했다(같은 파일의 같은 블록
+// 안에서 이미 앞뒤로 검증된 두 지점이 똑같이 밀려 있으므로 그 사이 필드들도 같은
+// 폭으로 밀려 있을 개연성이 높다). 다만 이 필드들 자체의 실제 'Y'/'N' 값은 아직
+// 실파일로 재확인하지 못했다 — scripts/verify-kr-theme-flags.ts를 workflow_dispatch로
+// 실행해 알려진 종목(삼성전자=반도체, 현대차=자동차, KB금융=은행 등)으로 최종 확인
+// 후 이 주석과 함께 필요하면 값을 보정할 것.
+const THEME_FLAG_OFFSETS: Record<Market, Record<ThemeCode, number>> = {
+  KOSPI: {
+    krx_auto: 26,
+    krx_semiconductor: 27,
+    krx_bio: 28,
+    krx_bank: 29,
+    krx_energy_chemical: 31,
+    krx_steel: 32,
+    krx_media_telecom: 34,
+    krx_construction: 35,
+    krx_securities: 37,
+    krx_shipbuilding: 38,
+    krx_insurance: 39,
+    krx_transport: 40,
+  },
+  KOSDAQ: {
+    krx_auto: 21,
+    krx_semiconductor: 22,
+    krx_bio: 23,
+    krx_bank: 24,
+    krx_energy_chemical: 26,
+    krx_steel: 27,
+    krx_media_telecom: 29,
+    krx_construction: 30,
+    krx_securities: 32,
+    krx_shipbuilding: 33,
+    krx_insurance: 34,
+    krx_transport: 35,
+  },
+};
+
 export interface StockEntry {
   code: string;
   name: string;
@@ -48,6 +93,9 @@ export interface StockEntry {
   isTradingHalted: boolean; // 거래정지
   isLiquidationTrading: boolean; // 정리매매(상장폐지 확정, 정리매매 기간)
   isAdministrativeIssue: boolean; // 관리종목 지정
+  // KRX 섹터 테마(자동차/반도체/바이오/은행/... lib/themeConfig.ts 참고) 소속 여부.
+  // 테마/업종별 등락률 순위 화면·배치에 쓴다.
+  themeFlags: Record<ThemeCode, boolean>;
 }
 
 interface MasterCache {
@@ -95,6 +143,25 @@ function parseStatusFlags(line: string, market: Market): StatusFlags {
   };
 }
 
+/** 테마 플래그를 파싱한다. 필드를 못 찾으면(줄이 너무 짧음) 전부 false — 잘못
+ * 분류하는 것보다 어느 테마에도 속하지 않는 것으로 안전하게 처리한다. */
+function parseThemeFlags(line: string, market: Market): Record<ThemeCode, boolean> {
+  const { tailLength } = MARKET_LAYOUT[market];
+  const offsets = THEME_FLAG_OFFSETS[market];
+  const result = {} as Record<ThemeCode, boolean>;
+
+  if (line.length < tailLength) {
+    for (const code of THEME_CODES) result[code] = false;
+    return result;
+  }
+
+  const tail = line.slice(-tailLength);
+  for (const code of THEME_CODES) {
+    result[code] = tail[offsets[code]] === "Y";
+  }
+  return result;
+}
+
 function parseMasterFile(buffer: Buffer, market: Market): StockEntry[] {
   const text = iconv.decode(buffer, "euc-kr");
   const entries: StockEntry[] = [];
@@ -116,6 +183,7 @@ function parseMasterFile(buffer: Buffer, market: Market): StockEntry[] {
       productType: match[2],
       listedDate: parseListedDate(line, market),
       ...parseStatusFlags(line, market),
+      themeFlags: parseThemeFlags(line, market),
     });
   }
 

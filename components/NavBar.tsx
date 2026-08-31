@@ -14,8 +14,13 @@ const LINKS = [
   { href: "/strategies", label: "전략 관리", activePaths: ["/strategies", "/backtest"] },
   { href: "/screening", label: "스크리닝", activePaths: ["/screening"] },
   { href: "/paper-trading", label: "실험실", activePaths: ["/lab", "/paper-trading"] },
+  { href: "/themes", label: "테마", activePaths: ["/themes"] },
   { href: "/market-indicators", label: "시장 지표", activePaths: ["/market-indicators"] },
 ] as const;
+
+// 테마(KRX 섹터)는 국내 종목마스터 플래그 기반이라 미국 시장 개념이 없다 —
+// market-indicators와 동일하게 이 화면에서는 국내/미국 토글을 숨긴다.
+const MARKET_TOGGLE_HIDDEN_PATHS = ["/market-indicators", "/themes"];
 
 const MARKET_TABS: Market[] = ["KR", "US"];
 
@@ -41,7 +46,7 @@ export default function NavBar() {
         ))}
       </nav>
 
-      {pathname !== "/market-indicators" && (
+      {!MARKET_TOGGLE_HIDDEN_PATHS.includes(pathname) && (
         <div className="ml-auto flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
           {MARKET_TABS.map((m) => (
             <button

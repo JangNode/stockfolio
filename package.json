@@ -16,7 +16,6 @@
     "sync:dart-corp-codes": "tsx --conditions=react-server scripts/sync-dart-corp-codes.ts",
     "backfill:stock-daily-prices": "tsx --conditions=react-server scripts/backfill-stock-daily-prices.ts",
     "backfill:theme-stock-prices": "tsx --conditions=react-server scripts/backfill-theme-stock-prices.ts",
-    "diagnose:theme-classification": "tsx --conditions=react-server scripts/diagnose-theme-classification.ts",
     "backfill:stock-annual-fundamentals": "tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts",
     "backfill:stock-dividends": "tsx --conditions=react-server scripts/backfill-stock-dividends.ts",
     "seed:stock-daily-prices-recent": "tsx --conditions=react-server scripts/seed-stock-daily-prices-recent.ts",

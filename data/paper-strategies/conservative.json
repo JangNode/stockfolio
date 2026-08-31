@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "어제(8/28) 국내 스크리닝에 새 원 전략 'dh_value_dividend'(대형 배당·가치주, 시가총액/PER/PBR/배당 연속연수 기준의 단일 시점 재무 스냅샷 판정)가 추가됐습니다. lib/paperStrategy.ts 주석이 이 신규 rule_type을 안정형/공격형 중 어디에 반영할지는 이 Routine의 판단에 맡긴다고 명시하고 있어, 대형·배당·저변동 종목이라는 특성이 안정형의 방어·분산 목표와 정확히 부합한다고 보고 source_rule_types에 추가했습니다. 같은 날 등록된 'peg_lynch'(피터린치 PEG 성장주 전략)는 상대적으로 수익추구형 성격이 강해 이번엔 반영하지 않고, dh_value_dividend가 실제로 후보를 얼마나 채우는지 며칠 지켜본 뒤 판단하겠습니다. 나머지 수치 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)은 신호 품질/제외 기준에 변화가 없고 실제 체결 성과도 조회할 수 없어 그대로 유지합니다.",
-  "generated_at": "2026-08-28T06:03:04Z",
+  "rationale": "지난 금요일(8/28) source_rule_types에 dh_value_dividend를 추가했지만, 그 PR이 그날 스크리닝 배치(KST 14:30) 이후에 머지돼 실제로는 아직 한 번도 그 조건으로 스캔이 돌지 않았습니다(주말 휴장 포함) — 오늘(8/31) 14:30 배치가 사실상 첫 실측입니다. 아직 후보가 얼마나 채워지는지 확인할 데이터가 없어 진입 범위 등 수치 조건을 미리 손대지 않고 오늘 결과를 지켜보기로 했습니다. 주말 동안 저장소에 병합된 변경(금리/중앙은행 뉴스, 테마 등락률 순위, 팀 개발 워크플로 구성)은 스크리닝 후보 선정이나 신호 품질 기준과 무관해 조정 근거가 되지 않습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지하고, dh_value_dividend 실측 결과가 쌓이면 그때 진입 범위나 peg_lynch 편입 여부를 함께 재검토할 계획입니다.",
+  "generated_at": "2026-08-31T05:16:23Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "dh_value_dividend"],
     "min_signal_return_pct": -2,

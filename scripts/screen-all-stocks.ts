@@ -35,6 +35,7 @@ import {
 import { selectEpsCagrFiscalYears, computeEpsCagrFromResolvedShares, computePeg, type ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 import { DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
+import { THEME_CODES, THEME_LABELS, THEME_CONSTITUENTS_RETENTION_YEARS, type ThemeCode } from "@/lib/themeConfig";
 
 // ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
 // 종목명에 이 문자열이 포함되면 제외한다 (스팩).
@@ -225,6 +226,11 @@ function filterByMaster(
   return { survivors, counts };
 }
 
+export interface ChangeRateEntry {
+  name: string;
+  changeRate: number;
+}
+
 /**
  * 종목마스터에 없는 조건(시가총액, 동전주 여부)은 시세 조회로 걸러낸다. 이후 단계인
  * 일봉 수집(종목당 최대 3회 호출)보다 먼저 실행해, 여기서 제외되는 종목은 그 호출을
@@ -235,6 +241,7 @@ async function filterByQuote(
 ): Promise<{
   survivors: StockEntry[];
   marketCapByCode: Map<string, number>;
+  changeRateByCode: Map<string, ChangeRateEntry>;
   excludedCount: number;
   fetchErrors: number;
 }> {
@@ -242,6 +249,11 @@ async function filterByQuote(
   // 시세 필터 단계에서 이미 조회한 시가총액을 점수 계산(안정성 항목)에 재사용한다 —
   // 그 단계 이후 별도로 다시 조회하지 않는다.
   const marketCapByCode = new Map<string, number>();
+  // 테마별 등락률 집계(scripts 뒷부분)에 재사용하려고, 여기서 이미 조회한 전일대비
+  // 등락율을 시가총액/동전주 기준 통과 여부와 무관하게 모아둔다 — 새 KIS 호출을
+  // 늘리지 않기 위해서다. 저시가총액/동전주로 스크리닝 대상에서는 빠지더라도 테마
+  // 등락률 집계에는 포함시킨다(테마 대표성이 스크리닝 후보 조건과 같을 필요는 없다).
+  const changeRateByCode = new Map<string, ChangeRateEntry>();
   let excludedCount = 0;
   let fetchErrors = 0;
   let completed = 0;
@@ -252,6 +264,8 @@ async function filterByQuote(
         () => getStockPrice(stock.code, "batch"),
         `${stock.code}(${stock.name}) 시세 조회`
       );
+
+      changeRateByCode.set(stock.code, { name: stock.name, changeRate: price.changeRate });
 
       if (price.currentPrice < MIN_PRICE_WON || price.marketCapEok < MIN_MARKET_CAP_EOK) {
         excludedCount++;
@@ -279,7 +293,7 @@ async function filterByQuote(
     }
   });
 
-  return { survivors, marketCapByCode, excludedCount, fetchErrors };
+  return { survivors, marketCapByCode, changeRateByCode, excludedCount, fetchErrors };
 }
 
 interface ActiveRow {
@@ -568,13 +582,16 @@ async function runStrategyScan(
   return { matched, lowScore, errors };
 }
 
-/** 전종목을 스캔해 저장된 전략 조건을 새로 만족하는 종목을 screening_results에 추가한다. */
+/** 전종목을 스캔해 저장된 전략 조건을 새로 만족하는 종목을 screening_results에 추가한다.
+ * changeRateByCode는 테마별 등락률 집계(computeAndStoreThemeReturns)에 재사용한다 —
+ * 등록된 전략이 없어 시세 필터 자체를 돌지 않은 날은 빈 맵을 돌려주고, 그날은 테마
+ * 등락률 갱신도 건너뛴다(새 KIS 호출을 추가하지 않기 위해서다). */
 async function scanAllStocks(
   strategies: StrategyRow[]
-): Promise<{ scanned: number; matched: number; errors: number }> {
+): Promise<{ scanned: number; matched: number; errors: number; changeRateByCode: Map<string, ChangeRateEntry> }> {
   if (strategies.length === 0) {
     console.log("등록된 전략이 없어 스캔을 건너뜁니다.");
-    return { scanned: 0, matched: 0, errors: 0 };
+    return { scanned: 0, matched: 0, errors: 0, changeRateByCode: new Map() };
   }
 
   console.log("=== 2단계: 잡주 필터링 ===");
@@ -592,6 +609,7 @@ async function scanAllStocks(
   const {
     survivors: finalStocks,
     marketCapByCode,
+    changeRateByCode,
     excludedCount: quoteExcluded,
     fetchErrors: quoteFetchErrors,
   } = await filterByQuote(masterSurvivors);
@@ -657,7 +675,7 @@ async function scanAllStocks(
   console.log(
     `스캔 완료: 신규 매칭 ${totalMatched}건, 저점수(${MIN_SCREENING_SCORE}점 이하) 제외 ${totalLowScore}건, 오류 ${totalErrors}건`
   );
-  return { scanned: finalStocks.length, matched: totalMatched, errors: totalErrors };
+  return { scanned: finalStocks.length, matched: totalMatched, errors: totalErrors, changeRateByCode };
 }
 
 // dh_value_dividend처럼 KIS 일봉이 아니라 lib/stockDailyPricesStorage.ts(종가/시가총액/
@@ -848,6 +866,113 @@ async function scanFundamentalStrategies(
   return { matched, errors };
 }
 
+interface ThemeAggregate {
+  changeRateSum: number;
+  count: number;
+  upCount: number;
+  downCount: number;
+  constituents: { code: string; name: string; changeRate: number }[];
+}
+
+/**
+ * 테마(KRX 섹터, lib/themeConfig.ts)별 당일 등락률(구성종목 단순평균)을 집계해
+ * theme_daily_returns에 upsert한다. changeRateByCode는 시세 필터 단계
+ * (filterByQuote)에서 이미 조회한 전일대비등락율을 그대로 재사용한다 — 여기서
+ * 별도 KIS 호출을 하지 않는다. 종목마스터의 themeFlags로 종목을 테마에 배정하며,
+ * 한 종목이 여러 테마에 동시에 속할 수 있다.
+ */
+async function computeAndStoreThemeReturns(
+  changeRateByCode: Map<string, ChangeRateEntry>
+): Promise<{ updatedThemes: number }> {
+  if (changeRateByCode.size === 0) {
+    console.log("테마 등락률 집계에 쓸 시세가 없어 건너뜁니다.");
+    return { updatedThemes: 0 };
+  }
+
+  console.log("=== 5단계: 테마별 등락률 집계 ===");
+
+  const allStocks = await getAllStocks();
+  const aggregates = new Map<ThemeCode, ThemeAggregate>(
+    THEME_CODES.map((code) => [code, { changeRateSum: 0, count: 0, upCount: 0, downCount: 0, constituents: [] }])
+  );
+
+  for (const stock of allStocks) {
+    const entry = changeRateByCode.get(stock.code);
+    if (!entry) continue;
+
+    for (const themeCode of THEME_CODES) {
+      if (!stock.themeFlags[themeCode]) continue;
+      const agg = aggregates.get(themeCode)!;
+      agg.changeRateSum += entry.changeRate;
+      agg.count++;
+      if (entry.changeRate > 0) agg.upCount++;
+      else if (entry.changeRate < 0) agg.downCount++;
+      agg.constituents.push({ code: stock.code, name: entry.name, changeRate: entry.changeRate });
+    }
+  }
+
+  const today = todayKstDate();
+  const rows = THEME_CODES.filter((code) => aggregates.get(code)!.count > 0).map((code) => {
+    const agg = aggregates.get(code)!;
+    return {
+      trade_date: today,
+      theme_code: code,
+      change_rate_pct: agg.changeRateSum / agg.count,
+      constituent_count: agg.count,
+      up_count: agg.upCount,
+      down_count: agg.downCount,
+      constituents: agg.constituents,
+    };
+  });
+
+  if (rows.length === 0) {
+    console.log("구성종목 시세를 확인할 수 있는 테마가 없어 저장을 건너뜁니다.");
+    return { updatedThemes: 0 };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("theme_daily_returns")
+    .upsert(rows, { onConflict: "trade_date,theme_code" });
+
+  if (error) {
+    console.error(`테마 등락률 저장 실패: ${error.message}`);
+    return { updatedThemes: 0 };
+  }
+
+  console.log(
+    `테마 등락률 집계 완료: ${rows
+      .map((r) => `${THEME_LABELS[r.theme_code as ThemeCode]} ${r.change_rate_pct.toFixed(2)}%(${r.constituent_count}종목)`)
+      .join(", ")}`
+  );
+  return { updatedThemes: rows.length };
+}
+
+/** DB 용량 절약을 위해 THEME_CONSTITUENTS_RETENTION_YEARS(lib/themeConfig.ts)가 지난
+ * 행의 구성종목 상세(constituents)만 비운다 — 집계값(change_rate_pct 등)은 그대로
+ * 유지되므로 순위·복리 누적 계산에는 영향이 없다. 이미 비운 행은 다시 갱신 대상에서
+ * 빼서(constituents가 이미 빈 배열인 행 제외), 매일 실행돼도 갱신 행 수가 시간이
+ * 지날수록 무한히 늘어나지 않고 그날 새로 3년을 넘긴 행만큼만 갱신되게 한다. */
+async function cleanupOldThemeConstituents(): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - THEME_CONSTITUENTS_RETENTION_YEARS);
+  const cutoffDate = cutoff.toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+
+  const { data, error } = await supabaseAdmin
+    .from("theme_daily_returns")
+    .update({ constituents: [] })
+    .lt("trade_date", cutoffDate)
+    .not("constituents", "eq", "[]")
+    .select("theme_code");
+
+  if (error) {
+    console.error(`오래된 테마 구성종목 정리 실패: ${error.message}`);
+    return;
+  }
+  if (data && data.length > 0) {
+    console.log(`오래된(${cutoffDate} 이전) 테마 구성종목 상세 ${data.length}건 정리 완료`);
+  }
+}
+
 async function recordRun(
   startedAt: Date,
   scanned: number,
@@ -920,11 +1045,16 @@ async function main(): Promise<void> {
   const fundamentalStrategies = strategies.filter((s) => FUNDAMENTAL_RULE_TYPES.has(s.rule_type));
 
   await updateActiveTracking();
-  const { scanned, matched, errors } = await scanAllStocks(technicalStrategies);
+  const { scanned, matched, errors, changeRateByCode } = await scanAllStocks(technicalStrategies);
   const { matched: fundamentalMatched, errors: fundamentalErrors } =
     await scanFundamentalStrategies(fundamentalStrategies);
 
   await recordRun(startedAt, scanned, matched + fundamentalMatched, errors + fundamentalErrors);
+
+  // 스캔에서 이미 조회한 changeRate를 재사용하므로 추가 KIS 호출 없음. 같은 배치 끝에
+  // 이어붙여 별도 정리 배치를 두지 않는다(SKILLS.md 배치 스케줄링 방식 선택 참고).
+  await computeAndStoreThemeReturns(changeRateByCode);
+  await cleanupOldThemeConstituents();
 
   const elapsedSec = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
   const kisStats = getKisCallStats();

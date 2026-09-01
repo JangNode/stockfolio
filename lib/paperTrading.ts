@@ -89,11 +89,19 @@ export function selectBuyCandidates(
   const ranked = eligible.slice(0, selection.max_candidates_to_consider);
 
   const decisions: BuyDecision[] = [];
+  const pickedStockCodes = new Set<string>();
   let cash = startingCash;
   let slotsAvailable = entry.max_positions - currentPositionCount;
 
   for (const candidate of ranked) {
     if (slotsAvailable <= 0) break;
+    // 같은 종목이 서로 다른 rule_type/screening_result로 후보 목록에 중복으로 남아있을
+    // 수 있다(loadCandidates의 dedup은 종목+rule_type 단위라 rule_type이 다르면 걸러지지
+    // 않음). paper_positions는 (portfolio_id, stock_code) 유니크라 같은 실행에서 같은
+    // 종목을 두 번 매수 결정하면 두 번째 포지션 저장이 실패해 거래 기록만 남고 현금은
+    // 차감되지 않는데, 평가금액 계산은 이 결정 목록을 그대로 신뢰하므로 실제로 없는
+    // 포지션이 평가금액에 얹힌다(2026-09-01 급등주 계좌에서 실제 재현).
+    if (pickedStockCodes.has(candidate.stockCode)) continue;
 
     const budget = cash * (entry.position_size_pct / 100);
     const quantity = Math.floor(budget / candidate.currentPrice);
@@ -102,6 +110,7 @@ export function selectBuyCandidates(
     const amount = quantity * candidate.currentPrice;
     cash -= amount;
     slotsAvailable--;
+    pickedStockCodes.add(candidate.stockCode);
 
     const rankOrder = selection.prefer_higher_return_pct ? "상위" : "하위(눌림목)";
     decisions.push({

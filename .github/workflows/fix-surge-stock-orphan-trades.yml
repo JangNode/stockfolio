@@ -1,0 +1,29 @@
+name: (임시, 1회성) 급등주 고아 매수 기록 + 스냅샷 정리
+
+# 수동 실행 전용. DB에 쓰기가 있는 1회성 정리 작업(사용자 확인 완료) — 실행 후
+# 스크립트/워크플로는 정리 PR에서 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fix surge stock orphan trades and snapshot
+        run: npm run fix:surge-stock-orphan-trades
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 금요일(8/28) source_rule_types에 dh_value_dividend를 추가했지만, 그 PR이 그날 스크리닝 배치(KST 14:30) 이후에 머지돼 실제로는 아직 한 번도 그 조건으로 스캔이 돌지 않았습니다(주말 휴장 포함) — 오늘(8/31) 14:30 배치가 사실상 첫 실측입니다. 아직 후보가 얼마나 채워지는지 확인할 데이터가 없어 진입 범위 등 수치 조건을 미리 손대지 않고 오늘 결과를 지켜보기로 했습니다. 주말 동안 저장소에 병합된 변경(금리/중앙은행 뉴스, 테마 등락률 순위, 팀 개발 워크플로 구성)은 스크리닝 후보 선정이나 신호 품질 기준과 무관해 조정 근거가 되지 않습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지하고, dh_value_dividend 실측 결과가 쌓이면 그때 진입 범위나 peg_lynch 편입 여부를 함께 재검토할 계획입니다.",
-  "generated_at": "2026-08-31T05:16:23Z",
+  "rationale": "안정형이 dh_value_dividend를 처음 실측한 어제(8/31) 배치는 알고 보니 신뢰하기 어려운 상태였습니다 — dh_value_dividend/peg_lynch처럼 계정마다 한 행씩 시딩되는 전략은 같은 종목이 strategy_id만 다른 여러 screening_results 행으로 중복 매칭돼 매수 후보가 중복되고 포지션 저장이 실패하는 구조적 버그가 있었고, 이는 오늘 신설된 급등주(surge_stock) 스타일의 첫 실행에서 실제로 재현·확인되어 loadCandidates/selectBuyCandidates 수정으로 막 해결됐습니다. 즉 어제 실행 결과만으로 dh_value_dividend가 실제로 얼마나 후보를 채우는지 판단하기는 이르고, 오늘(9/1) 14:30 배치가 이 버그 수정 이후 첫 실측이 됩니다. 그래서 오늘도 수치 조건은 손대지 않고 유지하며, 결과가 안정적으로 쌓이는 걸 확인한 뒤 진입 범위·peg_lynch 편입 여부를 재검토하겠습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
+  "generated_at": "2026-09-01T05:14:07Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "dh_value_dividend"],
     "min_signal_return_pct": -2,

@@ -6,7 +6,7 @@
  * 확인 순서(사용자 요청 그대로):
  * 1) surge_stock 계좌의 paper_positions 전체 행
  * 2) 각 포지션의 screening_result_id로 screening_results 조인(current_price/entry_price/
- *    return_pct/created_at/status) — avg_price와 나란히 비교
+ *    return_pct/matched_at/status) — avg_price와 나란히 비교
  * 3) 오늘자 paper_trades(side=buy, surge_stock)의 실제 체결가
  * 4) paper_portfolios(surge_stock)의 cash/initial_capital
  * 5) paper_daily_snapshots(surge_stock) 최근 며칠치
@@ -57,7 +57,7 @@ interface ScreeningResultRow {
   signal_price: number;
   return_pct: number;
   status: string;
-  created_at: string;
+  matched_at: string;
   market: string;
 }
 
@@ -105,7 +105,7 @@ async function loadScreeningResults(ids: string[]): Promise<Map<string, Screenin
   if (ids.length === 0) return new Map();
   const { data, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, stock_code, stock_name, strategy_id, current_price, entry_price, signal_price, return_pct, status, created_at, market")
+    .select("id, stock_code, stock_name, strategy_id, current_price, entry_price, signal_price, return_pct, status, matched_at, market")
     .in("id", ids);
   if (error) throw new Error(`screening_results 조회 실패: ${error.message}`);
   return new Map((data ?? []).map((r) => [r.id as string, r as ScreeningResultRow]));
@@ -163,7 +163,7 @@ async function investigateStyle(portfolio: PortfolioRow, fullDetail: boolean): P
       console.log(
         `      [screening_results] id=${sr.id} strategy_id=${sr.strategy_id} stock=${sr.stock_name}(${sr.stock_code}) ` +
           `current_price=${fmt(sr.current_price)} entry_price=${fmt(sr.entry_price)} signal_price=${fmt(sr.signal_price)} ` +
-          `return_pct=${fmt(sr.return_pct)} status=${sr.status} created_at=${sr.created_at} market=${sr.market}`
+          `return_pct=${fmt(sr.return_pct)} status=${sr.status} matched_at=${sr.matched_at} market=${sr.market}`
       );
       console.log(
         `      => avg_price=${fmt(p.avg_price)} vs screening_results.current_price=${fmt(sr.current_price)} vs entry_price=${fmt(sr.entry_price)} ` +

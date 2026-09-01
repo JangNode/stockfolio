@@ -129,17 +129,29 @@ function addDays(dateStr: string, days: number): string {
 /** stockCodes 각각의 range 기간 등락률(%)을 계산한다. 시작/종료 기준가를 배치로
  * 한 번씩만 조회하므로(lib/stockDailyPricesStorage.ts의
  * getDailyPricesForStocksOnOrBefore) 종목 수와 무관하게 쿼리 횟수가 일정하다. 시작/종료
- * 둘 다 종가를 찾은 종목만 결과에 포함한다. */
+ * 둘 다 종가를 찾은 종목만 결과에 포함한다.
+ *
+ * periodStartDate === referenceEndDate(즉 daily 기간)일 때만 종료가를 그 날짜 그대로
+ * 정확히 맞춘다(maxLookbackDays=0, 폴백 없음) — stock_daily_prices_recent는 KRX 정산
+ * 데이터를 "오늘"은 빼고 다음 영업일 배치가 채우므로, 방금 지난 거래일의 데이터가
+ * 아직 안 채워졌을 수 있다. 이때 폴백을 허용하면 시작가(baselineDate)도 같은 이전
+ * 날짜로 떨어져 등락률이 우연히 0%로 계산된다("데이터 없음"이어야 정확함 —
+ * 2026-09-01 테마 등락률 전부 0.00%로 표시된 버그의 원인). 월별/년별은
+ * referenceEndDate가 달력상 월말/년말이라 주말·공휴일일 수 있어 폴백이 그대로
+ * 필요하다. */
 export async function computeStockReturnsForPeriod(
   stockCodes: string[],
   range: ResolvedThemePeriodRange
 ): Promise<Map<string, number>> {
   if (stockCodes.length === 0) return new Map();
 
+  const isSingleDay = range.periodStartDate === range.referenceEndDate;
   const baselineDate = addDays(range.periodStartDate, -1);
   const [startPrices, endPrices] = await Promise.all([
     getDailyPricesForStocksOnOrBefore(stockCodes, baselineDate),
-    getDailyPricesForStocksOnOrBefore(stockCodes, range.referenceEndDate),
+    isSingleDay
+      ? getDailyPricesForStocksOnOrBefore(stockCodes, range.referenceEndDate, 0)
+      : getDailyPricesForStocksOnOrBefore(stockCodes, range.referenceEndDate),
   ]);
 
   const result = new Map<string, number>();

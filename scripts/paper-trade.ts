@@ -213,7 +213,7 @@ async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> 
 
   const ruleTypeById = new Map((strategies ?? []).map((s) => [s.id, s.rule_type]));
 
-  return results
+  const mapped = results
     .filter((r) => ruleTypeById.has(r.strategy_id))
     .map((r) => ({
       screeningResultId: r.id,
@@ -225,6 +225,25 @@ async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> 
       market: r.market as Market,
       exchange: (r.exchange as string | null) ?? null,
     }));
+
+  // dh_value_dividend/peg_lynch/reversal_breakout처럼 계정마다 한 행씩 시딩되는
+  // rule_type(20260828030000_seed_dh_value_dividend_strategy.sql류 패턴)은 같은 종목이
+  // strategy_id(=계정)만 다른 채로 screening_results에 여러 번 찍힌다. 이 함수 이후
+  // 단계(selectBuyCandidates)는 후보를 종목 단위로 다루므로, 같은 종목을 중복으로
+  // 넘기면 종목당 포지션을 한 번만 열 수 있는 paper_positions unique 제약과 충돌해
+  // 두 번째 이후 매수 시도가 실패한다(2026-09-01 급등주 실행에서 실제 재현 — 004450/
+  // 256840 포지션 저장 실패). 종목+rule_type 단위로 중복 제거한다 — 같은 종목이 서로
+  // 다른 rule_type으로 매칭된 경우(예: minervini와 reversal_breakout 둘 다)는 별개
+  // 신호이므로 그대로 남긴다.
+  const seen = new Set<string>();
+  const deduped: typeof mapped = [];
+  for (const r of mapped) {
+    const key = `${r.stockCode}:${r.ruleType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(r);
+  }
+  return deduped;
 }
 
 interface PositionDbRow {

@@ -2,6 +2,7 @@ import "server-only";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { z } from "zod";
+import { PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 
 // 'custom'은 라우틴이 아니라 실험실 탭의 채택 플로우(app/api/lab/backtest/[id]/adopt)가
 // 직접 채워 넣는다 — data/paper-strategies/custom.json 파일은 존재하지 않는다.
@@ -11,8 +12,10 @@ import { z } from "zod";
 // loadStrategyFile이 항상 null을 반환하고, scripts/paper-trade.ts의
 // determineStrategyForToday는 그때마다 기존 활성 전략(마이그레이션이 심어둔 고정
 // 조건)을 그대로 유지한다.
-export type PaperStyle = "aggressive" | "conservative" | "custom" | "surge_stock";
-export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative", "custom", "surge_stock"];
+// PaperStyle 타입/스타일 목록은 lib/paperStyles.ts(서버·클라이언트 공용, server-only
+// 아님)가 유일한 출처다 — 여기서는 그대로 재노출만 한다.
+export type { PaperStyle };
+export const PAPER_STYLES = PAPER_STYLE_ORDER;
 
 // 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/dh_value_dividend/
 // peg_lynch/reversal_breakout)이 만들어내는 rule_type과 동일한 값. 새 원 전략이

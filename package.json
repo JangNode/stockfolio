@@ -22,7 +22,8 @@
     "update:stock-daily-prices-recent": "tsx --conditions=react-server scripts/update-stock-daily-prices-recent.ts",
     "archive:stock-daily-prices": "tsx --conditions=react-server scripts/archive-stock-daily-prices.ts",
     "migrate:stock-prices-bucket": "tsx --conditions=react-server scripts/migrate-stock-prices-bucket.ts",
-    "cleanup:dh-daily-prices-bucket": "tsx --conditions=react-server scripts/delete-old-dh-daily-prices-bucket.ts"
+    "cleanup:dh-daily-prices-bucket": "tsx --conditions=react-server scripts/delete-old-dh-daily-prices-bucket.ts",
+    "diagnose:reversal-breakout-backtest": "tsx --conditions=react-server scripts/diagnose-reversal-breakout-backtest.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

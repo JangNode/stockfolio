@@ -71,8 +71,11 @@ export function computeInverseAlignmentRatio(
 
 /** volumes[i]일 "직전" ACCUMULATION_LOOKBACK_DAYS일 평균 거래량(당일 제외)을 계산한다.
  * computeSMA(volumes, M)을 하루 밀어서(prevAvgVolume[i] = smaVolume[i-1]) 만든다 — 매집봉
- * 당일의 거대한 거래량이 그날의 "직전 평균"에 섞여 평균 자체를 왜곡하지 않게 한다. */
-function computePrevAverageVolume(volumes: number[]): (number | undefined)[] {
+ * 당일의 거대한 거래량이 그날의 "직전 평균"에 섞여 평균 자체를 왜곡하지 않게 한다.
+ * scripts/diagnose-reversal-breakout-backtest.ts(단계별 통과 종목 수 집계용 진단 스크립트,
+ * 확인 후 삭제 예정)가 findAccumulationBar 호출에 필요한 prevAvgVolume을 재구현하지
+ * 않고 그대로 재사용할 수 있도록 export한다. */
+export function computePrevAverageVolume(volumes: number[]): (number | undefined)[] {
   const sma = computeSMA(volumes, ACCUMULATION_LOOKBACK_DAYS);
   const shifted: (number | undefined)[] = new Array(volumes.length).fill(undefined);
   for (let i = 1; i < volumes.length; i++) shifted[i] = sma[i - 1];

@@ -15,6 +15,7 @@ import {
   type ListedSharesByFiscalYear,
 } from "@/lib/pegRatio";
 import { PEG_MAX_RATIO } from "@/lib/pegConfig";
+import { computeReversalBreakoutStates } from "@/lib/reversalBreakout";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
 // /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
@@ -112,13 +113,22 @@ export interface PegLynchParams {
   take_profit_pct?: number;
 }
 
+/** "급등주 찾기"(역배열 반등) 전략. DH전략/PEG전략과 같은 이유로 기준값(이동평균
+ * 기간, 역배열/매집봉/전환 신호 임계값)을 rule_params가 아니라 lib/reversalBreakoutConfig.ts
+ * 상수로 고정한다. */
+export interface ReversalBreakoutParams {
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+}
+
 /** rule_type과 rule_params를 항상 짝으로 다루기 위한 판별 유니언. */
 export type StrategyRule =
   | { rule_type: "ma_cross"; rule_params: MaCrossParams }
   | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams }
   | { rule_type: "custom_composite"; rule_params: CustomCompositeParams }
   | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams }
-  | { rule_type: "peg_lynch"; rule_params: PegLynchParams };
+  | { rule_type: "peg_lynch"; rule_params: PegLynchParams }
+  | { rule_type: "reversal_breakout"; rule_params: ReversalBreakoutParams };
 
 export type StrategyRuleType = StrategyRule["rule_type"];
 
@@ -542,6 +552,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   custom_composite: "state",
   dh_value_dividend: "state",
   peg_lynch: "state",
+  reversal_breakout: "state",
 };
 
 /**
@@ -577,6 +588,8 @@ function computeStates(
       return computeDhValueDividendStates(prices, fundamentals);
     case "peg_lynch":
       return computePegLynchStates(prices, fundamentals, listedSharesByFiscalYear);
+    case "reversal_breakout":
+      return computeReversalBreakoutStates(prices);
   }
 }
 
@@ -764,6 +777,14 @@ function computePegLynchEntryPrice(prices: DailyPrice[]): number {
 }
 
 /**
+ * reversal_breakout: minervini/custom_composite와 마찬가지로 상태 조건(이미 조건을
+ * 만족한 채로 매칭될 수 있음)이라 같은 방식(최근 20거래일 고점 돌파가)을 진입가로 쓴다.
+ */
+function computeReversalBreakoutEntryPrice(prices: DailyPrice[]): number {
+  return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
+}
+
+/**
  * 신호가 발생한 시점의 진입/손절/익절가를 계산한다. 손절가/익절가는 rule_params의
  * stop_loss_pct/take_profit_pct(기본 7%/20%)를 진입가 위에 적용한다. 진입가 자체는
  * 전략마다 성격이 달라 computeXEntryPrice로 분리돼 있다 (위 computeStates 디스패치와
@@ -789,6 +810,9 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       break;
     case "peg_lynch":
       entryPrice = computePegLynchEntryPrice(prices);
+      break;
+    case "reversal_breakout":
+      entryPrice = computeReversalBreakoutEntryPrice(prices);
       break;
   }
 

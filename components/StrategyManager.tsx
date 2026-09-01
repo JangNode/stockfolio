@@ -21,6 +21,7 @@ const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
   custom_composite: "커스텀 조건 조합",
   dh_value_dividend: "DH전략(대형 배당·가치주)",
   peg_lynch: "피터린치 PEG전략",
+  reversal_breakout: "급등주 찾기(역배열 반등)",
 };
 
 const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
@@ -34,6 +35,8 @@ const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
     "대형 배당·가치주를 노리는 전략입니다. 시가총액이 충분히 크면서 PER/PBR이 낮고(저평가) 배당을 여러 해 연속으로 지급해온 종목을 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/dhStrategyConfig.ts)에서 관리되며 종목마다 다르게 지정할 수 없습니다.",
   peg_lynch:
     "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
+  reversal_breakout:
+    "역배열(하락 추세) 상태에서 바닥을 다지다 대량 거래를 동반한 반등이 시작되는 시점을 포착하는 전략입니다. ① 최근 60거래일 중 70% 이상 이동평균이 역배열(20일선<60일선<112일선<244일선<448일선)이었고, ② 최근 20거래일 내 거래량이 직전 평균 대비 3배 이상인 양봉(매집봉)이 있었으며, ③ 현재가가 20일선을 최근 5거래일 이내에 돌파했으면 신호로 판단합니다. 기준값은 서버 설정(lib/reversalBreakoutConfig.ts)에서 관리됩니다.",
 };
 
 function describeParams(strategy: StrategyRow): string {
@@ -52,7 +55,11 @@ function describeParams(strategy: StrategyRow): string {
     if (take_profit_pct !== undefined) parts.push(`익절 ${take_profit_pct * 100}%`);
     return parts.length > 0 ? parts.join(", ") : "조건 미지정";
   }
-  if (strategy.rule_type === "dh_value_dividend" || strategy.rule_type === "peg_lynch") {
+  if (
+    strategy.rule_type === "dh_value_dividend" ||
+    strategy.rule_type === "peg_lynch" ||
+    strategy.rule_type === "reversal_breakout"
+  ) {
     return "서버 설정 기준값 적용";
   }
   const { short_period, long_period } = strategy.rule_params;

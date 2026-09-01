@@ -5,21 +5,30 @@ import { z } from "zod";
 
 // 'custom'은 라우틴이 아니라 실험실 탭의 채택 플로우(app/api/lab/backtest/[id]/adopt)가
 // 직접 채워 넣는다 — data/paper-strategies/custom.json 파일은 존재하지 않는다.
-export type PaperStyle = "aggressive" | "conservative" | "custom";
-export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
+// 'surge_stock'도 custom과 마찬가지로 라우틴이 아니라 마이그레이션
+// (20260831030000_seed_surge_stock_paper_style.sql)이 최초 1회 활성 행을 직접
+// 채운다 — data/paper-strategies/surge_stock.json 파일도 존재하지 않아
+// loadStrategyFile이 항상 null을 반환하고, scripts/paper-trade.ts의
+// determineStrategyForToday는 그때마다 기존 활성 전략(마이그레이션이 심어둔 고정
+// 조건)을 그대로 유지한다.
+export type PaperStyle = "aggressive" | "conservative" | "custom" | "surge_stock";
+export const PAPER_STYLES: PaperStyle[] = ["aggressive", "conservative", "custom", "surge_stock"];
 
 // 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/dh_value_dividend/
-// peg_lynch)이 만들어내는 rule_type과 동일한 값. 새 원 전략이 추가되면 여기도 같이
-// 늘어난다. custom_composite는 실험실에서 채택한 커스텀 전략이 스크리닝 신호원이 될
-// 때 쓴다(채택 플로우 작업에서 실제로 값이 채워지기 시작한다). dh_value_dividend/
-// peg_lynch를 실제로 참조하는 paper-strategies JSON을 만들지는 이 저장소 밖의 별도
-// Routine(매일 도는 전략 생성 세션)이 판단한다 — 여기서는 참조를 "허용"만 해둔다.
+// peg_lynch/reversal_breakout)이 만들어내는 rule_type과 동일한 값. 새 원 전략이
+// 추가되면 여기도 같이 늘어난다. custom_composite는 실험실에서 채택한 커스텀 전략이
+// 스크리닝 신호원이 될 때 쓴다(채택 플로우 작업에서 실제로 값이 채워지기 시작한다).
+// dh_value_dividend/peg_lynch를 실제로 참조하는 paper-strategies JSON을 만들지는 이
+// 저장소 밖의 별도 Routine(매일 도는 전략 생성 세션)이 판단한다 — 여기서는 참조를
+// "허용"만 해둔다. reversal_breakout은 'surge_stock' 스타일의 entry_conditions가
+// 참조한다(마이그레이션이 직접 시딩).
 const SOURCE_RULE_TYPES = [
   "ma_cross",
   "minervini_trend_template",
   "custom_composite",
   "dh_value_dividend",
   "peg_lynch",
+  "reversal_breakout",
 ] as const;
 
 // 매일 정해진 시각(paper-strategy.yml, screening.yml보다 앞선 KST 14:10)에 별도

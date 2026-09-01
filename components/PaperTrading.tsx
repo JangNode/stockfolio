@@ -8,14 +8,15 @@ import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, type Market } from "@/lib/market";
 
-type PaperStyle = "aggressive" | "conservative" | "custom";
+type PaperStyle = "aggressive" | "conservative" | "custom" | "surge_stock";
 type SubScreen = "overview" | "detail" | "trades" | "history";
 
-const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
+const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom", "surge_stock"];
 const STYLE_LABEL: Record<PaperStyle, string> = {
   aggressive: "공격형",
   conservative: "안정형",
   custom: "커스텀",
+  surge_stock: "급등주",
 };
 
 const SUB_SCREENS: { value: SubScreen; label: string }[] = [
@@ -359,7 +360,7 @@ function OverviewScreen({
   const today = todayKstDate();
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {STYLES.map((style) => {
         const portfolio = portfolios.find((p) => p.style === style);
         const styleSnapshots = snapshots.filter((s) => s.portfolio_id === portfolio?.id);

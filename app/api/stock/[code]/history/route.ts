@@ -61,13 +61,21 @@ export async function GET(
     );
   }
 
+  // minRows: 기본 조회 건수(500건)로는 부족한 전략(예: reversal_breakout, 최소 520건
+  // 필요)이 백테스트 화면에서 명시적으로 더 많은 건수를 요청할 때만 쓴다. 지정하지
+  // 않으면(다른 화면 전부) 기존 기본값 그대로 동작해야 하므로, 값이 없거나 파싱에
+  // 실패하면 조용히 무시한다(하위 호환 유지).
+  const minRowsParam = request.nextUrl.searchParams.get("minRows");
+  const minRows = minRowsParam ? Number(minRowsParam) : undefined;
+  const targetRows = minRows !== undefined && Number.isFinite(minRows) && minRows > 0 ? minRows : undefined;
+
   try {
     if (periodParam === "min") {
       const bars = await getIntradayBars(code, MINUTE_INTERVAL);
       return NextResponse.json(bars);
     }
 
-    const prices = await getDailyPrices(code, periodParam as ChartPeriod);
+    const prices = await getDailyPrices(code, periodParam as ChartPeriod, targetRows);
     return NextResponse.json(prices);
   } catch (error) {
     return NextResponse.json(

@@ -57,6 +57,7 @@ const STYLE_LABEL: Record<PaperStyle, string> = {
   aggressive: "공격형",
   conservative: "안정형",
   custom: "커스텀",
+  surge_stock: "급등주",
 };
 
 /**

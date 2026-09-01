@@ -42,7 +42,7 @@ import {
   type UnderlyingScreeningStatus,
 } from "@/lib/paperTrading";
 
-const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom"];
+const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom", "surge_stock"];
 const MARKETS: Market[] = ["KR", "US"];
 
 function parseTargetMarket(): Market {

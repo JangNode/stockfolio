@@ -401,6 +401,13 @@ async function runPortfolio(
     cash
   );
 
+  // 실제로 포지션 저장까지 성공한 매수만 평가금액에 반영한다(아래 3단계) — 매수
+  // 기록은 남았는데 포지션 저장이 실패한 경우(예: paper_positions의 (portfolio_id,
+  // stock_code) 유니크 제약 위반) buyDecisions 전체를 그대로 쓰면 실제로 없는 포지션이
+  // 평가금액에 얹힌다(2026-09-01 급등주 계좌에서 실제 재현 — cash+holdings가
+  // initial_capital보다 166,200원 많게 계산됨).
+  const successfulBuyDecisions: typeof buyDecisions = [];
+
   for (const decision of buyDecisions) {
     const { error: tradeError } = await supabaseAdmin.from("paper_trades").insert({
       portfolio_id: portfolio.id,
@@ -439,6 +446,7 @@ async function runPortfolio(
 
     cash -= decision.amount;
     buyCount++;
+    successfulBuyDecisions.push(decision);
     console.log(`    [${style}] ✓ 매수 ${decision.candidate.stockName}(${decision.candidate.stockCode}) ${decision.quantity}주 @${decision.candidate.currentPrice}`);
   }
 
@@ -449,7 +457,7 @@ async function runPortfolio(
       quantity: p.quantity,
       price: underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? p.avg_price,
     })),
-    ...buyDecisions.map((d) => ({
+    ...successfulBuyDecisions.map((d) => ({
       code: d.candidate.stockCode,
       quantity: d.quantity,
       price: d.candidate.currentPrice,

@@ -1,7 +1,7 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "지난 금요일(8/28) 안정형에 dh_value_dividend를 추가했는데, 그 PR이 그날 스크리닝 배치(KST 14:30) 이후에 머지돼 실제로는 아직 단 한 번도 그 조건으로 스캔이 돌지 않았습니다(주말 휴장 포함) — 오늘(8/31) 14:30 배치가 사실상 첫 실측입니다. peg_lynch를 공격형에 편입할지는 dh_value_dividend의 실제 작동을 지켜본 뒤 판단하기로 했었는데 아직 판단할 근거가 없어, 오늘도 결정을 미룹니다. 주말 동안 저장소에 병합된 변경(금리/중앙은행 뉴스, 테마 등락률 순위, 팀 개발 워크플로 구성)은 스크리닝 후보 선정이나 신호 품질 기준과 무관해 조정 근거가 되지 않습니다. 실제 체결 성과도 여전히 조회할 수 없어, 현재 설정(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개, ma_cross/minervini_trend_template)을 그대로 유지합니다.",
-  "generated_at": "2026-08-31T05:16:23Z",
+  "rationale": "어제(8/31) 신규 전략 '급등주 찾기'(reversal_breakout)가 추가되면서 AI 모의투자에 공격형/안정형과는 독립된 4번째 스타일 'surge_stock'이 별도로 신설됐습니다 — reversal_breakout은 그 전용 스타일이 참조하도록 설계된 조건이라 공격형에는 편입하지 않습니다. 더 중요한 발견은, dh_value_dividend/peg_lynch처럼 계정마다 한 행씩 시딩되는 전략은 같은 종목이 strategy_id만 다른 여러 screening_results 행으로 중복 매칭돼 매수 후보가 중복되고 포지션 저장이 실패하는 구조적 버그가 있었다는 점입니다(오늘 급등주 스타일 첫 실행에서 실제로 재현·확인, loadCandidates/selectBuyCandidates 수정으로 해결). 안정형이 dh_value_dividend를 쓰기 시작한 8/31 실행이 이 버그의 영향권에 있었을 수 있어, 공격형은 여전히 이 rule_type을 참조하지 않지만 안정형의 실측이 이제야 신뢰할 수 있는 상태가 된 셈이라 peg_lynch 편입 판단은 며칠 더 미룹니다. 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개, ma_cross/minervini_trend_template)은 그대로 유지합니다.",
+  "generated_at": "2026-09-01T05:14:07Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

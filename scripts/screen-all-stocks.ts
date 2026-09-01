@@ -23,6 +23,8 @@ import {
   type StrategyRuleType,
 } from "@/lib/backtest";
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
+import { buildReversalBreakoutSignalDetails } from "@/lib/reversalBreakout";
+import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
 import { getDailyPrice, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import {
   loadFundamentalsSeries,
@@ -152,9 +154,11 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
       const { ma_cross, rsi, volume_surge } = strategy.rule_params;
       const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
       target = Math.max(target, maxPeriod + 20);
+    } else if (strategy.rule_type === "reversal_breakout") {
+      target = Math.max(target, REVERSAL_BREAKOUT_MIN_HISTORY_ROWS);
     }
-    // dh_value_dividend는 KIS 일봉을 아예 안 쓰므로(scanFundamentalStrategies가 별도
-    // 경로로 처리) 여기 대상에서 제외한다 — target에 영향 없음.
+    // dh_value_dividend/peg_lynch는 KIS 일봉을 아예 안 쓰므로(scanFundamentalStrategies가
+    // 별도 경로로 처리) 여기 대상에서 제외한다 — target에 영향 없음.
   }
 
   return target;
@@ -541,6 +545,12 @@ async function runStrategyScan(
         continue;
       }
 
+      // reversal_breakout은 판단 근거(역배열 지속 비율, 매집봉 발생일/거래량 배수, 이평
+      // 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안 드러나므로 DH전략과 같은 이유로
+      // signal_details를 채운다 — 실제 판정에 쓴 계산 함수를 그대로 재사용한다.
+      const signalDetails =
+        strategy.rule_type === "reversal_breakout" ? buildReversalBreakoutSignalDetails(evalPrices) : undefined;
+
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
         strategy_id: strategy.id,
         stock_code: stockCode,
@@ -554,6 +564,7 @@ async function runStrategyScan(
         status: "active",
         score,
         market: "KR",
+        ...(signalDetails ? { signal_details: signalDetails } : {}),
       });
 
       if (insertError) {

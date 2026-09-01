@@ -10,6 +10,7 @@ import { formatPrice } from "@/lib/market";
 import SubTabs, { STRATEGY_BACKTEST_TABS } from "@/components/SubTabs";
 import type { FundamentalsSeries } from "@/lib/pointInTimeFundamentals";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
+import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
 
 // dh_value_dividend/peg_lynch는 KIS 일봉이 아니라 DH 가격 레이어+재무 이력을 쓰므로
 // /api/stock/[code]/fundamentals-backtest를 통해 별도로 데이터를 가져와야 한다.
@@ -157,9 +158,15 @@ export default function Backtest({ user }: { user: User }) {
         fundamentals = data.fundamentals as FundamentalsSeries;
         listedSharesByFiscalYear = new Map(data.listedSharesByFiscalYear) as ListedSharesByFiscalYear;
       } else {
-        // 그 외 전략(이평 교차, 미너비니, 커스텀 등)은 전부 일봉 기준이므로 항상 KIS 일봉을 가져온다.
+        // 그 외 전략(이평 교차, 미너비니, 커스텀, 급등주 찾기 등)은 전부 일봉 기준이므로
+        // 항상 KIS 일봉을 가져온다. reversal_breakout은 기본 조회 건수(500건)로는
+        // 부족해(최소 507건, 여유를 둔 최소 상수 520건 필요) minRows를 명시적으로 붙인다.
+        const minRowsQuery =
+          selectedStrategy.rule_type === "reversal_breakout"
+            ? `&minRows=${REVERSAL_BREAKOUT_MIN_HISTORY_ROWS}`
+            : "";
         const historyRes = await authFetch(
-          `/api/stock/${resolved.code}/history?period=D&market=${market}`
+          `/api/stock/${resolved.code}/history?period=D&market=${market}${minRowsQuery}`
         );
         const historyData: DailyPrice[] | { error: string } = await historyRes.json();
         if (!historyRes.ok) {

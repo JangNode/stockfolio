@@ -1,6 +1,13 @@
 import { computeSMA } from "@/lib/sma";
 import { computeRSI } from "@/lib/backtest";
 import type { CustomCompositeParams, DailyPrice, StrategyRule } from "@/lib/backtest";
+import { buildReversalBreakoutSignalDetails } from "@/lib/reversalBreakout";
+import {
+  REVERSAL_BREAKOUT_MA_PERIODS,
+  BREAKOUT_MA_PERIOD,
+  BREAKOUT_LOOKBACK_DAYS,
+  ACCUMULATION_VOLUME_MULTIPLIER,
+} from "@/lib/reversalBreakoutConfig";
 
 // 배점: 조건 충족도(40) + 추세 강도(25) + 거래량 신뢰도(20) + 안정성(15) = 100.
 const CONDITION_WEIGHT = 40;
@@ -22,6 +29,7 @@ const VOLATILITY_FULL_PENALTY_PCT = 5; // 최근 일간 변동성 표준편차�
 const RSI_MARGIN_FULL_SCORE = 10; // RSI가 임계값보다 10 이상 여유 있으면 해당 조건 만점
 const VOLUME_SURGE_MARGIN_FULL_SCORE = 1; // 실제 거래량 배율이 요구 배율보다 1배 이상 더 크면 해당 조건 만점
 const CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS = 20; // 어떤 조건도 지정되지 않았을 때 쓸 최소 기준 봉 수
+const REVERSAL_BREAKOUT_MA20_GAP_FULL_SCORE_PCT = 5; // 현재가가 MA20보다 5% 이상 높으면 조건 충족도 만점
 
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
@@ -68,6 +76,39 @@ function computeCustomCompositeConditionScore(prices: DailyPrice[], params: Cust
   return avgScore * CONDITION_WEIGHT;
 }
 
+/**
+ * reversal_breakout 조건 충족도: MA20 이격도(현재가가 MA20보다 얼마나 높은지) + 전환
+ * 신선도(돌파한 지 얼마 안 됐는지, 1에 가까울수록 방금 돌파) + 거래량 배수 여유분
+ * (매집봉 거래량이 기준 배수를 얼마나 넘겼는지)을 각각 0~1로 정규화해 평균한다.
+ * buildReversalBreakoutSignalDetails가 실제 매칭 판정과 같은 계산 함수를 재사용해
+ * 만든 원시값을 그대로 쓴다(재계산하지 않음).
+ */
+function computeReversalBreakoutConditionScore(prices: DailyPrice[]): number {
+  const closes = prices.map((p) => p.close);
+  const i = prices.length - 1;
+  const details = buildReversalBreakoutSignalDetails(prices);
+  const subScores: number[] = [];
+
+  const ma20 = computeSMA(closes, BREAKOUT_MA_PERIOD)[i];
+  if (ma20 !== undefined && ma20 > 0) {
+    const gapPct = ((closes[i] - ma20) / ma20) * 100;
+    subScores.push(clamp01(gapPct / REVERSAL_BREAKOUT_MA20_GAP_FULL_SCORE_PCT));
+  }
+
+  if (details.breakout_days_since !== null) {
+    subScores.push(clamp01(1 - (details.breakout_days_since - 1) / BREAKOUT_LOOKBACK_DAYS));
+  }
+
+  if (details.accumulation_volume_multiple !== null) {
+    const marginMultiple = details.accumulation_volume_multiple - ACCUMULATION_VOLUME_MULTIPLIER;
+    subScores.push(clamp01(marginMultiple / VOLUME_SURGE_MARGIN_FULL_SCORE));
+  }
+
+  if (subScores.length === 0) return 0;
+  const avgScore = subScores.reduce((a, b) => a + b, 0) / subScores.length;
+  return avgScore * CONDITION_WEIGHT;
+}
+
 /** 조건 충족도: ma_cross는 골든크로스 직후 단기·장기 이평선 격차, minervini는 현재가와 이평선들 사이 이격도. */
 function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number {
   const closes = prices.map((p) => p.close);
@@ -85,6 +126,10 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
 
   if (rule.rule_type === "custom_composite") {
     return computeCustomCompositeConditionScore(prices, rule.rule_params);
+  }
+
+  if (rule.rule_type === "reversal_breakout") {
+    return computeReversalBreakoutConditionScore(prices);
   }
 
   // dh_value_dividend/peg_lynch는 이평선/추세 기반 품질 점수 체계와 안 맞는
@@ -114,6 +159,12 @@ function referenceLongPeriod(rule: StrategyRule): number {
   // 오면 안 된다.
   if (rule.rule_type === "dh_value_dividend" || rule.rule_type === "peg_lynch") {
     return CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS;
+  }
+
+  // reversal_breakout: 역배열 이력 판정에 쓰는 이동평균 중 가장 긴 기간(448일)이
+  // 추세 강도(장기 이평선 상승 기울기) 계산의 기준이 된다.
+  if (rule.rule_type === "reversal_breakout") {
+    return Math.max(...REVERSAL_BREAKOUT_MA_PERIODS);
   }
 
   const { ma_cross, rsi, volume_surge } = rule.rule_params;

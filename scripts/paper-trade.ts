@@ -30,7 +30,8 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { loadStrategyFile, type PaperStrategyConditions, type PaperStyle } from "@/lib/paperStrategy";
+import { loadStrategyFile, type PaperStrategyConditions } from "@/lib/paperStrategy";
+import { PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 import type { Market } from "@/lib/market";
 import { determineUsBatchSchedule } from "@/lib/usMarketCalendar";
 import {
@@ -42,7 +43,7 @@ import {
   type UnderlyingScreeningStatus,
 } from "@/lib/paperTrading";
 
-const STYLES: PaperStyle[] = ["aggressive", "conservative", "custom", "surge_stock"];
+const STYLES = PAPER_STYLE_ORDER;
 const MARKETS: Market[] = ["KR", "US"];
 
 function parseTargetMarket(): Market {

@@ -1,4 +1,5 @@
-import type { PaperStrategyConditions, PaperStyle } from "@/lib/paperStrategy";
+import type { PaperStrategyConditions } from "@/lib/paperStrategy";
+import { PAPER_STYLE_LABEL, type PaperStyle } from "@/lib/paperStyles";
 import type { Market } from "@/lib/market";
 
 // 매매 판단에는 조건 3종만 있으면 되고 label/rationale/generated_at은 필요 없다 —
@@ -53,12 +54,7 @@ export interface BuyDecision {
   rationale: string;
 }
 
-const STYLE_LABEL: Record<PaperStyle, string> = {
-  aggressive: "공격형",
-  conservative: "안정형",
-  custom: "커스텀",
-  surge_stock: "급등주",
-};
+const STYLE_LABEL = PAPER_STYLE_LABEL;
 
 /**
  * 전략의 진입조건/종목선정기준을 스크리닝 후보 목록에 기계적으로 대입해 매수 결정을

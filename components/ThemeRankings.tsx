@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
 import type { ThemeCode } from "@/lib/themeConfig";
@@ -112,6 +112,41 @@ export default function ThemeRankings() {
   const [dateValue, setDateValue] = useState(today);
   const [monthValue, setMonthValue] = useState(`${currentYear}-${currentMonth}`);
   const [yearValue, setYearValue] = useState(currentYear);
+
+  // dateValue/monthValue/yearValue는 useState 초기값이라 컴포넌트가 처음 마운트된
+  // 시점의 "오늘"에 멈춰 있다 — 리렌더는 매번 today를 새로 계산해도 이 state들은
+  // 안 바뀐다. 탭을 자정 너머로 계속 열어두면(리로드 없이) 날짜 선택값이 마운트
+  // 당시 날짜에 고정된 채 계속 그 날짜로만 조회하게 된다(예: 9/1에 연 탭을 9/3에
+  // 봐도 "9/1 기준"으로 남아있어 마치 데이터가 갱신 안 되는 것처럼 보임 — 실제로는
+  // DB/배치는 매일 정상 갱신되고 있었다). 아직 사용자가 직접 다른 날짜를 고르지
+  // 않았다면(기본값 그대로라면) 탭에 포커스가 돌아올 때 "오늘" 기준을 다시 맞춘다.
+  const defaultDateRef = useRef(today);
+  const defaultMonthRef = useRef(`${currentYear}-${currentMonth}`);
+  const defaultYearRef = useRef(currentYear);
+
+  useEffect(() => {
+    function syncToToday() {
+      const freshToday = todayKstIsoDate();
+      const freshYear = freshToday.slice(0, 4);
+      const freshMonth = freshToday.slice(5, 7);
+      const freshMonthValue = `${freshYear}-${freshMonth}`;
+
+      setDateValue((current) => (current === defaultDateRef.current ? freshToday : current));
+      setMonthValue((current) => (current === defaultMonthRef.current ? freshMonthValue : current));
+      setYearValue((current) => (current === defaultYearRef.current ? freshYear : current));
+
+      defaultDateRef.current = freshToday;
+      defaultMonthRef.current = freshMonthValue;
+      defaultYearRef.current = freshYear;
+    }
+
+    document.addEventListener("visibilitychange", syncToToday);
+    window.addEventListener("focus", syncToToday);
+    return () => {
+      document.removeEventListener("visibilitychange", syncToToday);
+      window.removeEventListener("focus", syncToToday);
+    };
+  }, []);
 
   function handlePeriodChange(next: ThemePeriod) {
     setPeriod(next);

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
+import { authJsonFetcher } from "@/lib/authFetch";
 import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
@@ -217,12 +218,15 @@ function usePositions() {
     const priceById = new Map<string, number>();
     const scoreById = new Map<string, number | null>();
     if (screeningIds.length > 0) {
-      const { data: screeningRows, error: screeningError } = await supabase
-        .from("screening_results")
-        .select("id, current_price, score")
-        .in("id", screeningIds);
-      if (screeningError) throw screeningError;
-      for (const row of screeningRows ?? []) {
+      // screening_results는 "그 행의 전략이 로그인한 사용자 소유일 때만" 읽을 수
+      // 있는 RLS 정책이라(스크리닝 화면 전용) 여기서 클라이언트가 직접 조회하면 안
+      // 된다 — AI 모의투자 후보는 계정과 무관한 전략(reversal_breakout 등, 계정마다
+      // 시딩됨)도 참조하므로 다른 계정 소유 행은 못 읽어 현재가가 항상 매수가로
+      // 대체 표시된다. 서버 admin 권한으로 대신 조회하는 API 라우트를 거친다.
+      const { prices } = await authJsonFetcher<{
+        prices: { id: string; current_price: number; score: number | null }[];
+      }>(`/api/paper-trading/screening-prices?ids=${screeningIds.join(",")}`);
+      for (const row of prices) {
         priceById.set(row.id, row.current_price);
         scoreById.set(row.id, row.score);
       }

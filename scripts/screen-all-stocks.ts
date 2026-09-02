@@ -25,7 +25,7 @@ import {
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 import { buildReversalBreakoutSignalDetails } from "@/lib/reversalBreakout";
 import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
-import { getDailyPrice, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
+import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import {
   loadFundamentalsSeries,
   loadFundamentalsSeriesWithListedShares,
@@ -510,13 +510,18 @@ async function runStrategyScan(
         }
 
         const today = prices[prices.length - 1].date;
+        // stock_daily_prices_recent(DH 가격 레이어)는 update-stock-daily-prices-recent.ts가
+        // "오늘"을 빼고 어제까지만 채운다(KRX 정산 데이터가 당일엔 확정 안 됨) — 정확히
+        // 오늘 날짜만 조회하면 구조적으로 항상 못 찾는다(2026-09-02 실데이터로 확인: 이
+        // 조건에 걸리는 종목이 매일 0건). 가장 최근 거래일로 폴백해 시가총액/상장주식수를
+        // 구한다.
         const [priceRow, fundamentalsData] = await Promise.all([
-          getDailyPrice(stockCode, today),
+          getDailyPriceOnOrBefore(stockCode, today),
           needsListedShares
             ? loadFundamentalsSeriesWithListedShares(stockCode)
             : loadFundamentalsSeries(stockCode).then((series) => ({ series, listedSharesByFiscalYear: undefined })),
         ]);
-        if (!priceRow) continue; // DH 가격 레이어에 오늘자 데이터 없음(백필 하한 미달 등) — 판정 불가로 건너뜀
+        if (!priceRow) continue; // DH 가격 레이어에 최근 데이터 없음(백필 하한 미달 등) — 판정 불가로 건너뜀
 
         evalPrices = [
           ...prices.slice(0, -1),
@@ -801,13 +806,17 @@ async function scanFundamentalStrategies(
 
   await runWithConcurrency(candidates, BATCH_CONCURRENCY, async (stock) => {
     try {
+      // stock_daily_prices_recent는 update-stock-daily-prices-recent.ts가 "오늘"을 빼고
+      // 어제까지만 채운다(KRX 정산 데이터가 당일엔 확정 안 됨) — 정확히 오늘 날짜만
+      // 조회하면 구조적으로 항상 못 찾아 이 스캔이 매일 0건만 나오는 원인이었다
+      // (2026-09-02 실데이터로 확인). 가장 최근 거래일로 폴백한다.
       const [priceRow, fundamentalsData] = await Promise.all([
-        getDailyPrice(stock.code, today),
+        getDailyPriceOnOrBefore(stock.code, today),
         needsListedShares
           ? loadFundamentalsSeriesWithListedShares(stock.code)
           : loadFundamentalsSeries(stock.code).then((series) => ({ series, listedSharesByFiscalYear: undefined })),
       ]);
-      if (!priceRow) return; // 오늘 시세 없음(휴장, 데이터 지연 등)
+      if (!priceRow) return; // 최근 시세 없음(백필 하한 미달 등)
       const { series: fundamentals, listedSharesByFiscalYear } = fundamentalsData;
 
       const prices: DailyPrice[] = [

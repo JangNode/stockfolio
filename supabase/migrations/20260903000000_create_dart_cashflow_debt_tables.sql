@@ -1,9 +1,9 @@
 -- RIM/DCF 적정주가 계산용 선행 데이터(현금흐름표, 부채구조). DART fnlttSinglAcntAll
 -- (단일회사 전체 재무제표)을 종목×연도별로 호출해 채운다 —
 -- scripts/backfill-dart-cashflow-debt.ts, lib/dartValuationConfig.ts 참고.
--- rcept_date(접수일자)가 point-in-time 판정 기준이다(dart_cashflow_debt_config의
--- fiscal_year 자체는 정렬/필터 용도로만 쓰지 않는다 — stock_annual_fundamentals와
--- 동일한 이유, 20260826000000_create_dart_tables.sql 주석 참고).
+-- rcept_date(접수일자)가 point-in-time 판정 기준이다(이 두 표의 fiscal_year 자체는
+-- 정렬/필터 용도로만 쓰지 않는다 — stock_annual_fundamentals와 동일한 이유,
+-- 20260827050000_create_dh_strategy_backfill_tables.sql 주석 참고).
 --
 -- fs_div(연결 CFS/별도 OFS)는 "연결 우선, 없으면 별도 폴백"이 실제로 어느 쪽으로
 -- 채워졌는지 검증 가능하게 하려고 남겨둔다.

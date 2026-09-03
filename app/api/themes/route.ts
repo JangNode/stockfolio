@@ -26,23 +26,25 @@ interface ThemeRankingItem {
   insufficientData: boolean;
 }
 
-interface TodayThemeRow {
+interface StoredThemeRow {
   theme_code: string;
   change_rate_pct: number;
   constituent_count: number;
 }
 
-/** 오늘 하루치는 scripts/screen-all-stocks.ts가 KIS 원값(전일대비등락율)을 그대로
- * 집계해둔 theme_daily_returns를 쓴다 — 재계산하지 않는다. */
-async function fetchTodayThemeRankings(today: string): Promise<ThemeRankingItem[]> {
+/** scripts/screen-all-stocks.ts가 KIS 원값(전일대비등락율)을 그대로 집계해둔
+ * theme_daily_returns를 특정 날짜 기준으로 읽는다 — 해당 날짜 행이 하나도 없으면
+ * null을 반환해 호출부가 재계산 경로로 폴백하게 한다. */
+async function fetchStoredThemeRankings(date: string): Promise<ThemeRankingItem[] | null> {
   const { data, error } = await supabaseAdmin
     .from("theme_daily_returns")
     .select("theme_code, change_rate_pct, constituent_count")
-    .eq("trade_date", today);
+    .eq("trade_date", date);
 
-  if (error) throw new Error(`오늘자 테마 등락률 조회 실패: ${error.message}`);
+  if (error) throw new Error(`저장된 테마 등락률 조회 실패: ${error.message}`);
+  if (!data || data.length === 0) return null;
 
-  const rowsByTheme = new Map((data as TodayThemeRow[] | null ?? []).map((r) => [r.theme_code, r]));
+  const rowsByTheme = new Map((data as StoredThemeRow[]).map((r) => [r.theme_code, r]));
 
   return THEME_CODES.map((code) => {
     const row = rowsByTheme.get(code);
@@ -89,9 +91,10 @@ function outOfRangeThemes(): ThemeRankingItem[] {
   }));
 }
 
-/** scripts/screen-all-stocks.ts가 매일 채워 넣는 테마별 등락률(theme_daily_returns,
- * 오늘치만)과 lib/themeReturns.ts의 기간별 계산(그 외 일자/월별/년별)을 조합해 테마
- * 순위를 내려준다. */
+/** scripts/screen-all-stocks.ts가 매일 채워 넣는 테마별 등락률(theme_daily_returns)을
+ * daily 기간에서는 항상 우선 조회하고, 저장된 행이 없을 때만(오래된 날짜 등)
+ * lib/themeReturns.ts의 재계산 경로로 폴백한다. 월별/년별은 일자별 저장이 없어
+ * 항상 재계산한다. */
 export async function GET(request: Request) {
   const denied = await requireApproved(request);
   if (denied) return denied;
@@ -114,10 +117,12 @@ export async function GET(request: Request) {
     const outOfRange = !range.isToday && !isThemePeriodRangeAvailable(range, today);
 
     const themes = range.isToday
-      ? await fetchTodayThemeRankings(today)
+      ? (await fetchStoredThemeRankings(today)) ?? outOfRangeThemes()
       : outOfRange
         ? outOfRangeThemes()
-        : await fetchComputedThemeRankings(range);
+        : period === "daily"
+          ? (await fetchStoredThemeRankings(range.referenceEndDate)) ?? (await fetchComputedThemeRankings(range))
+          : await fetchComputedThemeRankings(range);
 
     themes.sort((a, b) => {
       if (a.changeRatePct === null) return 1;

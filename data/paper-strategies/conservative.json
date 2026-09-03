@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "어제(9/1)는 후보 중복 매칭 버그 수정 이후 dh_value_dividend의 첫 클린 실행일이었는데, 그 직전 진단(diagnose-dh-peg-strategy-matching)에서 dh_value_dividend/peg_lynch가 애초에 스크리닝 매칭 0건이었던 정황이 있었고 그 원인(기준값이 과도하게 엄격한지 등)에 대한 별도 수정은 아직 없습니다. 즉 dh_value_dividend를 포함시킨 게 지금 시점엔 후보를 전혀 늘리지 못하고 있을 수 있어, 진입 범위 같은 수치 조건을 지금 조정할 근거가 없습니다. 어제 이후 저장소 변경은 테마 등락률 0% 표시 버그 수정뿐으로 스크리닝/모의투자와는 무관합니다. 실제 체결 성과도 여전히 조회할 수 없어, 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지하고 dh_value_dividend 매칭 상황을 계속 지켜보겠습니다.",
-  "generated_at": "2026-09-02T05:16:06Z",
+  "rationale": "어제(9/2) dh_value_dividend/peg_lynch가 매일 0건만 나오던 진짜 구조적 원인이 수정됐습니다 — 오늘 정확한 날짜의 시세만 조회하다 보니 '오늘' 행이 애초에 존재하지 않는 표를 조회해 항상 걸러졌던 버그였고, 직전 거래일 종가로 폴백하도록 고쳐졌습니다. 다만 이 수정은 어제 14:30 스크리닝 배치 이후에 머지돼, 오늘(9/3) 14:30 배치가 dh_value_dividend가 실제로 후보를 만들어낼 수 있는 첫 실행입니다. 후보가 얼마나 나오는지 아직 확인 전이라 진입 범위 등 수치 조건은 손대지 않고, 오늘 결과를 보고 나서(후보가 과다/과소하면) 조정하겠습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
+  "generated_at": "2026-09-03T05:14:46Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "dh_value_dividend"],
     "min_signal_return_pct": -2,

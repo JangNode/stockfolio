@@ -1,7 +1,7 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "어제(9/1)는 dh_value_dividend/peg_lynch 후보 중복 매칭 버그 수정 이후 첫 클린 실행일이었지만, 그 직전 진단(diagnose-dh-peg-strategy-matching)에서 애초에 두 전략이 스크리닝에서 매칭 0건이었던 정황이 있었고 그 원인에 대한 별도 수정 커밋은 아직 없습니다 — 즉 안정형에 넣어둔 dh_value_dividend가 현재 기준값으로는 실제 후보를 전혀 못 만들고 있을 가능성이 있어, peg_lynch를 공격형에 편입할지 판단할 근거(안정형에서의 실측 성과)가 여전히 부족합니다. 어제 이후 저장소 변경은 테마 등락률 0% 표시 버그 수정뿐으로 스크리닝/모의투자와는 무관합니다. 실제 체결 성과도 이 세션에서 여전히 조회할 수 없어, 근거 없이 조건을 흔들기보다 현재 설정(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개, ma_cross/minervini_trend_template)을 그대로 유지합니다.",
-  "generated_at": "2026-09-02T05:16:06Z",
+  "rationale": "어제(9/2) dh_value_dividend/peg_lynch(및 custom_composite 펀더멘털 조건)가 매일 0건만 나오던 진짜 구조적 원인이 수정됐습니다 — 오늘 정확한 날짜의 시세만 조회하다 보니 '오늘' 행이 애초에 존재하지 않는 표를 조회해 항상 걸러졌던 버그였고, 직전 거래일 종가로 폴백하도록 고쳐졌습니다. 다만 이 수정은 어제 14:30 스크리닝 배치 이후에 머지돼, 오늘(9/3) 14:30 배치가 dh_value_dividend가 실제로 후보를 만들어낼 수 있는 첫 실행입니다. 아직 결과를 확인하지 못했으니 peg_lynch의 공격형 편입 판단은 오늘 안정형에서의 실측을 보고 나서 하겠습니다. 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개, ma_cross/minervini_trend_template)은 그대로 유지합니다.",
+  "generated_at": "2026-09-03T05:14:46Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

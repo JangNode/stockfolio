@@ -1,4 +1,4 @@
-name: 종목 재무 원자료 백필 - DART 재무제표 (2단계)
+name: 종목 재무 원자료 백필 - DART 재무제표/현금흐름/부채 (2단계)
 
 # 최초 백필은 1단계(KRX 시세 백필)가 먼저 끝나 있어야 후보종목 발굴이 된다.
 # (stock_code, fiscal_year) 조합이 이미 있으면 건너뛰는 idempotent 스크립트라, 상시
@@ -8,6 +8,11 @@ name: 종목 재무 원자료 백필 - DART 재무제표 (2단계)
 # corp_code 동기화)와 겹치지 않는 시간대를 골랐고, 연 1회짜리 아카이빙 워크플로와
 # 같은 이유로 GitHub Actions의 schedule 지연은 이 작업엔 영향이 없어 pg_cron 대신
 # 그냥 schedule을 쓴다.
+#
+# RIM/DCF용 현금흐름표/부채구조 백필(scripts/backfill-dart-cashflow-debt.ts)도 같은
+# 원자료(DART fnlttSinglAcntAll) 성격이라 새 워크플로를 따로 만들지 않고 같은
+# 스케줄에 얹는다(SKILLS.md 배치 스케줄링 원칙 — 하루 정도 늦어도 무방한 정적
+# 데이터라 pg_cron까지 갈 필요 없음).
 on:
   schedule:
     - cron: "0 2 5 1,4,7,10 *"
@@ -16,9 +21,9 @@ on:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    # 후보종목×연도 조합 수천 건, DART 일일 한도 40,000회 안에서 한 번에 끝날 것으로
-    # 예상되지만 넉넉히 잡는다.
-    timeout-minutes: 120
+    # 후보종목×연도 조합 수천 건씩 두 스텝, DART 일일 한도 40,000회 안에서 한 번에
+    # 끝날 것으로 예상되지만 넉넉히 잡는다.
+    timeout-minutes: 180
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,6 +39,13 @@ jobs:
 
       - name: Backfill DART fundamentals
         run: npm run backfill:stock-annual-fundamentals
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Backfill DART cashflow/debt
+        run: npm run backfill:dart-cashflow-debt
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

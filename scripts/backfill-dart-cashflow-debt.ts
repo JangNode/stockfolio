@@ -39,9 +39,15 @@ import {
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DATA_SOURCE = "dart_cashflow_debt" as const;
-const CONCURRENCY = 8;
-const CALL_RETRY_COUNT = 2;
-const CALL_RETRY_DELAY_MS = 1500;
+// 2026-09-03 최초 실행 실측: CONCURRENCY=8로 짧은 시간에 대량 호출(최대 3530건×
+// 최대 2회(CFS/OFS))하니 "fetch failed"(네트워크 단계 오류, DART가 상태코드 없이
+// 연결을 끊는 것으로 추정)가 발생했고, 재시도 2회/1.5초로는 회복되지 않았다. 곧바로
+// 재실행하니 오히려 실패율이 더 올라갔다(560→842건, 16%→93%) — 짧은 재시도
+// 간격이 아니라 API 키 단위의 일시적 제한(burst rate limit)일 가능성이 높다고
+// 판단해, 동시성을 대폭 낮추고 재시도 간격을 지수 백오프로 늘렸다.
+const CONCURRENCY = 2;
+const CALL_RETRY_COUNT = 3;
+const CALL_RETRY_BASE_DELAY_MS = 5000;
 
 // 1단계(scripts/backfill-stock-daily-prices.ts)의 BACKFILL_START_YEAR와 동일해야
 // 후보종목이 빠짐없이 뽑힌다(scripts/backfill-stock-annual-fundamentals.ts와 동일).
@@ -209,7 +215,10 @@ async function fetchStatements(
       };
     } catch (error) {
       lastError = error;
-      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_DELAY_MS);
+      // 지수 백오프(5초, 10초, 20초) — burst rate limit으로 추정되는 "fetch failed"가
+      // 짧은 고정 간격 재시도로는 회복되지 않았던 실측 결과를 반영했다(위 상수 주석
+      // 참고).
+      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_BASE_DELAY_MS * 2 ** attempt);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));

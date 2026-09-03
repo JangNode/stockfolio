@@ -3,6 +3,12 @@ name: (임시) DH/PEG 매칭 정상화 + 급등주 수익률 정상화 검증
 # 수동 실행 전용, 읽기 전용 검증(DB에 아무것도 쓰지 않음). 확인 끝나면 스크립트와 함께 삭제.
 on:
   workflow_dispatch: {}
+  # (임시) GitHub App 토큰에 actions:write 권한이 없어 workflow_dispatch API를
+  # 호출할 수 없다 — 이 브랜치에서만 1회성으로 push 트리거를 추가해 실행한다.
+  # 이 커밋은 main에 머지하지 않고 실행 후 브랜치째로 삭제한다.
+  push:
+    branches:
+      - claude/trigger-verify-once-1788478779
 
 jobs:
   verify:

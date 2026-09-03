@@ -22,8 +22,10 @@ jobs:
   backfill:
     runs-on: ubuntu-latest
     # 후보종목×연도 조합 수천 건씩 두 스텝, DART 일일 한도 40,000회 안에서 한 번에
-    # 끝날 것으로 예상되지만 넉넉히 잡는다.
-    timeout-minutes: 180
+    # 끝날 것으로 예상되지만 넉넉히 잡는다. 2026-09-03 실측(burst rate limit 추정
+    # "fetch failed" 대량 발생, scripts/backfill-dart-cashflow-debt.ts 주석 참고)
+    # 이후 동시성을 8→2로 낮춰 처리 시간이 늘어난 만큼 여유를 더 크게 잡는다.
+    timeout-minutes: 300
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

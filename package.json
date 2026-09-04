@@ -23,9 +23,7 @@
     "archive:stock-daily-prices": "tsx --conditions=react-server scripts/archive-stock-daily-prices.ts",
     "migrate:stock-prices-bucket": "tsx --conditions=react-server scripts/migrate-stock-prices-bucket.ts",
     "cleanup:dh-daily-prices-bucket": "tsx --conditions=react-server scripts/delete-old-dh-daily-prices-bucket.ts",
-    "diagnose:dh-peg-strategy-matching": "tsx --conditions=react-server scripts/diagnose-dh-peg-strategy-matching.ts",
-    "backfill:dart-cashflow-debt": "tsx --conditions=react-server scripts/backfill-dart-cashflow-debt.ts",
-    "verify:dh-peg-matching-and-surge-return": "tsx --conditions=react-server scripts/verify-dh-peg-matching-and-surge-return.ts"
+    "backfill:dart-cashflow-debt": "tsx --conditions=react-server scripts/backfill-dart-cashflow-debt.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

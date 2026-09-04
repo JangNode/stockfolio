@@ -1,48 +1,63 @@
 /**
- * RIM(잔여이익모델) 적정주가 기능의 1단계(베타 계산)에 필요한 두 외부 소스가
- * 실제로 기존 연동만으로 확보 가능한지 확인한다. 둘 다 이 세션 샌드박스에서
- * 직접 접근 불가능한 도메인(opendart와 마찬가지로 openapi.koreainvestment.com,
- * ecos.bok.or.kr)이라 GitHub Actions로 실행해 실응답을 봐야 한다(SKILLS.md 원칙).
+ * RIM(잔여이익모델) 적정주가 기능의 1단계(베타 계산)에 필요한 외부 소스가 실제로
+ * 확보 가능한지 확인한다. 전부 이 세션 샌드박스에서 직접 접근 불가능한 도메인
+ * (opendart와 마찬가지로 openapi.koreainvestment.com, ecos.bok.or.kr,
+ * data-dbg.krx.co.kr)이라 GitHub Actions로 실행해 실응답을 봐야 한다(SKILLS.md 원칙).
  *
- * 1) KIS 국내 지수(코스피 0001/코스닥 1001) 과거 일별시세 — lib/kis.ts에 현재가
- *    1건 조회(getDomesticIndex)만 있고 시계열 조회 함수가 없어, 개별종목 일봉
- *    엔드포인트(inquire-daily-itemchartprice)를 지수용 시장구분코드("U",
- *    getDomesticIndex와 동일한 관례)로 호출했을 때 실제로 과거 데이터를 주는지,
- *    필드명이 무엇인지 raw 응답을 그대로 찍어서 확인한다
- *    (lib/kis.ts의 diagnoseDomesticIndexDailyPricesRaw, 임시 진단 전용 함수).
- *    안 되면 계획대로 KRX Open API(idx_bydd_trd)로 전환 검토.
+ * 1차 진단(이미 완료, 결과 반영됨): KIS 개별종목 일봉 엔드포인트
+ * (inquire-daily-itemchartprice)를 지수용 시장구분코드("U")로 호출 →
+ * "ERROR INVALID FID_COND_MRKT_DIV_CODE"로 명확히 거부됨. KIS 자체엔 국내 지수
+ * 과거 일별시세 조회 기능이 없는 것으로 결론(diagnoseDomesticIndexDailyPricesRaw는
+ * 이 이유로 제거하고, 대신 이 스크립트에서 KRX Open API로 재시도한다).
  *
- * 2) ECOS 국고채 10년물 금리 — 통계표코드 817Y002("시장금리(일별)")가 유력하나
- *    정확한 통계항목코드(item code)를 몰라, ECOS StatisticItemList API로 817Y002의
- *    전체 항목 목록을 조회해 국고채(10년) 항목을 찾는다.
+ * 이번 진단:
+ * 1) KRX Open API의 지수 일별시세 서비스 후보 endpoint 몇 개를 실제로 호출해서
+ *    어느 것이(혹은 어느 것도 아닌지) 코스피/코스닥 지수 과거 종가를 주는지 확인한다.
+ *    기존 종목 시세 백필(scripts/backfill-stock-daily-prices.ts)과 동일한 인증
+ *    방식(AUTH_KEY 헤더, 같은 KRX_API_KEY)을 그대로 재사용한다 — 새 계약 여부는
+ *    이 결과로 판단(같은 키로 되면 새 계약 불필요, 안 되면 별도 서비스 승인 필요).
+ * 2) ECOS 국고채 10년물 통계항목코드 — 1차 진단에서 StatisticItemList 호출 자체는
+ *    성공(27개 항목)했으나 스크립트의 필드명 파싱이 잘못돼(item_code=undefined)
+ *    실제 값을 못 봤다. 이번엔 raw JSON을 그대로 찍어 정확한 필드명과 항목코드를
+ *    확인한다.
  *
  * DB에는 아무것도 쓰지 않는 읽기 전용 진단 — 확인 끝나면 정리 PR에서 스크립트/
- * 워크플로와 함께 삭제한다(단, 진단 결과가 KIS 방식으로 확정되면
- * diagnoseDomesticIndexDailyPricesRaw는 정식 함수로 교체 후 제거).
+ * 워크플로와 함께 삭제한다.
  *
- * 필요 환경변수: KIS_APP_KEY, KIS_APP_SECRET, ECOS_API_KEY,
- *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY(KIS 토큰 저장용)
+ * 필요 환경변수: KRX_API_KEY, ECOS_API_KEY
  *   tsx --conditions=react-server scripts/diagnose-rim-external-sources.ts
  */
 
-import { diagnoseDomesticIndexDailyPricesRaw } from "@/lib/kis";
+const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis";
 
-function formatDate(d: Date): string {
+function toBasDd(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-async function diagnoseKisIndexHistory(): Promise<void> {
-  console.log("########## 1) KIS 국내 지수 과거 일별시세 진단 ##########\n");
-  const endDate = formatDate(new Date());
+// KRX Open API는 서비스를 카테고리(sto=주식, idx=지수 등)로 나눈다. 정확한 지수
+// endpoint 이름이 문서로 확인 안 돼(이 세션에서 openapi.krx.co.kr 접근 불가),
+// 알려진 후보 몇 개를 순서대로 시도한다. 하루 전 영업일 기준으로 조회한다
+// (당일 지수는 정산 전일 수 있어 기존 종목 시세 백필과 동일하게 D-1을 씀).
+const KRX_INDEX_ENDPOINT_CANDIDATES = ["idx/idx_bydd_trd", "idx/kospi_dd_trd", "idx/kosdaq_dd_trd"];
 
-  for (const [code, name] of [
-    ["0001", "코스피"],
-    ["1001", "코스닥"],
-  ] as const) {
-    console.log(`--- ${name}(${code}) ---`);
+async function diagnoseKrxIndexHistory(): Promise<void> {
+  console.log("########## KRX Open API 지수 일별시세 endpoint 후보 진단 ##########\n");
+  const apiKey = process.env.KRX_API_KEY;
+  if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
+
+  const yesterday = new Date();
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const basDd = toBasDd(yesterday);
+
+  for (const endpoint of KRX_INDEX_ENDPOINT_CANDIDATES) {
+    console.log(`--- ${endpoint} (basDd=${basDd}) ---`);
     try {
-      const raw = await diagnoseDomesticIndexDailyPricesRaw(code, endDate);
-      console.log(JSON.stringify(raw, null, 2).slice(0, 3000));
+      const res = await fetch(`${KRX_BASE_URL}/${endpoint}?basDd=${basDd}`, {
+        headers: { AUTH_KEY: apiKey },
+      });
+      const text = await res.text();
+      console.log(`  HTTP ${res.status}`);
+      console.log(`  ${text.slice(0, 2000)}`);
     } catch (error) {
       console.log(`  호출 실패: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -50,46 +65,21 @@ async function diagnoseKisIndexHistory(): Promise<void> {
   }
 }
 
-interface EcosItemListResponse {
-  StatisticItemList?: {
-    row?: { STAT_CODE: string; STAT_NAME: string; ITEM_CODE1: string; ITEM_NAME1: string }[];
-  };
-  RESULT?: { CODE: string; MESSAGE: string };
-}
-
 async function diagnoseEcosTreasury10y(): Promise<void> {
-  console.log("########## 2) ECOS 국고채 10년물 통계항목코드 진단 ##########\n");
+  console.log("########## ECOS 국고채 10년물 통계항목코드 진단(raw) ##########\n");
   const apiKey = process.env.ECOS_API_KEY;
   if (!apiKey) throw new Error("ECOS_API_KEY 환경 변수가 없습니다.");
 
   const statCode = "817Y002";
   const url = `https://ecos.bok.or.kr/api/StatisticItemList/${apiKey}/json/kr/1/100/${statCode}`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    console.log(`  StatisticItemList 호출 실패: HTTP ${res.status}`);
-    return;
-  }
-  const data: EcosItemListResponse = await res.json();
-  if (data.RESULT && data.RESULT.CODE !== "INFO-000") {
-    console.log(`  ECOS 오류(${data.RESULT.CODE}): ${data.RESULT.MESSAGE}`);
-    return;
-  }
-
-  const rows = data.StatisticItemList?.row ?? [];
-  console.log(`  통계표(${statCode}) 전체 항목 ${rows.length}개:`);
-  for (const row of rows) {
-    console.log(`    item_code=${row.ITEM_CODE1} name=${row.ITEM_NAME1}`);
-  }
-
-  const treasuryCandidates = rows.filter((r) => /국고채/.test(r.ITEM_NAME1) && /10년/.test(r.ITEM_NAME1));
-  console.log(`\n  "국고채"+"10년" 키워드 매칭 항목:`);
-  for (const row of treasuryCandidates) {
-    console.log(`    item_code=${row.ITEM_CODE1} name=${row.ITEM_NAME1}`);
-  }
+  const text = await res.text();
+  console.log(`HTTP ${res.status}`);
+  console.log(text.slice(0, 6000));
 }
 
 async function main(): Promise<void> {
-  await diagnoseKisIndexHistory();
+  await diagnoseKrxIndexHistory();
   await diagnoseEcosTreasury10y();
   console.log("\n=== 진단 종료 ===");
 }

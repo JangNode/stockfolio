@@ -14,6 +14,13 @@
  *   tsx --conditions=react-server scripts/backfill-index-daily-prices.ts
  *
  * 필요 환경변수: KRX_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ *
+ * 2026-09-04 최초 실행 실측: CONCURRENCY=8(종목 시세 백필과 동일 값)로 돌리니 약
+ * 16초 만에(100일×2시장=200콜) HTTP 403이 쏟아지기 시작해 끝까지 회복되지 않았다
+ * (784일 중 619일 실패, 그 여파로 베타가 0건 산출됨). idx 서비스는 막 승인받은
+ * 서비스라 sto 서비스보다 훨씬 낮은 초당 호출 한도를 가진 것으로 추정된다.
+ * CONCURRENCY=1(완전 순차)로 낮추고 호출마다 THROTTLE_DELAY_MS만큼 간격을 둬 애초에
+ * 제한에 걸리지 않게 하고, 그래도 실패하면 지수 백오프로 재시도한다.
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -23,9 +30,10 @@ import type { KrxMarket } from "@/lib/stockMaster";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/idx";
 const DATA_SOURCE = "krx_index_price" as const;
-const CONCURRENCY = 8;
-const CALL_RETRY_COUNT = 2;
-const CALL_RETRY_DELAY_MS = 1500;
+const CONCURRENCY = 1;
+const THROTTLE_DELAY_MS = 300;
+const CALL_RETRY_COUNT = 3;
+const CALL_RETRY_BASE_DELAY_MS = 4000;
 
 const INDEX_ENDPOINTS: Record<KrxMarket, { endpoint: string; exactName: string }> = {
   KOSPI: { endpoint: "kospi_dd_trd", exactName: "코스피" },
@@ -76,6 +84,7 @@ async function fetchKrxIndexDaily(market: KrxMarket, basDd: string, apiKey: stri
   const { endpoint } = INDEX_ENDPOINTS[market];
   let lastError: unknown;
   for (let attempt = 0; attempt <= CALL_RETRY_COUNT; attempt++) {
+    await sleep(THROTTLE_DELAY_MS);
     try {
       const res = await fetch(`${KRX_BASE_URL}/${endpoint}?basDd=${basDd}`, { headers: { AUTH_KEY: apiKey } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -83,7 +92,7 @@ async function fetchKrxIndexDaily(market: KrxMarket, basDd: string, apiKey: stri
       return body.OutBlock_1 ?? [];
     } catch (error) {
       lastError = error;
-      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_DELAY_MS);
+      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_BASE_DELAY_MS * 2 ** attempt);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));

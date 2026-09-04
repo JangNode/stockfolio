@@ -23,7 +23,7 @@ export function computePeerPerFairValue(input: PeerPerValuationInput): FairValue
     return { method: "PEER_PER", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "업종 내 비교 가능한 종목 부족" };
   }
   if (eps === null || eps <= 0) {
-    return { method: "PEER_PER", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "최근 실적 적자로 업종 PER 적용 불가" };
+    return { method: "PEER_PER", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "최근 EPS 적자 또는 데이터 없음" };
   }
 
   const fairPrice = groupMedianPer * eps;

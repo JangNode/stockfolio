@@ -32,7 +32,7 @@ import { computeRimFairValue, computeRoeFadePath, computeBpsRollForward } from "
 import { computeRequiredReturnPct } from "@/lib/capm";
 import { RIM_MARKET_RISK_PREMIUM_PCT, RIM_PROJECTION_YEARS } from "@/lib/rimConfig";
 import { getStockIndustry } from "@/lib/industryClassificationStorage";
-import { getIndustryAveragePer } from "@/lib/industryAveragePerStorage";
+import { getIndustryPerSamples } from "@/lib/industryPerSamplesStorage";
 import { computePeerPerFairValue } from "@/lib/peerPerValuation";
 
 const ECOS_RISK_FREE_LOOKBACK_DAYS = 30;
@@ -51,8 +51,7 @@ interface Candidate {
   stockCode: string;
   beta: number | null;
   indutyGroup: string | null;
-  groupMedianPer: number | null;
-  peerCount: number;
+  peerCountExcludingSelf: number;
 }
 
 async function pickCandidates(): Promise<{
@@ -93,29 +92,37 @@ async function pickCandidates(): Promise<{
   if (industryError) throw new Error(`stock_industry_classification 조회 실패: ${industryError.message}`);
   const industryByCode = new Map<string, string>((industryRows ?? []).map((r) => [r.stock_code as string, r.induty_group as string]));
 
-  const { data: averagePerRows, error: averagePerError } = await supabaseAdmin
-    .from("industry_average_per")
-    .select("induty_group, median_per, peer_count")
-    .not("median_per", "is", null);
-  if (averagePerError) throw new Error(`industry_average_per 조회 실패: ${averagePerError.message}`);
-  const averagePerByGroup = new Map<string, { medianPer: number; peerCount: number }>(
-    (averagePerRows ?? []).map((r) => [r.induty_group as string, { medianPer: Number(r.median_per), peerCount: r.peer_count as number }])
-  );
+  // 업종그룹별 유효 PER 표본 수(leave-one-out 계산 시 "자기 제외"하고도
+  // INDUSTRY_PEER_MIN_GROUP_SIZE 이상 남는지 판단용).
+  const { data: perRows, error: perError } = await supabaseAdmin.from("stock_industry_per").select("stock_code, induty_group, per").not("per", "is", null);
+  if (perError) throw new Error(`stock_industry_per 조회 실패: ${perError.message}`);
+  const validPerCountByGroup = new Map<string, number>();
+  for (const r of perRows ?? []) {
+    const group = r.induty_group as string;
+    validPerCountByGroup.set(group, (validPerCountByGroup.get(group) ?? 0) + 1);
+  }
+  // "자기 제외" 표본 수 = 그룹 전체 유효 표본 수 - (자기 자신이 유효 PER을 가졌으면 1).
+  const validPerCodesByGroup = new Map<string, Set<string>>();
+  for (const r of perRows ?? []) {
+    const group = r.induty_group as string;
+    const set = validPerCodesByGroup.get(group) ?? new Set<string>();
+    set.add(r.stock_code as string);
+    validPerCodesByGroup.set(group, set);
+  }
+  function peerCountExcludingSelf(code: string, group: string): number {
+    const total = validPerCountByGroup.get(group) ?? 0;
+    const selfHasValidPer = validPerCodesByGroup.get(group)?.has(code) ?? false;
+    return selfHasValidPer ? total - 1 : total;
+  }
 
   let bothAvailable: Candidate | null = null;
   for (const row of betaRows ?? []) {
     const code = row.stock_code as string;
     const indutyGroup = industryByCode.get(code) ?? null;
     if (!indutyGroup) continue;
-    const avgPer = averagePerByGroup.get(indutyGroup);
-    if (!avgPer) continue;
-    bothAvailable = {
-      stockCode: code,
-      beta: Number(row.beta),
-      indutyGroup,
-      groupMedianPer: avgPer.medianPer,
-      peerCount: avgPer.peerCount,
-    };
+    const count = peerCountExcludingSelf(code, indutyGroup);
+    if (count < 1) continue; // 최소 표본 기준은 pickCandidates 밖(computePeerPerFairValue)에서 다시 확인되므로, 여기선 "표본이 존재하는지"만 거른다.
+    bothAvailable = { stockCode: code, beta: Number(row.beta), indutyGroup, peerCountExcludingSelf: count };
     break;
   }
 
@@ -125,8 +132,8 @@ async function pickCandidates(): Promise<{
   for (const row of betaRows ?? []) {
     const code = row.stock_code as string;
     const indutyGroup = industryByCode.get(code) ?? null;
-    if (indutyGroup && averagePerByGroup.has(indutyGroup)) continue; // bothAvailable 케이스는 제외
-    betaOnly = { stockCode: code, beta: Number(row.beta), indutyGroup, groupMedianPer: null, peerCount: 0 };
+    if (indutyGroup && peerCountExcludingSelf(code, indutyGroup) >= 1) continue; // bothAvailable 케이스는 제외
+    betaOnly = { stockCode: code, beta: Number(row.beta), indutyGroup, peerCountExcludingSelf: 0 };
     break;
   }
 
@@ -137,7 +144,7 @@ async function pickCandidates(): Promise<{
     .is("beta", null)
     .limit(1);
   if (nullBetaError) throw new Error(`stock_beta(null) 조회 실패: ${nullBetaError.message}`);
-  const neitherAvailable = nullBetaRows && nullBetaRows.length > 0 ? { stockCode: nullBetaRows[0].stock_code as string, beta: null, indutyGroup: null, groupMedianPer: null, peerCount: 0 } : null;
+  const neitherAvailable = nullBetaRows && nullBetaRows.length > 0 ? { stockCode: nullBetaRows[0].stock_code as string, beta: null, indutyGroup: null, peerCountExcludingSelf: 0 } : null;
 
   console.log("\n선정 결과:");
   console.log("  베타+업종PER 둘 다 산출:", bothAvailable);
@@ -208,15 +215,15 @@ async function verifyValuation(stockCode: string, label: string): Promise<void> 
   try {
     const industryRow = await getStockIndustry(stockCode);
     const indutyGroup = industryRow?.indutyGroup ?? null;
-    const averagePerRow = indutyGroup ? await getIndustryAveragePer(indutyGroup) : null;
-    console.log("업종그룹:", indutyGroup, "/ 업종 PER 중앙값:", averagePerRow?.medianPer ?? null, "/ 표본수:", averagePerRow?.peerCount ?? 0);
+    const groupSamples = indutyGroup ? await getIndustryPerSamples(indutyGroup) : [];
+    console.log("업종그룹:", indutyGroup, "/ 표본(자기포함):", groupSamples.length, "/ 유효PER(자기제외):", groupSamples.filter((s) => s.stockCode !== stockCode && s.per !== null).length);
 
     peerPer = computePeerPerFairValue({
       currentPrice: price.currentPrice,
       eps: price.eps,
+      stockCode,
       indutyGroup,
-      groupMedianPer: averagePerRow?.medianPer ?? null,
-      peerCount: averagePerRow?.peerCount ?? 0,
+      groupSamples,
     });
   } catch (error) {
     console.error(`업종 평균 PER 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
@@ -309,20 +316,33 @@ async function diagnoseSamsung(): Promise<void> {
   });
   console.log("\nrim (route.ts와 동일 함수 재호출):", JSON.stringify(rim));
 
-  // 방법A: 삼성전자 업종그룹 내 시총 비중 확인 — median_per가 자기 자신에 사실상
-  // 수렴하는 구조인지(그룹이 작거나 비중이 압도적인지) 판단하는 근거 자료.
+  // 방법A: 삼성전자 업종그룹 내 시총 비중 확인 — leave-one-out(자기 제외) 중앙값이
+  // 그룹 전체(자기 포함) 중앙값과 실제로 달라지는지, 시총 비중이 압도적인지 확인.
   const industryRow = await getStockIndustry(stockCode);
   console.log("\n업종그룹:", industryRow?.indutyGroup ?? null);
   if (industryRow?.indutyGroup) {
-    const averagePerRow = await getIndustryAveragePer(industryRow.indutyGroup);
-    console.log("업종 PER 중앙값:", averagePerRow?.medianPer ?? null, "/ 표본수(peer_count):", averagePerRow?.peerCount ?? 0);
+    const groupSamples = await getIndustryPerSamples(industryRow.indutyGroup);
+    const allValidPers = groupSamples.map((s) => s.per).filter((per): per is number => per !== null && per > 0);
+    const selfExcludedPers = groupSamples.filter((s) => s.stockCode !== stockCode).map((s) => s.per).filter((per): per is number => per !== null && per > 0);
+    const medianOf = (values: number[]): number | null => {
+      if (values.length === 0) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    };
+    console.log(
+      `업종 PER 중앙값 — 자기 포함(구설계, 참고용): ${medianOf(allValidPers)} (표본 ${allValidPers.length}) / 자기 제외(leave-one-out, 실제 적용): ${medianOf(selfExcludedPers)} (표본 ${selfExcludedPers.length})`
+    );
+    const peerPerLeaveOneOut = computePeerPerFairValue({
+      currentPrice: price.currentPrice,
+      eps: price.eps,
+      stockCode,
+      indutyGroup: industryRow.indutyGroup,
+      groupSamples,
+    });
+    console.log("peerPer (leave-one-out 적용, route.ts와 동일 함수 재호출):", JSON.stringify(peerPerLeaveOneOut));
 
-    const { data: groupMembers, error: groupError } = await supabaseAdmin
-      .from("stock_industry_classification")
-      .select("stock_code")
-      .eq("induty_group", industryRow.indutyGroup);
-    if (groupError) throw new Error(`업종그룹 조회 실패: ${groupError.message}`);
-    const memberCodes = (groupMembers ?? []).map((r) => r.stock_code as string);
+    const memberCodes = groupSamples.map((s) => s.stockCode);
     console.log(`업종그룹 '${industryRow.indutyGroup}' 소속 종목 수(분류상): ${memberCodes.length}개`);
 
     const marketCaps: { code: string; marketCapEok: number; per: number | null }[] = [];

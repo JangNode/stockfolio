@@ -7,7 +7,7 @@ import { getEcosSeries } from "@/lib/ecosClient";
 import { getStockBeta } from "@/lib/stockBetaStorage";
 import { computeRimFairValue } from "@/lib/rimValuation";
 import { getStockIndustry } from "@/lib/industryClassificationStorage";
-import { getIndustryAveragePer } from "@/lib/industryAveragePerStorage";
+import { getIndustryPerSamples } from "@/lib/industryPerSamplesStorage";
 import { computePeerPerFairValue } from "@/lib/peerPerValuation";
 import type { FairValueResult } from "@/lib/stockFairValue";
 
@@ -123,14 +123,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     try {
       const industryRow = await getStockIndustry(code);
       const indutyGroup = industryRow?.indutyGroup ?? null;
-      const averagePerRow = indutyGroup ? await getIndustryAveragePer(indutyGroup) : null;
+      const groupSamples = indutyGroup ? await getIndustryPerSamples(indutyGroup) : [];
 
       peerPer = computePeerPerFairValue({
         currentPrice: price.currentPrice,
         eps: price.eps,
+        stockCode: code,
         indutyGroup,
-        groupMedianPer: averagePerRow?.medianPer ?? null,
-        peerCount: averagePerRow?.peerCount ?? 0,
+        groupSamples,
       });
     } catch (error) {
       console.error(`${code} 업종 평균 PER 계산 실패: ${error instanceof Error ? error.message : String(error)}`);

@@ -9,6 +9,9 @@ const MASTER_URLS = {
 } as const;
 
 type Market = keyof typeof MASTER_URLS;
+// 다른 모듈(적정주가 베타 계산 등)이 KOSPI/KOSDAQ 구분을 재사용할 수 있도록 export한다.
+// lib/market.ts의 Market("KR"|"US")과 이름이 겹쳐 반드시 KrxMarket으로 부른다.
+export type KrxMarket = Market;
 
 // 이름 필드 뒤에 붙는 상품구분 코드(그룹코드 2자 + 시장구분 숫자 1자)로 이름 필드의 끝을 찾는다.
 // 그룹2(ST/MF/RT/SR/EF/SW/EN/FS)는 종목 유형이다 — RT=리츠, EF=ETF, EN=ETN.
@@ -94,6 +97,9 @@ export interface StockEntry {
   // KRX 섹터 테마(자동차/반도체/바이오/은행/... lib/themeConfig.ts 참고) 소속 여부.
   // 테마/업종별 등락률 순위 화면·배치에 쓴다.
   themeFlags: Record<ThemeCode, boolean>;
+  // 코스피/코스닥 구분. 적정주가 베타 계산(scripts/calc-stock-beta.ts)이 종목별로
+  // 어느 지수와 비교해야 하는지 판단하는 데 쓴다.
+  market: KrxMarket;
 }
 
 interface MasterCache {
@@ -182,6 +188,7 @@ function parseMasterFile(buffer: Buffer, market: Market): StockEntry[] {
       listedDate: parseListedDate(line, market),
       ...parseStatusFlags(line, market),
       themeFlags: parseThemeFlags(line, market),
+      market,
     });
   }
 

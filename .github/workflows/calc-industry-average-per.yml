@@ -1,0 +1,34 @@
+name: 관심종목 적정주가 - 업종 평균 PER 계산
+
+# 매일 갱신이 필요한 값(당일 주가 기준 PER)이지만 몇 시간 늦어도 실사용에 지장이
+# 없어(다음 조회 시 최신값을 다시 보여주면 됨) pg_cron이 아니라 GitHub Actions
+# 네이티브 schedule을 그대로 쓴다(SKILLS.md 배치 스케줄링 원칙).
+on:
+  schedule:
+    - cron: "0 7 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  calc-per:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Calculate industry average PER
+        run: npm run calc:industry-average-per
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}

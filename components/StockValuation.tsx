@@ -10,6 +10,16 @@ interface DividendYearRow {
   payoutRatioPct: number | null;
 }
 
+type FairValueVerdict = "UNDERVALUED" | "FAIR" | "OVERVALUED" | "UNKNOWN";
+
+interface FairValueResult {
+  method: "RIM" | "PEER_PER";
+  fairPrice: number | null;
+  gapPercent: number | null;
+  verdict: FairValueVerdict;
+  reason: string;
+}
+
 interface ValuationResponse {
   dividends: DividendYearRow[];
   per: number | null;
@@ -24,6 +34,8 @@ interface ValuationResponse {
   week52High: number | null;
   week52Low: number | null;
   dividendCountLastYear: number | null;
+  rim: FairValueResult;
+  peerPer: FairValueResult;
 }
 
 function formatRatio(value: number | null, digits = 2): string {
@@ -56,6 +68,60 @@ function StatBlock({ label, value, hint }: { label: string; value: string; hint?
       <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{value}</p>
       {hint && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
+    </div>
+  );
+}
+
+const FAIR_VALUE_METHOD_LABEL: Record<FairValueResult["method"], string> = {
+  RIM: "RIM(잔여이익모델)",
+  PEER_PER: "방법A(업종 평균 PER)",
+};
+
+// 국내 증시 관례상 상승/저평가를 붉은색, 하락/고평가를 파란색 계열로 표시하는 이
+// 앱의 기존 톤(예: 배당 지급 배지, 등락률 표시)을 그대로 따른다.
+const FAIR_VALUE_VERDICT_STYLE: Record<FairValueVerdict, string> = {
+  UNDERVALUED: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
+  FAIR: "bg-black/[.04] text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400",
+  OVERVALUED: "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  UNKNOWN: "bg-black/[.04] text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400",
+};
+
+const FAIR_VALUE_VERDICT_LABEL: Record<FairValueVerdict, string> = {
+  UNDERVALUED: "저평가",
+  FAIR: "적정",
+  OVERVALUED: "고평가",
+  UNKNOWN: "산출 불가",
+};
+
+/** RIM/방법A 카드 하나. 산출 가능하면 적정주가·현재가 대비 괴리율·판정 배지를,
+ * 산출 불가면 사유(reason)만 보여준다. highlighted면(두 방법 판정이 일치할 때)
+ * 카드 테두리를 강조한다. */
+function FairValueCard({ result, highlighted }: { result: FairValueResult; highlighted: boolean }) {
+  return (
+    <div
+      className={`rounded-lg border p-3 ${
+        highlighted
+          ? "border-red-300 dark:border-red-800"
+          : "border-black/[.08] dark:border-white/[.145]"
+      }`}
+    >
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">{FAIR_VALUE_METHOD_LABEL[result.method]}</p>
+      {result.fairPrice === null ? (
+        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{result.reason}</p>
+      ) : (
+        <>
+          <p className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{formatWon(result.fairPrice)}</p>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            현재가 대비 {result.gapPercent !== null && result.gapPercent > 0 ? "+" : ""}
+            {formatPct(result.gapPercent)}
+          </p>
+          <span
+            className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${FAIR_VALUE_VERDICT_STYLE[result.verdict]}`}
+          >
+            {FAIR_VALUE_VERDICT_LABEL[result.verdict]}
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -138,6 +204,26 @@ export default function StockValuation({ code }: { code: string }) {
               </table>
             </div>
           )}
+
+          <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+            <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">적정주가(RIM / 업종 평균 PER)</p>
+            {/* 두 방법 판정 비교는 클라이언트에서 계산한다 — API는 파생값을 따로 저장/반환하지 않는다. */}
+            {data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict && (
+              <span className="mb-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                두 방법 판정 일치: {FAIR_VALUE_VERDICT_LABEL[data.rim.verdict]}
+              </span>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FairValueCard
+                result={data.rim}
+                highlighted={data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict}
+              />
+              <FairValueCard
+                result={data.peerPer}
+                highlighted={data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict}
+              />
+            </div>
+          </div>
         </>
       )}
     </div>

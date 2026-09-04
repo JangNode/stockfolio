@@ -88,3 +88,38 @@ export async function fetchCorpCodeMap(): Promise<DartCorpCodeEntry[]> {
     modifyDate: String(item.modify_date).trim(),
   }));
 }
+
+export interface DartCompanyOverview {
+  corpCode: string;
+  // 표준산업분류코드. 종목마다 자릿수가 다르지만(3~5자리) 앞 2자리는 일관되게 KSIC
+  // 대분류를 나타낸다(2026-09-04 실측 확인, lib/industryPerConfig.ts 참고). 필드가
+  // 없거나 빈 값이면 null.
+  indutyCode: string | null;
+}
+
+interface CompanyOverviewResponse {
+  status: string;
+  message: string;
+  corp_code?: string;
+  induty_code?: string;
+}
+
+/** company.json(기업개황)을 호출해 업종코드(induty_code)를 가져온다. 방법A(업종 평균
+ * PER)의 업종 그룹핑에 쓴다(scripts/backfill-stock-industry-classification.ts). */
+export async function fetchCompanyOverview(corpCode: string): Promise<DartCompanyOverview> {
+  const url = `${DART_BASE_URL}/company.json?crtfc_key=${encodeURIComponent(getDartApiKey())}&corp_code=${corpCode}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`DART company.json 요청 실패(${corpCode}): HTTP ${res.status}`);
+  }
+
+  const body: CompanyOverviewResponse = await res.json();
+  if (body.status !== "000") {
+    throw new Error(`DART company.json 오류(${corpCode}, ${body.status}): ${body.message}`);
+  }
+
+  return {
+    corpCode: body.corp_code ?? corpCode,
+    indutyCode: body.induty_code && body.induty_code.trim() !== "" ? body.induty_code.trim() : null,
+  };
+}

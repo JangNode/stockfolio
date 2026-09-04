@@ -32,7 +32,8 @@
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
     "verify:stock-valuation": "tsx --conditions=react-server scripts/verify-stock-valuation.ts",
     "diagnose:dcf-data-coverage": "tsx --conditions=react-server scripts/diagnose-dcf-data-coverage.ts",
-    "diagnose:dart-debt-account-tags": "tsx --conditions=react-server scripts/diagnose-dart-debt-account-tags.ts"
+    "diagnose:dart-debt-account-tags": "tsx --conditions=react-server scripts/diagnose-dart-debt-account-tags.ts",
+    "refill:dart-debt-structure": "tsx --conditions=react-server scripts/refill-dart-debt-structure.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -28,8 +28,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getStockPrice, getProfitRatioYears, getDividendRecords } from "@/lib/kis";
 import { getEcosSeries } from "@/lib/ecosClient";
 import { getStockBeta } from "@/lib/stockBetaStorage";
-import { computeRimFairValue } from "@/lib/rimValuation";
+import { computeRimFairValue, computeRoeFadePath, computeBpsRollForward } from "@/lib/rimValuation";
 import { computeRequiredReturnPct } from "@/lib/capm";
+import { RIM_MARKET_RISK_PREMIUM_PCT, RIM_PROJECTION_YEARS } from "@/lib/rimConfig";
 import { getStockIndustry } from "@/lib/industryClassificationStorage";
 import { getIndustryAveragePer } from "@/lib/industryAveragePerStorage";
 import { computePeerPerFairValue } from "@/lib/peerPerValuation";
@@ -233,7 +234,120 @@ async function verifyValuation(stockCode: string, label: string): Promise<void> 
   });
 }
 
+/** 사용자가 삼성전자(005930) RIM 결과가 이상해 보인다고 제기한 건 확인용 심층
+ * 진단. ROE fade 경로/BPS 롤포워드 경로를 연도별로 전부 출력하고, 요구수익률이
+ * 최근 ROE보다 높으면(잔여이익 합이 음수가 나는 게 설계상 당연한 경우) 그 사실을
+ * 명시한다. 방법A는 삼성전자의 업종그룹 내 시총 비중(자기 자신이 중앙값을 사실상
+ * 좌우하는지)도 함께 확인한다. */
+async function diagnoseSamsung(): Promise<void> {
+  const stockCode = "005930";
+  console.log(`\n########## 심층 진단: ${stockCode}(삼성전자) ##########\n`);
+
+  const [price, profitRatioYears, betaRow, riskFreeSeries] = await Promise.all([
+    getStockPrice(stockCode),
+    getProfitRatioYears(stockCode),
+    getStockBeta(stockCode),
+    getEcosSeries("817Y002", "010210000", yyyymmddDaysAgo(ECOS_RISK_FREE_LOOKBACK_DAYS), yyyymmddDaysAgo(0)),
+  ]);
+  const latestRoePct = profitRatioYears[0]?.roePct ?? null;
+  const riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
+
+  console.log("현재가:", price.currentPrice, "/ PBR:", price.pbr, "/ BPS(KIS):", price.bps, "/ EPS:", price.eps);
+  console.log("최근 ROE(%):", latestRoePct);
+  console.log("베타:", betaRow?.beta ?? null, "(data_points:", betaRow?.dataPoints ?? null, ", window:", betaRow?.windowStartDate, "~", betaRow?.windowEndDate, ")");
+  console.log("무위험이자율(국고채10년,%, ECOS 최신값):", riskFreeRatePct, "/ raw series 마지막 5개:", JSON.stringify(riskFreeSeries.slice(-5)));
+  console.log("시장위험프리미엄 상수(%):", RIM_MARKET_RISK_PREMIUM_PCT, "/ 예측기간(년):", RIM_PROJECTION_YEARS);
+
+  // route.ts와 동일한 방식(완료된 달력연도 배당합계 / EPS)으로 배당성향을 한 번만
+  // 계산해 아래 경로 출력과 최종 computeRimFairValue 호출에 동일하게 재사용한다.
+  const dividendRecords = await getDividendRecords(stockCode, 5);
+  const totalsByYear = new Map<number, number>();
+  for (const r of dividendRecords) {
+    const year = Number(r.recordDate.slice(0, 4));
+    totalsByYear.set(year, (totalsByYear.get(year) ?? 0) + r.cashDividendPerShare);
+  }
+  const completedYear = Number(todayKstIsoDate().slice(0, 4)) - 1;
+  const completedYearDividendTotal = totalsByYear.get(completedYear) ?? 0;
+  const payoutRatio = price.eps !== null && price.eps > 0 ? Math.min(1, Math.max(0, completedYearDividendTotal / price.eps)) : 0;
+  console.log(`배당성향(${completedYear}년 배당합계 ${completedYearDividendTotal} / EPS ${price.eps}):`, payoutRatio);
+
+  if (betaRow?.beta != null && riskFreeRatePct !== null && latestRoePct !== null && price.bps !== null) {
+    const requiredReturnPct = computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
+    console.log(`\n요구수익률 r = 무위험이자율(${riskFreeRatePct}) + 베타(${betaRow.beta}) × 시장위험프리미엄(${RIM_MARKET_RISK_PREMIUM_PCT}) = ${requiredReturnPct}%`);
+    console.log(`최근 ROE(${latestRoePct}%) vs 요구수익률(${requiredReturnPct}%): ${latestRoePct < requiredReturnPct ? "ROE < r → 5년 페이드 경로 내내 초과이익이 음수(설계상 fairPrice가 BPS보다 낮게 나올 수 있음)" : "ROE > r → 초과이익이 양수"}`);
+
+    const roeFadePath = computeRoeFadePath(latestRoePct, requiredReturnPct);
+    console.log("\nROE fade 경로(연도별, %):", roeFadePath.map((v, i) => `t=${i + 1}: ${v.toFixed(4)}`).join(", "));
+
+    const bpsPath = computeBpsRollForward(price.bps, roeFadePath, payoutRatio);
+    console.log("BPS 롤포워드 경로(연도별):", bpsPath.map((v, i) => `t=${i + 1}: ${v.toFixed(2)}`).join(", "));
+
+    let presentValueSum = 0;
+    console.log("\n연도별 잔여이익 현재가치:");
+    for (let i = 0; i < roeFadePath.length; i++) {
+      const t = i + 1;
+      const prevBps = i === 0 ? price.bps : bpsPath[i - 1];
+      const residualIncome = (roeFadePath[i] / 100 - requiredReturnPct / 100) * prevBps;
+      const pv = residualIncome / Math.pow(1 + requiredReturnPct / 100, t);
+      presentValueSum += pv;
+      console.log(
+        `  t=${t}: (ROE_t ${roeFadePath[i].toFixed(4)}% - r ${requiredReturnPct.toFixed(4)}%) × BPS_(t-1) ${prevBps.toFixed(2)} = ${residualIncome.toFixed(2)}, 현재가치 = ${pv.toFixed(2)}`
+      );
+    }
+    console.log(`잔여이익 현재가치 합계: ${presentValueSum.toFixed(2)} (BPS ${price.bps} + 합계 = 적정주가)`);
+  } else {
+    console.log("베타/무위험이자율/ROE/BPS 중 하나 이상이 없어 상세 경로를 계산할 수 없음.");
+  }
+
+  const rim = computeRimFairValue({
+    currentPrice: price.currentPrice,
+    currentBps: price.bps,
+    latestRoePct,
+    beta: betaRow?.beta ?? null,
+    riskFreeRatePct,
+    payoutRatio,
+  });
+  console.log("\nrim (route.ts와 동일 함수 재호출):", JSON.stringify(rim));
+
+  // 방법A: 삼성전자 업종그룹 내 시총 비중 확인 — median_per가 자기 자신에 사실상
+  // 수렴하는 구조인지(그룹이 작거나 비중이 압도적인지) 판단하는 근거 자료.
+  const industryRow = await getStockIndustry(stockCode);
+  console.log("\n업종그룹:", industryRow?.indutyGroup ?? null);
+  if (industryRow?.indutyGroup) {
+    const averagePerRow = await getIndustryAveragePer(industryRow.indutyGroup);
+    console.log("업종 PER 중앙값:", averagePerRow?.medianPer ?? null, "/ 표본수(peer_count):", averagePerRow?.peerCount ?? 0);
+
+    const { data: groupMembers, error: groupError } = await supabaseAdmin
+      .from("stock_industry_classification")
+      .select("stock_code")
+      .eq("induty_group", industryRow.indutyGroup);
+    if (groupError) throw new Error(`업종그룹 조회 실패: ${groupError.message}`);
+    const memberCodes = (groupMembers ?? []).map((r) => r.stock_code as string);
+    console.log(`업종그룹 '${industryRow.indutyGroup}' 소속 종목 수(분류상): ${memberCodes.length}개`);
+
+    const marketCaps: { code: string; marketCapEok: number; per: number | null }[] = [];
+    for (const code of memberCodes) {
+      try {
+        const p = await getStockPrice(code);
+        marketCaps.push({ code, marketCapEok: p.marketCapEok, per: p.per });
+      } catch {
+        // 개별 조회 실패는 건너뛴다(진단 목적, 전체 실패로 이어지지 않게).
+      }
+    }
+    const totalMarketCap = marketCaps.reduce((sum, m) => sum + m.marketCapEok, 0);
+    const samsung = marketCaps.find((m) => m.code === stockCode);
+    console.log(
+      `업종그룹 전체 시총(억원): ${totalMarketCap.toLocaleString()} / 삼성전자 시총(억원): ${samsung?.marketCapEok.toLocaleString() ?? "?"} / 삼성전자 비중: ${
+        samsung && totalMarketCap > 0 ? ((samsung.marketCapEok / totalMarketCap) * 100).toFixed(1) + "%" : "?"
+      }`
+    );
+    console.log("그룹 내 종목별 시총/PER:", JSON.stringify(marketCaps.sort((a, b) => b.marketCapEok - a.marketCapEok)));
+  }
+}
+
 async function main(): Promise<void> {
+  await diagnoseSamsung();
+
   const { bothAvailable, betaOnly, neitherAvailable } = await pickCandidates();
 
   if (bothAvailable) {

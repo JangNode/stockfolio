@@ -24,7 +24,8 @@
     "migrate:stock-prices-bucket": "tsx --conditions=react-server scripts/migrate-stock-prices-bucket.ts",
     "cleanup:dh-daily-prices-bucket": "tsx --conditions=react-server scripts/delete-old-dh-daily-prices-bucket.ts",
     "backfill:dart-cashflow-debt": "tsx --conditions=react-server scripts/backfill-dart-cashflow-debt.ts",
-    "diagnose:rim-external-sources": "tsx --conditions=react-server scripts/diagnose-rim-external-sources.ts"
+    "diagnose:rim-external-sources": "tsx --conditions=react-server scripts/diagnose-rim-external-sources.ts",
+    "diagnose:dart-company-overview": "tsx --conditions=react-server scripts/diagnose-dart-company-overview.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

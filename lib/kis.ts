@@ -186,6 +186,34 @@ export function getKisCallStats(): { total: number; retried: number } {
   return { ...kisCallStats };
 }
 
+/** (임시 진단용) 국내 지수(코스피 0001/코스닥 1001 등) 일별시세 원시 응답을 그대로
+ * 반환한다. 개별종목 일봉 조회(inquire-daily-itemchartprice)와 같은 엔드포인트를
+ * FID_COND_MRKT_DIV_CODE="U"(getDomesticIndex의 현재가 조회와 동일한 관례)로
+ * 호출했을 때 실제로 과거 시계열을 주는지, 필드명이 무엇인지 확인되지 않아
+ * 타입을 만들지 않고 raw로 반환한다 — scripts/diagnose-index-daily-prices.ts 전용.
+ * 필드 매핑이 확인되면 이 함수는 지우고 getDailyPrices에 marketDiv 옵션을 추가하는
+ * 정식 구현으로 교체한다(SKILLS.md 외부 연동 원칙 — 추측으로 먼저 구현하지 않음). */
+export async function diagnoseDomesticIndexDailyPricesRaw(
+  indexCode: string,
+  endDateYyyymmdd: string
+): Promise<unknown> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL(
+    "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "U");
+  url.searchParams.set("FID_INPUT_ISCD", indexCode);
+  url.searchParams.set("FID_INPUT_DATE_1", CHART_START_DATE);
+  url.searchParams.set("FID_INPUT_DATE_2", endDateYyyymmdd);
+  url.searchParams.set("FID_PERIOD_DIV_CODE", "D");
+  url.searchParams.set("FID_ORG_ADJ_PRC", "0");
+
+  return kisFetch(url, TR_ID_INQUIRE_DAILY_CHART_PRICE, accessToken, appKey, appSecret, "user");
+}
+
 interface KisResponse {
   rt_cd: string;
   msg1: string;

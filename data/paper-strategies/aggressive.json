@@ -1,9 +1,9 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "어제(9/2) dh_value_dividend/peg_lynch(및 custom_composite 펀더멘털 조건)가 매일 0건만 나오던 진짜 구조적 원인이 수정됐습니다 — 오늘 정확한 날짜의 시세만 조회하다 보니 '오늘' 행이 애초에 존재하지 않는 표를 조회해 항상 걸러졌던 버그였고, 직전 거래일 종가로 폴백하도록 고쳐졌습니다. 다만 이 수정은 어제 14:30 스크리닝 배치 이후에 머지돼, 오늘(9/3) 14:30 배치가 dh_value_dividend가 실제로 후보를 만들어낼 수 있는 첫 실행입니다. 아직 결과를 확인하지 못했으니 peg_lynch의 공격형 편입 판단은 오늘 안정형에서의 실측을 보고 나서 하겠습니다. 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개, ma_cross/minervini_trend_template)은 그대로 유지합니다.",
-  "generated_at": "2026-09-03T05:14:46Z",
+  "rationale": "어제(9/3) 스크리닝 실측으로 dh_value_dividend/peg_lynch 매칭 0건 버그가 완전히 해결됐음을 확인했습니다 — 실제 매칭 건수가 dh_value_dividend 68건, peg_lynch 132건으로 정상 범위였습니다(#214에서 검증). peg_lynch는 PER 대비 이익성장률(PEG)이 낮은, 즉 '성장 대비 저평가'된 종목을 골라내는 전략으로 순수 모멘텀 추종은 아니지만 상승 여력이 큰 종목을 찾는다는 점에서 공격형의 고수익 추구 목표와 부합하고, 132건이라는 매칭량도 충분해 오늘부터 source_rule_types에 추가합니다. dh_value_dividend는 대형·저변동·배당 중심이라 여전히 공격형과는 맞지 않아 제외합니다. 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)은 그대로 유지하되, peg_lynch 편입 이후 실제 매매 성향을 지켜본 뒤 필요하면 재조정하겠습니다.",
+  "generated_at": "2026-09-04T05:13:59Z",
   "entry_conditions": {
-    "source_rule_types": ["ma_cross", "minervini_trend_template"],
+    "source_rule_types": ["ma_cross", "minervini_trend_template", "peg_lynch"],
     "min_signal_return_pct": -2,
     "max_signal_return_pct": 37,
     "max_positions": 5,

@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "어제(9/2) dh_value_dividend/peg_lynch가 매일 0건만 나오던 진짜 구조적 원인이 수정됐습니다 — 오늘 정확한 날짜의 시세만 조회하다 보니 '오늘' 행이 애초에 존재하지 않는 표를 조회해 항상 걸러졌던 버그였고, 직전 거래일 종가로 폴백하도록 고쳐졌습니다. 다만 이 수정은 어제 14:30 스크리닝 배치 이후에 머지돼, 오늘(9/3) 14:30 배치가 dh_value_dividend가 실제로 후보를 만들어낼 수 있는 첫 실행입니다. 후보가 얼마나 나오는지 아직 확인 전이라 진입 범위 등 수치 조건은 손대지 않고, 오늘 결과를 보고 나서(후보가 과다/과소하면) 조정하겠습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
-  "generated_at": "2026-09-03T05:14:46Z",
+  "rationale": "어제(9/3) 스크리닝 실측으로 dh_value_dividend 매칭 0건 버그가 완전히 해결됐음을 확인했습니다 — 실제 매칭 건수가 dh_value_dividend 68건으로 정상 범위였습니다(#214에서 검증). 대형·저변동·배당 중심이라는 성격상 안정형의 후보 풀(30개)을 채우기에 충분한 물량이라 판단해 source_rule_types는 그대로 유지합니다. 다만 아직은 매칭 '건수'만 확인했을 뿐 실제 체결 성과(수익률/승률)는 이 세션에서 조회할 수 없어, 진입 범위·투입 비중 같은 수치 조건을 지금 조정할 근거는 없습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
+  "generated_at": "2026-09-04T05:13:59Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "dh_value_dividend"],
     "min_signal_return_pct": -2,

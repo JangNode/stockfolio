@@ -1,0 +1,32 @@
+name: (임시) 관심종목 적정주가 실데이터 검증
+
+# 수동 실행 전용, 읽기 전용 검증(DB에 아무것도 쓰지 않음). 확인 끝나면 스크립트와
+# 함께 삭제.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify stock valuation (RIM + peer PER)
+        run: npm run verify:stock-valuation
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}

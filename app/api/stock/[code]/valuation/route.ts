@@ -3,8 +3,19 @@ import { getStockPrice, getProfitRatioYears, getDividendRecords } from "@/lib/ki
 import { requireApproved } from "@/lib/requireApproved";
 import { computeEpsCagrAsOf } from "@/lib/stockFundamentals";
 import { computePeg } from "@/lib/pegRatio";
+import { getEcosSeries } from "@/lib/ecosClient";
+import { getStockBeta } from "@/lib/stockBetaStorage";
+import { computeRimFairValue } from "@/lib/rimValuation";
+import { getStockIndustry } from "@/lib/industryClassificationStorage";
+import { getIndustryAveragePer } from "@/lib/industryAveragePerStorage";
+import { computePeerPerFairValue } from "@/lib/peerPerValuation";
+import type { FairValueResult } from "@/lib/stockFairValue";
 
 const DIVIDEND_YEARS_TO_SHOW = 5;
+// ECOS 국고채 10년물(무위험이자율)은 캐싱 없이 매 요청 실시간 조회한다(사용자 확정,
+// 2026-09-04) — 최근 이 구간(일) 안의 최신 관측치를 쓴다. 휴장일이 껴도 30일이면
+// 충분히 관측치가 있다.
+const ECOS_RISK_FREE_LOOKBACK_DAYS = 30;
 
 function yyyymmddDaysAgo(days: number): string {
   const d = new Date();
@@ -76,6 +87,56 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const paidLastYearTotal = paidLastYear.reduce((sum, r) => sum + r.cashDividendPerShare, 0);
     const dividendYieldPct = price.currentPrice > 0 ? (paidLastYearTotal / price.currentPrice) * 100 : null;
 
+    // RIM(잔여이익모델)과 방법A(업종 평균 PER)는 각각 독립적으로 실패해도 위에서 이미
+    // 구한 PER/PBR/배당 데이터는 정상 응답하게 각자 try/catch로 감싼다.
+    let rim: FairValueResult;
+    try {
+      // 배당성향 = 최근 완료된 달력연도 배당 합계 ÷ 오늘 EPS(0~1 클램프). 배당 이력이
+      // 없으면(totalsByYear에 그 연도가 없으면) 0으로 취급한다.
+      const completedYear = Number(todayKstIsoDate().slice(0, 4)) - 1;
+      const completedYearDividendTotal = totalsByYear.get(completedYear) ?? 0;
+      const payoutRatio =
+        price.eps !== null && price.eps > 0
+          ? Math.min(1, Math.max(0, completedYearDividendTotal / price.eps))
+          : 0;
+
+      const [betaRow, riskFreeSeries] = await Promise.all([
+        getStockBeta(code),
+        getEcosSeries("817Y002", "010210000", yyyymmddDaysAgo(ECOS_RISK_FREE_LOOKBACK_DAYS), today),
+      ]);
+      const riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
+
+      rim = computeRimFairValue({
+        currentPrice: price.currentPrice,
+        currentBps: price.bps,
+        latestRoePct,
+        beta: betaRow?.beta ?? null,
+        riskFreeRatePct,
+        payoutRatio,
+      });
+    } catch (error) {
+      console.error(`${code} RIM 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
+      rim = { method: "RIM", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "일시적 오류로 산출 실패" };
+    }
+
+    let peerPer: FairValueResult;
+    try {
+      const industryRow = await getStockIndustry(code);
+      const indutyGroup = industryRow?.indutyGroup ?? null;
+      const averagePerRow = indutyGroup ? await getIndustryAveragePer(indutyGroup) : null;
+
+      peerPer = computePeerPerFairValue({
+        currentPrice: price.currentPrice,
+        eps: price.eps,
+        indutyGroup,
+        groupMedianPer: averagePerRow?.medianPer ?? null,
+        peerCount: averagePerRow?.peerCount ?? 0,
+      });
+    } catch (error) {
+      console.error(`${code} 업종 평균 PER 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
+      peerPer = { method: "PEER_PER", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "일시적 오류로 산출 실패" };
+    }
+
     return NextResponse.json({
       dividends,
       currentPrice: price.currentPrice,
@@ -91,6 +152,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       week52High: price.week52High,
       week52Low: price.week52Low,
       dividendCountLastYear,
+      rim,
+      peerPer,
     });
   } catch (error) {
     return NextResponse.json(

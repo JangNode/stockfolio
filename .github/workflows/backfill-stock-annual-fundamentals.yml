@@ -12,7 +12,9 @@ name: 종목 재무 원자료 백필 - DART 재무제표/현금흐름/부채 (2�
 # RIM/DCF용 현금흐름표/부채구조 백필(scripts/backfill-dart-cashflow-debt.ts)도 같은
 # 원자료(DART fnlttSinglAcntAll) 성격이라 새 워크플로를 따로 만들지 않고 같은
 # 스케줄에 얹는다(SKILLS.md 배치 스케줄링 원칙 — 하루 정도 늦어도 무방한 정적
-# 데이터라 pg_cron까지 갈 필요 없음).
+# 데이터라 pg_cron까지 갈 필요 없음). 방법A(업종 평균 PER)의 업종 분류 백필
+# (scripts/backfill-stock-industry-classification.ts)도 같은 이유(DART 원자료,
+# 정적 데이터)로 이 워크플로에 세 번째 스텝으로 얹는다.
 on:
   schedule:
     - cron: "0 2 5 1,4,7,10 *"
@@ -48,6 +50,13 @@ jobs:
 
       - name: Backfill DART cashflow/debt
         run: npm run backfill:dart-cashflow-debt
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Backfill stock industry classification
+        run: npm run backfill:stock-industry-classification
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

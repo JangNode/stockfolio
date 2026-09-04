@@ -1,0 +1,39 @@
+name: 관심종목 적정주가 - 베타 계산 (RIM 1단계)
+
+# 분기 1회로 충분한 정적 데이터 갱신이라(하루 정도 늦어도 무방) pg_cron 대신
+# GitHub Actions 네이티브 schedule을 그대로 쓴다(SKILLS.md 배치 스케줄링 원칙).
+# 다른 분기 배치(backfill-stock-annual-fundamentals.yml)와 겹치지 않는 날짜를 쓴다.
+on:
+  schedule:
+    - cron: "0 3 12 1,4,7,10 *"
+  workflow_dispatch: {}
+
+jobs:
+  calc-beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backfill KRX index daily prices
+        run: npm run backfill:index-daily-prices
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Calculate stock beta
+        run: npm run calc:stock-beta
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

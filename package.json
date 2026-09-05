@@ -24,16 +24,10 @@
     "migrate:stock-prices-bucket": "tsx --conditions=react-server scripts/migrate-stock-prices-bucket.ts",
     "cleanup:dh-daily-prices-bucket": "tsx --conditions=react-server scripts/delete-old-dh-daily-prices-bucket.ts",
     "backfill:dart-cashflow-debt": "tsx --conditions=react-server scripts/backfill-dart-cashflow-debt.ts",
-    "diagnose:rim-external-sources": "tsx --conditions=react-server scripts/diagnose-rim-external-sources.ts",
-    "diagnose:dart-company-overview": "tsx --conditions=react-server scripts/diagnose-dart-company-overview.ts",
     "backfill:index-daily-prices": "tsx --conditions=react-server scripts/backfill-index-daily-prices.ts",
     "calc:stock-beta": "tsx --conditions=react-server scripts/calc-stock-beta.ts",
     "backfill:stock-industry-classification": "tsx --conditions=react-server scripts/backfill-stock-industry-classification.ts",
-    "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
-    "verify:stock-valuation": "tsx --conditions=react-server scripts/verify-stock-valuation.ts",
-    "diagnose:dcf-data-coverage": "tsx --conditions=react-server scripts/diagnose-dcf-data-coverage.ts",
-    "diagnose:dart-debt-account-tags": "tsx --conditions=react-server scripts/diagnose-dart-debt-account-tags.ts",
-    "refill:dart-debt-structure": "tsx --conditions=react-server scripts/refill-dart-debt-structure.ts"
+    "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -1,11 +1,11 @@
 /**
- * 관심종목 적정주가(RIM 잔여이익모델 + 방법A 업종 평균 PER) 실데이터 검증용
- * 디스포저블 스크립트. app/api/stock/[code]/valuation/route.ts의 GET 핸들러가 하는
- * 계산을 그대로 재현해(동일 lib 함수 호출) 실제 응답에 들어갈 rim/peerPer 필드가
- * 기대한 구조·범위인지 확인한다.
+ * 관심종목 적정주가(RIM 잔여이익모델 + 방법A 업종 평균 PER + DCF 현금흐름할인법)
+ * 실데이터 검증용 디스포저블 스크립트. app/api/stock/[code]/valuation/route.ts의
+ * GET 핸들러가 하는 계산을 그대로 재현해(동일 lib 함수 호출) 실제 응답에 들어갈
+ * rim/peerPer/dcf 필드가 기대한 구조·범위인지 확인한다.
  *
  * requireApproved(로그인 세션) 검증은 이 스크립트에서 건너뛴다 — GitHub Actions에는
- * 브라우저 세션이 없고, 이 검증의 목적은 새로 추가된 RIM/방법A 계산 로직 자체의
+ * 브라우저 세션이 없고, 이 검증의 목적은 새로 추가된 RIM/방법A/DCF 계산 로직 자체의
  * 실데이터 검증이라 인증 레이어(기존 코드, 이번 PR과 무관)는 대상이 아니다.
  *
  * 확인 순서:
@@ -15,6 +15,9 @@
  * 2. 각 대상 종목에 대해 라우트와 동일한 순서로 KIS/ECOS/DB 데이터를 모아 rim,
  *    peerPer를 계산하고, 중간값(BPS, ROE, 베타, 무위험이자율, 요구수익률)까지
  *    전부 출력한다 — 수동 검산에 쓴다.
+ * 3. (2단계 추가) dart_cashflow_statements/dart_debt_structure를 조회해 DCF 산출
+ *    가능/불가 케이스별 종목을 찾고, route.ts와 동일한 순서로 DCF를 계산해 FCF
+ *    5개년/CAGR/WACC 분해/영구성장률 스프레드/최종 fairPrice까지 출력한다.
  *
  * DB에는 아무것도 쓰지 않는 읽기 전용 검증 — 확인 끝나면 정리 PR에서 스크립트/
  * 워크플로와 함께 삭제한다.
@@ -34,6 +37,17 @@ import { RIM_MARKET_RISK_PREMIUM_PCT, RIM_PROJECTION_YEARS } from "@/lib/rimConf
 import { getStockIndustry } from "@/lib/industryClassificationStorage";
 import { getIndustryPerSamples } from "@/lib/industryPerSamplesStorage";
 import { computePeerPerFairValue } from "@/lib/peerPerValuation";
+import { getCashflowStatements, getDebtStructure } from "@/lib/dartCashflowDebtStorage";
+import {
+  computeDcfFairValue,
+  computeFcfSeries,
+  computeFcfGrowthRatePct,
+  computeTotalInterestBearingDebtWon,
+  computeCostOfDebtPct,
+  computeWaccPct,
+} from "@/lib/dcfValuation";
+import { DCF_TERMINAL_GROWTH_RATE_PCT, DCF_WACC_TERMINAL_GROWTH_MIN_SPREAD_PCT, DCF_CORPORATE_TAX_RATE_PCT } from "@/lib/dcfConfig";
+import { DART_VALUATION_FISCAL_YEARS } from "@/lib/dartValuationConfig";
 
 const ECOS_RISK_FREE_LOOKBACK_DAYS = 30;
 
@@ -185,18 +199,27 @@ async function verifyValuation(stockCode: string, label: string): Promise<void> 
   const payoutRatio = price.eps !== null && price.eps > 0 ? Math.min(1, Math.max(0, completedYearDividendTotal / price.eps)) : 0;
   console.log(`배당성향(${completedYear}년 배당합계 ${completedYearDividendTotal} / EPS ${price.eps}):`, payoutRatio);
 
-  let rim;
+  let betaRow: Awaited<ReturnType<typeof getStockBeta>> = null;
+  let riskFreeRatePct: number | null = null;
+  let requiredReturnPct: number | null = null;
   try {
-    const [betaRow, riskFreeSeries] = await Promise.all([
+    const [b, riskFreeSeries] = await Promise.all([
       getStockBeta(stockCode),
       getEcosSeries("817Y002", "010210000", yyyymmddDaysAgo(ECOS_RISK_FREE_LOOKBACK_DAYS), today),
     ]);
-    const riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
+    betaRow = b;
+    riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
     console.log("베타:", betaRow?.beta ?? null, "/ 무위험이자율(국고채10년,%):", riskFreeRatePct);
-    if (betaRow?.beta !== null && betaRow?.beta !== undefined && riskFreeRatePct !== null) {
-      console.log("요구수익률(CAPM,%) =", computeRequiredReturnPct(riskFreeRatePct, betaRow.beta));
+    if (betaRow?.beta != null && riskFreeRatePct !== null) {
+      requiredReturnPct = computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
+      console.log("요구수익률(CAPM,%) =", requiredReturnPct);
     }
+  } catch (error) {
+    console.error(`베타/무위험이자율 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
+  let rim;
+  try {
     rim = computeRimFairValue({
       currentPrice: price.currentPrice,
       currentBps: price.bps,
@@ -231,7 +254,27 @@ async function verifyValuation(stockCode: string, label: string): Promise<void> 
   }
   console.log("peerPer:", JSON.stringify(peerPer));
 
-  console.log("\n(참고) 나머지 응답 필드 정상 여부 — PER/PBR/배당수익률이 rim/peerPer 실패와 무관하게 채워지는지:");
+  let dcf;
+  try {
+    const [cashflowRows, debtRows] = await Promise.all([getCashflowStatements(stockCode), getDebtStructure(stockCode)]);
+    console.log(`dart_cashflow_statements 행수: ${cashflowRows.length}, dart_debt_structure 행수: ${debtRows.length}`);
+    dcf = computeDcfFairValue({
+      currentPrice: price.currentPrice,
+      sharesOutstanding: price.sharesOutstanding,
+      marketCapEok: price.marketCapEok,
+      cashflowRows,
+      debtRows,
+      beta: betaRow?.beta ?? null,
+      riskFreeRatePct,
+      requiredReturnPct,
+    });
+  } catch (error) {
+    console.error(`DCF 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
+    dcf = { method: "DCF", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "일시적 오류로 산출 실패" };
+  }
+  console.log("dcf:", JSON.stringify(dcf));
+
+  console.log("\n(참고) 나머지 응답 필드 정상 여부 — PER/PBR/배당수익률이 rim/peerPer/dcf 실패와 무관하게 채워지는지:");
   console.log({
     marketCapEok: price.marketCapEok,
     sharesOutstanding: price.sharesOutstanding,
@@ -278,8 +321,9 @@ async function diagnoseSamsung(): Promise<void> {
   const payoutRatio = price.eps !== null && price.eps > 0 ? Math.min(1, Math.max(0, completedYearDividendTotal / price.eps)) : 0;
   console.log(`배당성향(${completedYear}년 배당합계 ${completedYearDividendTotal} / EPS ${price.eps}):`, payoutRatio);
 
+  let requiredReturnPct: number | null = null;
   if (betaRow?.beta != null && riskFreeRatePct !== null && latestRoePct !== null && price.bps !== null) {
-    const requiredReturnPct = computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
+    requiredReturnPct = computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
     console.log(`\n요구수익률 r = 무위험이자율(${riskFreeRatePct}) + 베타(${betaRow.beta}) × 시장위험프리미엄(${RIM_MARKET_RISK_PREMIUM_PCT}) = ${requiredReturnPct}%`);
     console.log(`최근 ROE(${latestRoePct}%) vs 요구수익률(${requiredReturnPct}%): ${latestRoePct < requiredReturnPct ? "ROE < r → 5년 페이드 경로 내내 초과이익이 음수(설계상 fairPrice가 BPS보다 낮게 나올 수 있음)" : "ROE > r → 초과이익이 양수"}`);
 
@@ -315,6 +359,9 @@ async function diagnoseSamsung(): Promise<void> {
     payoutRatio,
   });
   console.log("\nrim (route.ts와 동일 함수 재호출):", JSON.stringify(rim));
+  console.log(
+    "\n[회귀 확인용] 이번 PR(DCF 2단계)이 route.ts의 베타/무위험이자율 조회 로직을 리팩터했으므로, 위 베타/무위험이자율/요구수익률/rim 값이 RIM 검증(1단계) 때 확인한 값과 동일한지 팀장/사용자가 대조해야 한다."
+  );
 
   // 방법A: 삼성전자 업종그룹 내 시총 비중 확인 — leave-one-out(자기 제외) 중앙값이
   // 그룹 전체(자기 포함) 중앙값과 실제로 달라지는지, 시총 비중이 압도적인지 확인.
@@ -363,6 +410,166 @@ async function diagnoseSamsung(): Promise<void> {
     );
     console.log("그룹 내 종목별 시총/PER:", JSON.stringify(marketCaps.sort((a, b) => b.marketCapEok - a.marketCapEok)));
   }
+
+  // DCF 심층 진단: 삼성전자가 정상 산출 케이스로 적합한지(5개년 현금흐름/부채 데이터,
+  // FCF 5개년 값·CAGR 캡 적용 여부, WACC 분해, 영구성장률 스프레드, 최종 fairPrice)를
+  // 전부 단계별로 출력한다.
+  console.log(`\n########## DCF 심층 진단: ${stockCode}(삼성전자) ##########\n`);
+  const [cashflowRows, debtRows] = await Promise.all([getCashflowStatements(stockCode), getDebtStructure(stockCode)]);
+  console.log("dart_cashflow_statements(fiscal_year 오름차순):", JSON.stringify(cashflowRows));
+  console.log("dart_debt_structure(fiscal_year 오름차순):", JSON.stringify(debtRows));
+
+  const fcfSeries = computeFcfSeries(cashflowRows);
+  console.log(`\nFCF 5개년(영업CF - capex), ${fcfSeries.length}개년 확보:`, JSON.stringify(fcfSeries));
+  if (fcfSeries.length >= 2) {
+    const fcfValues = fcfSeries.map((r) => r.fcf);
+    const rawFirst = fcfValues[0];
+    const rawLast = fcfValues[fcfValues.length - 1];
+    const rawCagrPct = rawFirst > 0 && rawLast > 0 ? (Math.pow(rawLast / rawFirst, 1 / (fcfValues.length - 1)) - 1) * 100 : null;
+    const cappedGrowthRatePct = computeFcfGrowthRatePct(fcfValues);
+    console.log(
+      `첫해(${fcfSeries[0].fiscalYear}) FCF: ${rawFirst.toLocaleString()}원, 마지막해(${fcfSeries[fcfSeries.length - 1].fiscalYear}) FCF: ${rawLast.toLocaleString()}원`
+    );
+    console.log(`캡 적용 전 CAGR: ${rawCagrPct === null ? "계산 불가(첫해 또는 마지막해 FCF <= 0)" : rawCagrPct.toFixed(2) + "%"}`);
+    console.log(`캡(±50%) 적용 후 성장률(computeFcfGrowthRatePct): ${cappedGrowthRatePct === null ? "null" : cappedGrowthRatePct.toFixed(2) + "%"}`);
+    console.log(
+      `캡 적용 여부: ${rawCagrPct !== null && cappedGrowthRatePct !== null && Math.abs(rawCagrPct - cappedGrowthRatePct) > 0.001 ? "적용됨(캡에 걸림)" : "미적용(캡 안에 있음)"}`
+    );
+    console.log(
+      "중간 연도(2023년 등) FCF가 음수여도 첫해/마지막해가 양수면 CAGR 계산이 정상 진행되는지: 첫해/마지막해만 보고 계산하므로 중간 연도 부호와 무관함(설계상 의도)"
+    );
+  }
+
+  if (betaRow?.beta != null && riskFreeRatePct !== null) {
+    const costOfEquityPct = requiredReturnPct ?? computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
+    const latestDebtRow = debtRows[debtRows.length - 1] ?? null;
+    console.log("\n최근년도 부채구조 행:", JSON.stringify(latestDebtRow));
+    if (latestDebtRow) {
+      const totalDebtWon = computeTotalInterestBearingDebtWon(latestDebtRow);
+      console.log(`총 이자부채(단기+장기+사채): ${totalDebtWon === null ? "null(세 필드 모두 null — 데이터 확인 불가)" : totalDebtWon.toLocaleString() + "원"}`);
+      if (totalDebtWon !== null) {
+        const costOfDebtPct = computeCostOfDebtPct(latestDebtRow.interestExpense, totalDebtWon);
+        console.log(`타인자본비용(이자비용/총이자부채): ${costOfDebtPct === null ? "null(이자비용 데이터 없음)" : costOfDebtPct.toFixed(4) + "%"}`);
+        if (costOfDebtPct !== null) {
+          const marketCapWon = price.marketCapEok * 100_000_000;
+          const waccPct = computeWaccPct(costOfEquityPct, costOfDebtPct, marketCapWon, totalDebtWon);
+          const equityWeight = marketCapWon + totalDebtWon === 0 ? 1 : marketCapWon / (marketCapWon + totalDebtWon);
+          const debtWeight = 1 - equityWeight;
+          console.log(
+            `WACC = 자기자본비중(${(equityWeight * 100).toFixed(2)}%) × 자기자본비용(${costOfEquityPct.toFixed(4)}%) + 타인자본비중(${(debtWeight * 100).toFixed(2)}%) × 세후타인자본비용(${(costOfDebtPct * (1 - DCF_CORPORATE_TAX_RATE_PCT / 100)).toFixed(4)}%) = ${waccPct.toFixed(4)}%`
+          );
+          console.log(`영구성장률: ${DCF_TERMINAL_GROWTH_RATE_PCT}%, WACC-영구성장률 스프레드: ${(waccPct - DCF_TERMINAL_GROWTH_RATE_PCT).toFixed(4)}%p (최소 요구: ${DCF_WACC_TERMINAL_GROWTH_MIN_SPREAD_PCT}%p)`);
+          console.log(`WACC이 상식적 범위(5~15%)인지: ${waccPct >= 5 && waccPct <= 15 ? "예" : "아니오 — 확인 필요"}`);
+        }
+      }
+    }
+  }
+
+  const dcf = computeDcfFairValue({
+    currentPrice: price.currentPrice,
+    sharesOutstanding: price.sharesOutstanding,
+    marketCapEok: price.marketCapEok,
+    cashflowRows,
+    debtRows,
+    beta: betaRow?.beta ?? null,
+    riskFreeRatePct,
+    requiredReturnPct,
+  });
+  console.log("\ndcf (route.ts와 동일 함수 재호출):", JSON.stringify(dcf));
+  if (dcf.fairPrice !== null) {
+    console.log(
+      `fairPrice(${dcf.fairPrice.toFixed(0)}원)가 현재가(${price.currentPrice.toLocaleString()}원) 대비 상식적 범위인지(음수 아님, 수백 배 아님): ${
+        dcf.fairPrice > 0 && dcf.fairPrice < price.currentPrice * 100 ? "예" : "아니오 — 확인 필요"
+      }`
+    );
+  }
+  console.log(`reason에 현금성자산 caveat 포함 여부(성공 케이스에서도): ${dcf.reason.includes("현금성자산") ? "포함됨" : "미포함"}`);
+}
+
+/** dart_cashflow_statements/dart_debt_structure를 스캔해 DCF 산출 불가 케이스별
+ * 대상 종목을 찾는다. 페이지네이션으로 전체를 가져온 뒤 종목코드별로 그룹핑한다. */
+async function fetchAllRows<T extends { stock_code: string }>(table: string, columns: string): Promise<T[]> {
+  const rows: T[] = [];
+  let from = 0;
+  const PAGE = 1000;
+  for (;;) {
+    const { data, error } = await supabaseAdmin.from(table).select(columns).range(from, from + PAGE - 1);
+    if (error) throw new Error(`${table} 조회 실패: ${error.message}`);
+    if (!data || data.length === 0) break;
+    rows.push(...(data as unknown as T[]));
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
+async function pickDcfCandidates(): Promise<{
+  insufficientYears: string | null;
+  noInterestExpense: string | null;
+}> {
+  console.log("\n########## DCF 케이스별 대상 종목 조회 ##########\n");
+
+  interface CfRow {
+    stock_code: string;
+    fiscal_year: number;
+    operating_cf: number | string | null;
+    capex: number | string | null;
+  }
+  interface DebtRow {
+    stock_code: string;
+    fiscal_year: number;
+    short_term_debt: number | string | null;
+    long_term_debt: number | string | null;
+    bonds_payable: number | string | null;
+    interest_expense: number | string | null;
+  }
+
+  const cfRows = await fetchAllRows<CfRow>("dart_cashflow_statements", "stock_code, fiscal_year, operating_cf, capex");
+  const debtRows = await fetchAllRows<DebtRow>("dart_debt_structure", "stock_code, fiscal_year, short_term_debt, long_term_debt, bonds_payable, interest_expense");
+
+  const cfYearsByStock = new Map<string, number>();
+  for (const r of cfRows) {
+    cfYearsByStock.set(r.stock_code, (cfYearsByStock.get(r.stock_code) ?? 0) + 1);
+  }
+
+  const debtByStock = new Map<string, DebtRow[]>();
+  for (const r of debtRows) {
+    const arr = debtByStock.get(r.stock_code) ?? [];
+    arr.push(r);
+    debtByStock.set(r.stock_code, arr);
+  }
+
+  // 케이스: 현금흐름 데이터가 1~4개년만 있는 종목("5개년 미만").
+  let insufficientYears: string | null = null;
+  for (const [code, years] of cfYearsByStock) {
+    if (years >= 1 && years < DART_VALUATION_FISCAL_YEARS) {
+      insufficientYears = code;
+      break;
+    }
+  }
+  console.log(`5개년 미만 현금흐름 데이터 종목: ${insufficientYears ?? "찾지 못함"}${insufficientYears ? ` (보유 ${cfYearsByStock.get(insufficientYears)}개년)` : ""}`);
+
+  // 케이스: 현금흐름 5개년 이상 확보 + 최근년도 부채는 있는데(총 이자부채 > 0)
+  // 이자비용이 null인 종목.
+  let noInterestExpense: string | null = null;
+  for (const [code, years] of cfYearsByStock) {
+    if (years < DART_VALUATION_FISCAL_YEARS) continue;
+    const debts = (debtByStock.get(code) ?? []).sort((a, b) => a.fiscal_year - b.fiscal_year);
+    const latest = debts[debts.length - 1];
+    if (!latest) continue;
+    const shortTerm = latest.short_term_debt === null ? 0 : Number(latest.short_term_debt);
+    const longTerm = latest.long_term_debt === null ? 0 : Number(latest.long_term_debt);
+    const bonds = latest.bonds_payable === null ? 0 : Number(latest.bonds_payable);
+    const totalDebt = shortTerm + longTerm + bonds;
+    const hasAnyDebtField = latest.short_term_debt !== null || latest.long_term_debt !== null || latest.bonds_payable !== null;
+    if (hasAnyDebtField && totalDebt > 0 && latest.interest_expense === null) {
+      noInterestExpense = code;
+      break;
+    }
+  }
+  console.log(`이자비용 데이터 없음(부채>0, 5개년 현금흐름 확보) 종목: ${noInterestExpense ?? "찾지 못함"}`);
+
+  return { insufficientYears, noInterestExpense };
 }
 
 async function main(): Promise<void> {
@@ -383,9 +590,23 @@ async function main(): Promise<void> {
   }
 
   if (neitherAvailable) {
-    await verifyValuation(neitherAvailable.stockCode, "케이스3: 베타 산출 불가(상장3년미만 등) 종목");
+    await verifyValuation(neitherAvailable.stockCode, "케이스3: 베타 산출 불가(상장3년미만 등) 종목 — DCF도 동일하게 '베타 산출 불가'로 산출 불가여야 함");
   } else {
     console.log("\n케이스3 스킵: beta is null인 종목을 찾지 못함");
+  }
+
+  const { insufficientYears, noInterestExpense } = await pickDcfCandidates();
+
+  if (insufficientYears) {
+    await verifyValuation(insufficientYears, "케이스4(DCF): 과거 현금흐름 5개년 미만 종목 — DCF는 '과거 현금흐름 데이터 5개년 미만'으로 산출 불가여야 함");
+  } else {
+    console.log("\n케이스4 스킵: 5개년 미만 현금흐름 데이터 종목을 찾지 못함");
+  }
+
+  if (noInterestExpense) {
+    await verifyValuation(noInterestExpense, "케이스5(DCF): 부채는 있는데 이자비용 데이터가 없는 종목 — DCF는 '이자비용 데이터 없음'으로 산출 불가여야 함");
+  } else {
+    console.log("\n케이스5 스킵: 해당 조건(부채>0, 이자비용 null, 5개년 현금흐름 확보) 종목을 찾지 못함");
   }
 
   console.log("\n=== 검증 종료 ===");

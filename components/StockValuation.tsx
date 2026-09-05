@@ -13,11 +13,12 @@ interface DividendYearRow {
 type FairValueVerdict = "UNDERVALUED" | "FAIR" | "OVERVALUED" | "UNKNOWN";
 
 interface FairValueResult {
-  method: "RIM" | "PEER_PER";
+  method: "RIM" | "PEER_PER" | "DCF";
   fairPrice: number | null;
   gapPercent: number | null;
   verdict: FairValueVerdict;
   reason: string;
+  assumptions?: { wacc: number; terminalGrowth: number; fcfGrowthRate: number };
 }
 
 interface ValuationResponse {
@@ -36,6 +37,7 @@ interface ValuationResponse {
   dividendCountLastYear: number | null;
   rim: FairValueResult;
   peerPer: FairValueResult;
+  dcf: FairValueResult;
 }
 
 function formatRatio(value: number | null, digits = 2): string {
@@ -75,6 +77,7 @@ function StatBlock({ label, value, hint }: { label: string; value: string; hint?
 const FAIR_VALUE_METHOD_LABEL: Record<FairValueResult["method"], string> = {
   RIM: "RIM(잔여이익모델)",
   PEER_PER: "방법A(업종 평균 PER)",
+  DCF: "DCF(현금흐름할인법)",
 };
 
 // 국내 증시 관례상 상승/저평가를 붉은색, 하락/고평가를 파란색 계열로 표시하는 이
@@ -93,9 +96,10 @@ const FAIR_VALUE_VERDICT_LABEL: Record<FairValueVerdict, string> = {
   UNKNOWN: "산출 불가",
 };
 
-/** RIM/방법A 카드 하나. 산출 가능하면 적정주가·현재가 대비 괴리율·판정 배지를,
- * 산출 불가면 사유(reason)만 보여준다. highlighted면(두 방법 판정이 일치할 때)
- * 카드 테두리를 강조한다. */
+/** RIM/방법A/DCF 카드 하나. 산출 가능하면 적정주가·현재가 대비 괴리율·판정 배지를,
+ * 산출 불가면 사유(reason)만 보여준다. highlighted면(다수 방법 판정이 일치할 때)
+ * 카드 테두리를 강조한다. DCF는 assumptions(WACC·영구성장률·FCF성장률)를 하단에
+ * 함께 보여줘 적정주가 산출 근거가 드러나게 한다. */
 function FairValueCard({ result, highlighted }: { result: FairValueResult; highlighted: boolean }) {
   return (
     <div
@@ -120,6 +124,12 @@ function FairValueCard({ result, highlighted }: { result: FairValueResult; highl
           >
             {FAIR_VALUE_VERDICT_LABEL[result.verdict]}
           </span>
+          {result.assumptions && (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              WACC {result.assumptions.wacc.toFixed(1)}% · 영구성장률 {result.assumptions.terminalGrowth.toFixed(1)}%
+              · FCF성장률 {result.assumptions.fcfGrowthRate.toFixed(1)}%
+            </p>
+          )}
         </>
       )}
     </div>
@@ -205,25 +215,39 @@ export default function StockValuation({ code }: { code: string }) {
             </div>
           )}
 
-          <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-            <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">적정주가(RIM / 업종 평균 PER)</p>
-            {/* 두 방법 판정 비교는 클라이언트에서 계산한다 — API는 파생값을 따로 저장/반환하지 않는다. */}
-            {data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict && (
-              <span className="mb-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
-                두 방법 판정 일치: {FAIR_VALUE_VERDICT_LABEL[data.rim.verdict]}
-              </span>
-            )}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FairValueCard
-                result={data.rim}
-                highlighted={data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict}
-              />
-              <FairValueCard
-                result={data.peerPer}
-                highlighted={data.rim.verdict !== "UNKNOWN" && data.rim.verdict === data.peerPer.verdict}
-              />
-            </div>
-          </div>
+          {(() => {
+            // 방법 간 판정 일치 개수 비교는 클라이언트에서 계산한다 — API는 파생값을
+            // 따로 저장/반환하지 않는다.
+            const results = [data.rim, data.peerPer, data.dcf];
+            const knownVerdicts = results.map((r) => r.verdict).filter((v) => v !== "UNKNOWN");
+            const verdictCounts = new Map<FairValueVerdict, number>();
+            for (const v of knownVerdicts) verdictCounts.set(v, (verdictCounts.get(v) ?? 0) + 1);
+            const maxAgreement = Math.max(0, ...verdictCounts.values());
+            const majorityVerdict = [...verdictCounts.entries()].find(([, c]) => c === maxAgreement)?.[0];
+            const showSummary = knownVerdicts.length >= 2 && maxAgreement >= 2 && majorityVerdict !== undefined;
+
+            return (
+              <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+                <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  적정주가(RIM / 업종 평균 PER / DCF)
+                </p>
+                {showSummary && (
+                  <span className="mb-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                    {results.length}개 방법 중 {maxAgreement}개 일치: {FAIR_VALUE_VERDICT_LABEL[majorityVerdict]}
+                  </span>
+                )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {results.map((result) => (
+                    <FairValueCard
+                      key={result.method}
+                      result={result}
+                      highlighted={showSummary && result.verdict === majorityVerdict}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

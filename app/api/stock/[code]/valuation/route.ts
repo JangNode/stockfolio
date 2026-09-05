@@ -5,10 +5,13 @@ import { computeEpsCagrAsOf } from "@/lib/stockFundamentals";
 import { computePeg } from "@/lib/pegRatio";
 import { getEcosSeries } from "@/lib/ecosClient";
 import { getStockBeta } from "@/lib/stockBetaStorage";
+import { computeRequiredReturnPct } from "@/lib/capm";
 import { computeRimFairValue } from "@/lib/rimValuation";
 import { getStockIndustry } from "@/lib/industryClassificationStorage";
 import { getIndustryPerSamples } from "@/lib/industryPerSamplesStorage";
 import { computePeerPerFairValue } from "@/lib/peerPerValuation";
+import { getCashflowStatements, getDebtStructure } from "@/lib/dartCashflowDebtStorage";
+import { computeDcfFairValue } from "@/lib/dcfValuation";
 import type { FairValueResult } from "@/lib/stockFairValue";
 
 const DIVIDEND_YEARS_TO_SHOW = 5;
@@ -87,8 +90,28 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const paidLastYearTotal = paidLastYear.reduce((sum, r) => sum + r.cashDividendPerShare, 0);
     const dividendYieldPct = price.currentPrice > 0 ? (paidLastYearTotal / price.currentPrice) * 100 : null;
 
-    // RIM(잔여이익모델)과 방법A(업종 평균 PER)는 각각 독립적으로 실패해도 위에서 이미
-    // 구한 PER/PBR/배당 데이터는 정상 응답하게 각자 try/catch로 감싼다.
+    // 베타/무위험이자율/CAPM 요구수익률은 RIM과 DCF가 공유한다(중복 계산 금지).
+    let betaRow: Awaited<ReturnType<typeof getStockBeta>> = null;
+    let riskFreeRatePct: number | null = null;
+    let requiredReturnPct: number | null = null;
+    try {
+      const [b, riskFreeSeries] = await Promise.all([
+        getStockBeta(code),
+        getEcosSeries("817Y002", "010210000", yyyymmddDaysAgo(ECOS_RISK_FREE_LOOKBACK_DAYS), today),
+      ]);
+      betaRow = b;
+      riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
+      if (betaRow?.beta != null && riskFreeRatePct !== null) {
+        requiredReturnPct = computeRequiredReturnPct(riskFreeRatePct, betaRow.beta);
+      }
+    } catch (error) {
+      console.error(`${code} 베타/무위험이자율 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+      // null 유지 — RIM/DCF 둘 다 자체 가드로 "산출 불가" 처리됨
+    }
+
+    // RIM(잔여이익모델)/방법A(업종 평균 PER)/DCF(현금흐름할인법)는 각각 독립적으로
+    // 실패해도 위에서 이미 구한 PER/PBR/배당 데이터는 정상 응답하게 각자 try/catch로
+    // 감싼다.
     let rim: FairValueResult;
     try {
       // 배당성향 = 최근 완료된 달력연도 배당 합계 ÷ 오늘 EPS(0~1 클램프). 배당 이력이
@@ -99,12 +122,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         price.eps !== null && price.eps > 0
           ? Math.min(1, Math.max(0, completedYearDividendTotal / price.eps))
           : 0;
-
-      const [betaRow, riskFreeSeries] = await Promise.all([
-        getStockBeta(code),
-        getEcosSeries("817Y002", "010210000", yyyymmddDaysAgo(ECOS_RISK_FREE_LOOKBACK_DAYS), today),
-      ]);
-      const riskFreeRatePct = riskFreeSeries.length > 0 ? riskFreeSeries[riskFreeSeries.length - 1].value : null;
 
       rim = computeRimFairValue({
         currentPrice: price.currentPrice,
@@ -117,6 +134,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     } catch (error) {
       console.error(`${code} RIM 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
       rim = { method: "RIM", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "일시적 오류로 산출 실패" };
+    }
+
+    let dcf: FairValueResult;
+    try {
+      const [cashflowRows, debtRows] = await Promise.all([getCashflowStatements(code), getDebtStructure(code)]);
+      dcf = computeDcfFairValue({
+        currentPrice: price.currentPrice,
+        sharesOutstanding: price.sharesOutstanding,
+        marketCapEok: price.marketCapEok,
+        cashflowRows,
+        debtRows,
+        beta: betaRow?.beta ?? null,
+        riskFreeRatePct,
+        requiredReturnPct,
+      });
+    } catch (error) {
+      console.error(`${code} DCF 계산 실패: ${error instanceof Error ? error.message : String(error)}`);
+      dcf = { method: "DCF", fairPrice: null, gapPercent: null, verdict: "UNKNOWN", reason: "일시적 오류로 산출 실패" };
     }
 
     let peerPer: FairValueResult;
@@ -154,6 +189,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       dividendCountLastYear,
       rim,
       peerPer,
+      dcf,
     });
   } catch (error) {
     return NextResponse.json(

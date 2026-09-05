@@ -1,18 +1,21 @@
 /**
  * 관심종목 적정주가 기능 공용 타입/판정 로직(DB·외부 호출 없음, 순수 함수) —
- * RIM(잔여이익모델, lib/rimValuation.ts)과 방법A(업종 평균 PER,
- * lib/peerPerValuation.ts)가 같은 형태의 결과를 반환하도록 공유한다.
+ * RIM(잔여이익모델, lib/rimValuation.ts), 방법A(업종 평균 PER,
+ * lib/peerPerValuation.ts), DCF(현금흐름할인법, lib/dcfValuation.ts)가 같은
+ * 형태의 결과를 반환하도록 공유한다.
  */
 import { FAIR_VALUE_VERDICT_BAND_PCT } from "@/lib/stockFairValueConfig";
 
 export type FairValueVerdict = "UNDERVALUED" | "FAIR" | "OVERVALUED" | "UNKNOWN";
 
 export interface FairValueResult {
-  method: "RIM" | "PEER_PER";
+  method: "RIM" | "PEER_PER" | "DCF";
   fairPrice: number | null;
   gapPercent: number | null; // (fairPrice - currentPrice) / currentPrice * 100
   verdict: FairValueVerdict;
   reason: string;
+  // DCF만 채운다(RIM/방법A는 미사용) — 산출된 적정주가의 근거를 함께 보여주기 위함.
+  assumptions?: { wacc: number; terminalGrowth: number; fcfGrowthRate: number };
 }
 
 /** gapPercent(적정주가가 현재가 대비 얼마나 높은지, %)로 저평가/적정/고평가를

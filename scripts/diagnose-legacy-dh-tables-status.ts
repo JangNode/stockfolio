@@ -167,7 +167,10 @@ async function reportBetaPriceHistory(): Promise<void> {
 async function main(): Promise<void> {
   console.log("########## 1. dh_daily_market_data (원래 이름) ##########");
   const dhDailyMarketDataExists = await checkTableExists("dh_daily_market_data");
-  console.log(`  결론: ${dhDailyMarketDataExists ? "존재함(예상 밖 — 재확인 필요)" : "존재하지 않음(마이그레이션 이력상 DROP됨, 예상대로)"}`);
+  console.log(`  결론: ${dhDailyMarketDataExists ? "존재함(예상 밖 — 마이그레이션 이력상 DROP됐어야 함, 실측 필요)" : "존재하지 않음(마이그레이션 이력상 DROP됨, 예상대로)"}`);
+  if (dhDailyMarketDataExists) {
+    await reportTable("dh_daily_market_data(예상 밖 잔존)", "dh_daily_market_data", "trade_date", "stock_code");
+  }
 
   console.log("\n########## 2. 후속 아키텍처(Storage Parquet + hot 테이블)로 대체된 부분 ##########");
   await reportTable("stock_daily_prices_recent(hot, 최근 2년)", "stock_daily_prices_recent", "trade_date", "stock_code");

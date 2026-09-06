@@ -3,7 +3,12 @@ name: 종목 시세 원자료 백필 - KRX 일별시세 (1단계)
 # 수동 실행 전용. 15년치를 한 번에 채우는 일회성 백필이라 자동 스케줄을 두지
 # 않는다 — 완료 후 상시 갱신은 screening.yml에 별도로 붙어 있다.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_refetch_all_years:
+        description: "이미 있는 연도도 전부 다시 받기(시가/거래량 컬럼 추가 등 스키마 변경 후 1회성 재백필용)"
+        type: boolean
+        default: false
 
 jobs:
   backfill:
@@ -31,3 +36,4 @@ jobs:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FORCE_REFETCH_ALL_YEARS: ${{ inputs.force_refetch_all_years }}

@@ -46,6 +46,8 @@ const COLD_PROGRESS_LOG_INTERVAL = 100;
 interface KrxTradeRow {
   ISU_CD: string;
   TDD_CLSPRC: string;
+  TDD_OPNPRC: string;
+  ACC_TRDVOL: string;
   MKTCAP: string;
   LIST_SHRS: string;
 }
@@ -119,12 +121,18 @@ async function fetchAndFilterDay(
     if (!Number.isFinite(marketCapEok)) continue;
     if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !themeFlaggedCodes.has(row.ISU_CD)) continue;
 
+    const openPrice = Number(row.TDD_OPNPRC);
+    const volume = Number(row.ACC_TRDVOL);
+    if (!Number.isFinite(openPrice) || !Number.isFinite(volume)) continue;
+
     rows.push({
       stockCode: row.ISU_CD,
       tradeDate: dateKey,
       closePrice: Number(row.TDD_CLSPRC),
       marketCapEok,
       listedShares: Number(row.LIST_SHRS),
+      openPrice,
+      volume,
     });
   }
   return rows;

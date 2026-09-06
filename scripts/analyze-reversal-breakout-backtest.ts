@@ -210,16 +210,6 @@ function periodLabel(date: string): string | null {
   return null;
 }
 
-interface ConfigResult {
-  paramLabel: string;
-  ratioThreshold: number;
-  multiplier: number;
-  breakoutLookback: number;
-  totalSignals: number;
-  overall: Record<(typeof FORWARD_HORIZONS)[number], ReturnStat>;
-  byPeriod: Record<string, Record<(typeof FORWARD_HORIZONS)[number], ReturnStat>>;
-}
-
 async function main(): Promise<void> {
   console.log("########## 0. 종목 마스터 로드(잡주 필터용) ##########");
   const allStocks = await getAllStocks();
@@ -314,25 +304,26 @@ async function main(): Promise<void> {
   }
 
   console.log("\n########## 4. 결과 집계 ##########");
-  const results: ConfigResult[] = configs.map((c) => {
-    const overall = Object.fromEntries(FORWARD_HORIZONS.map((h) => [h, summarize(returnsOverall.get(c.label)!.get(h)!)])) as ConfigResult["overall"];
-    const byPeriod = Object.fromEntries(
-      PERIODS.map((p) => [p.label, Object.fromEntries(FORWARD_HORIZONS.map((h) => [h, summarize(returnsByPeriod.get(c.label)!.get(p.label)!.get(h)!)]))])
-    ) as ConfigResult["byPeriod"];
-    return {
-      paramLabel: c.label,
-      ratioThreshold: c.ratioThreshold,
-      multiplier: c.multiplier,
-      breakoutLookback: c.breakoutLookback,
-      totalSignals: signalCounts.get(c.label) ?? 0,
-      overall,
-      byPeriod,
-    };
-  });
+  console.log(`universeSize=${eligibleCodes.length} totalStocksLoaded=${allSeries.size}`);
 
-  console.log("RESULT_JSON_START");
-  console.log(JSON.stringify({ universeSize: eligibleCodes.length, totalStocksLoaded: allSeries.size, results }, null, 2));
-  console.log("RESULT_JSON_END");
+  function fmtStat(s: ReturnStat): string {
+    if (s.n === 0) return "n=0";
+    return `n=${s.n} mean=${s.meanPct!.toFixed(3)}% median=${s.medianPct!.toFixed(3)}% winRate=${(s.winRate! * 100).toFixed(2)}%`;
+  }
+
+  console.log("\nRESULT_TABLE_START");
+  for (const c of configs) {
+    console.log(`\n--- ${c.label} (ratio=${c.ratioThreshold} multiplier=${c.multiplier} breakoutLookback=${c.breakoutLookback}) totalSignals=${signalCounts.get(c.label) ?? 0} ---`);
+    for (const h of FORWARD_HORIZONS) {
+      console.log(`  overall  h=${h}d  ${fmtStat(summarize(returnsOverall.get(c.label)!.get(h)!))}`);
+    }
+    for (const p of PERIODS) {
+      for (const h of FORWARD_HORIZONS) {
+        console.log(`  ${p.label}  h=${h}d  ${fmtStat(summarize(returnsByPeriod.get(c.label)!.get(p.label)!.get(h)!))}`);
+      }
+    }
+  }
+  console.log("RESULT_TABLE_END");
 
   console.log("\n=== 분석 종료 ===");
 }

@@ -26,6 +26,8 @@ const MAX_LOOKBACK_DAYS = 10;
 interface KrxTradeRow {
   ISU_CD: string;
   TDD_CLSPRC: string;
+  TDD_OPNPRC: string;
+  ACC_TRDVOL: string;
   MKTCAP: string;
   LIST_SHRS: string;
 }
@@ -73,12 +75,19 @@ async function fetchAndFilterDay(
     // 시가총액 하한 미달이어도 테마(lib/themeConfig.ts) 소속 종목이면 저장한다 —
     // 테마/업종별 등락률 순위 기능이 필요로 하는 소형주 시세도 같이 채워 넣는다.
     if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !themeFlaggedCodes.has(row.ISU_CD)) continue;
+
+    const openPrice = Number(row.TDD_OPNPRC);
+    const volume = Number(row.ACC_TRDVOL);
+    if (!Number.isFinite(openPrice) || !Number.isFinite(volume)) continue;
+
     rows.push({
       stockCode: row.ISU_CD,
       tradeDate: dateKey,
       closePrice: Number(row.TDD_CLSPRC),
       marketCapEok,
       listedShares: Number(row.LIST_SHRS),
+      openPrice,
+      volume,
     });
   }
   return rows;

@@ -323,20 +323,30 @@ export async function discoverCandidateStockCodes(years: number[], minMarketCapE
 
 /** stock_daily_prices_recent에 오늘치(또는 특정일) 시세를 저장한다(upsert) — 매일
  * 갱신 배치가 쓴다. */
+// 한 번에 upsert할 최대 행 수. 2026-09-06 시가/거래량 컬럼 추가 + reversal_breakout
+// 예외 종목 확장으로 연간 행 수가 늘면서, 한 해(14만 행 이상)를 통째로 upsert하다가
+// "statement timeout"으로 실패하는 걸 실측으로 확인했다(seed-stock-daily-prices-recent.ts
+// 재시딩 중 2025년 처리 단계). 일별 갱신 배치(update-stock-daily-prices-recent.ts, 하루
+// ~2천 행)는 원래도 이 한도 밑이라 영향 없다.
+const UPSERT_RECENT_PRICES_BATCH_SIZE = 5000;
+
 export async function upsertRecentPrices(rows: StockDailyPriceRow[]): Promise<void> {
   if (rows.length === 0) return;
-  const { error } = await supabaseAdmin.from(HOT_TABLE).upsert(
-    rows.map((r) => ({
-      stock_code: r.stockCode,
-      trade_date: r.tradeDate,
-      close_price: r.closePrice,
-      market_cap_eok: r.marketCapEok,
-      listed_shares: r.listedShares,
-      open_price: r.openPrice,
-      volume: r.volume,
-    }))
-  );
-  if (error) throw new Error(`최근 시세 저장 실패: ${error.message}`);
+  const payload = rows.map((r) => ({
+    stock_code: r.stockCode,
+    trade_date: r.tradeDate,
+    close_price: r.closePrice,
+    market_cap_eok: r.marketCapEok,
+    listed_shares: r.listedShares,
+    open_price: r.openPrice,
+    volume: r.volume,
+  }));
+
+  for (let i = 0; i < payload.length; i += UPSERT_RECENT_PRICES_BATCH_SIZE) {
+    const batch = payload.slice(i, i + UPSERT_RECENT_PRICES_BATCH_SIZE);
+    const { error } = await supabaseAdmin.from(HOT_TABLE).upsert(batch);
+    if (error) throw new Error(`최근 시세 저장 실패: ${error.message}`);
+  }
 }
 
 /** stock_daily_prices_recent에 이미 있는 가장 최근 날짜(YYYY-MM-DD). 매일 갱신

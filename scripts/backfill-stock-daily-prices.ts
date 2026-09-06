@@ -1,7 +1,7 @@
 /**
  * 종목 시세 원자료(여러 전략이 공유) 백필 1단계 — KRX 일별매매정보(stk_bydd_trd/
- * ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가·거래량/시가총액/상장주식수를 연도별
- * Parquet 파일(stock-daily-prices/{year}.parquet, Supabase Storage)로 만든다. Postgres가
+ * ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가·고가·저가·거래량/시가총액/상장주식수를
+ * 연도별 Parquet 파일(stock-daily-prices/{year}.parquet, Supabase Storage)로 만든다. Postgres가
  * 아니라 Storage에 쓰는 이유는 supabase/migrations의
  * 20260827060000_dh_daily_prices_to_storage.sql 코멘트 참고 — 전종목 15년치를
  * Postgres에 다 넣었더니 무료 플랜 DB 용량(500MB)을 넘겨버렸다(639만 행에서
@@ -53,6 +53,8 @@ interface KrxTradeRow {
   ISU_CD: string;
   TDD_CLSPRC: string;
   TDD_OPNPRC: string;
+  TDD_HGPRC: string;
+  TDD_LWPRC: string;
   ACC_TRDVOL: string;
   MKTCAP: string;
   LIST_SHRS: string;
@@ -184,7 +186,9 @@ async function backfillYear(
 
         const openPrice = Number(row.TDD_OPNPRC);
         const volume = Number(row.ACC_TRDVOL);
-        if (!Number.isFinite(openPrice) || !Number.isFinite(volume)) continue;
+        const highPrice = Number(row.TDD_HGPRC);
+        const lowPrice = Number(row.TDD_LWPRC);
+        if (!Number.isFinite(openPrice) || !Number.isFinite(volume) || !Number.isFinite(highPrice) || !Number.isFinite(lowPrice)) continue;
 
         yearRows.push({
           stockCode: row.ISU_CD,
@@ -194,6 +198,8 @@ async function backfillYear(
           listedShares: Number(row.LIST_SHRS),
           openPrice,
           volume,
+          highPrice,
+          lowPrice,
         });
       }
     } catch (error) {

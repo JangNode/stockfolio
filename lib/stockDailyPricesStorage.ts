@@ -33,6 +33,11 @@ export interface StockDailyPriceRow {
   // reversal_breakout의 매집봉 판정(거래량 배수 + 양봉)에 필요하다.
   openPrice: number;
   volume: number;
+  // 2026-09-06 손절/익절 백테스트 요청으로 추가. 종가만으로 손절/익절을 판정하면
+  // "장중에 손절선을 찍고 당일 종가는 회복한" 경우를 놓쳐 실제보다 낙관적인 결과가
+  // 나온다 — 손절은 그날 저가, 익절은 그날 고가 기준으로 판정해야 한다.
+  highPrice: number;
+  lowPrice: number;
 }
 
 function objectPath(year: number): string {
@@ -52,6 +57,8 @@ export async function uploadYearPrices(year: number, rows: StockDailyPriceRow[])
       { name: "listed_shares", data: rows.map((r) => r.listedShares), type: "DOUBLE" },
       { name: "open_price", data: rows.map((r) => r.openPrice), type: "DOUBLE" },
       { name: "volume", data: rows.map((r) => r.volume), type: "DOUBLE" },
+      { name: "high_price", data: rows.map((r) => r.highPrice), type: "DOUBLE" },
+      { name: "low_price", data: rows.map((r) => r.lowPrice), type: "DOUBLE" },
     ],
   });
 
@@ -75,10 +82,12 @@ interface ParquetRawRow {
   close_price: number;
   market_cap_eok: number;
   listed_shares: number;
-  // 2011~2026년 재백필(2026-09-06) 이전 연도 파일에는 아직 이 두 컬럼이 없을 수 있다 —
+  // 2011~2026년 재백필(2026-09-06) 이전 연도 파일에는 아직 이 컬럼들이 없을 수 있다 —
   // 재백필 완료 전까지는 undefined일 수 있으므로 downloadYearPrices에서 0으로 채운다.
   open_price?: number;
   volume?: number;
+  high_price?: number;
+  low_price?: number;
 }
 
 /** year 파일을 그대로 다운로드+파싱한다(내부용) — 아카이빙 배치가 기존 파일과 새로
@@ -100,6 +109,8 @@ export async function downloadYearPrices(year: number): Promise<StockDailyPriceR
     listedShares: r.listed_shares,
     openPrice: r.open_price ?? 0,
     volume: r.volume ?? 0,
+    highPrice: r.high_price ?? 0,
+    lowPrice: r.low_price ?? 0,
   }));
 }
 
@@ -141,6 +152,8 @@ interface HotTableRow {
   listed_shares: number;
   open_price: number;
   volume: number;
+  high_price: number;
+  low_price: number;
 }
 
 function fromHotRow(row: HotTableRow): StockDailyPriceRow {
@@ -152,6 +165,8 @@ function fromHotRow(row: HotTableRow): StockDailyPriceRow {
     listedShares: Number(row.listed_shares),
     openPrice: Number(row.open_price),
     volume: Number(row.volume),
+    highPrice: Number(row.high_price),
+    lowPrice: Number(row.low_price),
   };
 }
 
@@ -163,7 +178,7 @@ export async function getDailyPrice(stockCode: string, date: string): Promise<St
   if (date >= hotWindowStartDate()) {
     const { data, error } = await supabaseAdmin
       .from(HOT_TABLE)
-      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume")
+      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
       .eq("stock_code", stockCode)
       .eq("trade_date", date)
       .maybeSingle();
@@ -225,7 +240,7 @@ export async function getDailyPricesForStocksOnOrBefore(
     if (d >= hotWindowStartDate()) {
       const { data, error } = await supabaseAdmin
         .from(HOT_TABLE)
-        .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume")
+        .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
         .in("stock_code", codes)
         .eq("trade_date", d);
       if (error) throw new Error(`${d} 최근 시세 배치 조회 실패: ${error.message}`);
@@ -284,7 +299,7 @@ export async function getDailyPriceSeries(
     const hotQueryStart = startDate > hotStart ? startDate : hotStart;
     const { data, error } = await supabaseAdmin
       .from(HOT_TABLE)
-      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume")
+      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
       .eq("stock_code", stockCode)
       .gte("trade_date", hotQueryStart)
       .lte("trade_date", endDate);
@@ -340,6 +355,8 @@ export async function upsertRecentPrices(rows: StockDailyPriceRow[]): Promise<vo
     listed_shares: r.listedShares,
     open_price: r.openPrice,
     volume: r.volume,
+    high_price: r.highPrice,
+    low_price: r.lowPrice,
   }));
 
   for (let i = 0; i < payload.length; i += UPSERT_RECENT_PRICES_BATCH_SIZE) {
@@ -367,7 +384,7 @@ export async function getLatestRecentPriceDate(): Promise<string | null> {
 export async function getRecentPricesBefore(cutoffDate: string): Promise<StockDailyPriceRow[]> {
   const { data, error } = await supabaseAdmin
     .from(HOT_TABLE)
-    .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume")
+    .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
     .lt("trade_date", cutoffDate);
   if (error) throw new Error(`아카이빙 대상 조회 실패: ${error.message}`);
   return (data ?? []).map((row) => fromHotRow(row as HotTableRow));

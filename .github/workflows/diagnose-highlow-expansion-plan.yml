@@ -1,0 +1,29 @@
+name: (임시) 고가/저가 확장 계획 확인
+
+# 수동 실행 전용, 읽기 전용 확인(DB/Storage에 아무것도 쓰지 않음). 확인 끝나면
+# 스크립트와 함께 즉시 삭제.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose high/low expansion plan
+        run: npm run diagnose:highlow-expansion-plan
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

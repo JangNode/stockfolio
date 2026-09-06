@@ -152,8 +152,16 @@ export function computeBreakoutFreshness(
  * 역배열 비율 계산에 필요한 데이터(최장 448일 이평선)가 있으면 매집봉/전환 신호
  * 계산에 필요한 데이터(각각 20일 안팎)는 항상 더 먼저 갖춰지므로, "계산 불가" 여부는
  * 역배열 비율의 유효 일수(validDays)만으로 판단해도 충분하다.
+ *
+ * minInverseRatio는 역배열비율 임계값이다. 기본값은 v1(REVERSAL_MIN_INVERSE_RATIO)이며,
+ * reversal_breakout_v2(REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO)처럼 임계값만 다른
+ * 실험 전략이 이 함수를 그대로 재사용할 수 있게 인자로 뺐다 — 임계값 이전 단계(역배열
+ * 이력 계산, 매집봉, 전환 신호 판정)는 v1/v2가 완전히 동일하다.
  */
-export function computeReversalBreakoutStates(prices: DailyPriceLike[]): (boolean | undefined)[] {
+export function computeReversalBreakoutStates(
+  prices: DailyPriceLike[],
+  minInverseRatio: number = REVERSAL_MIN_INVERSE_RATIO
+): (boolean | undefined)[] {
   const closes = prices.map((p) => p.close);
   const volumes = prices.map((p) => p.volume);
 
@@ -173,8 +181,59 @@ export function computeReversalBreakoutStates(prices: DailyPriceLike[]): (boolea
     const accumulation = findAccumulationBar(prices, prevAvgVolume, i);
     if (!accumulation) return false;
 
-    return alignment.ratio >= REVERSAL_MIN_INVERSE_RATIO;
+    return alignment.ratio >= minInverseRatio;
   });
+}
+
+/** 판단 근거 로그/스캔 매칭 판정에 재사용할, 임계값과 무관한 오늘(가장 최근 봉) 기준
+ * 원시 계산값. 역배열비율 임계값(v1/v2)만 다른 전략끼리 이 값을 캐시해 공유하면
+ * 이평선 계산을 종목당 한 번만 하면 된다(scripts/screen-all-stocks.ts 참고). */
+export interface ReversalBreakoutRawSignal {
+  inverseAlignmentRatio: number;
+  inverseAlignmentValidDays: number;
+  accumulation: AccumulationBarResult | null;
+  breakout: BreakoutFreshnessResult | null;
+}
+
+/**
+ * 오늘(가장 최근 봉) 기준 원시 계산값만 만든다(임계값 비교 없음). computeReversalBreakoutStates와
+ * 동일하게 alignment.validDays===0(데이터 부족)이면 undefined를 반환한다.
+ */
+export function computeReversalBreakoutLatestRawSignal(
+  prices: DailyPriceLike[]
+): ReversalBreakoutRawSignal | undefined {
+  const closes = prices.map((p) => p.close);
+  const volumes = prices.map((p) => p.volume);
+  const index = prices.length - 1;
+
+  const smaByPeriod = REVERSAL_BREAKOUT_MA_PERIODS.map((period) => computeSMA(closes, period));
+  const breakoutSma = smaByPeriod[0];
+  const prevAvgVolume = computePrevAverageVolume(volumes);
+
+  const alignment = computeInverseAlignmentRatio(smaByPeriod, index);
+  if (alignment.validDays === 0) return undefined; // 데이터 부족
+
+  const accumulation = findAccumulationBar(prices, prevAvgVolume, index);
+  const breakout = computeBreakoutFreshness(prices, breakoutSma, index);
+
+  return {
+    inverseAlignmentRatio: alignment.ratio,
+    inverseAlignmentValidDays: alignment.validDays,
+    accumulation,
+    breakout,
+  };
+}
+
+/** computeReversalBreakoutStates와 동일한 매칭 조건을 raw 원시값 + 임계값으로 판정한다.
+ * raw가 undefined(데이터 부족)면 false. */
+export function matchesReversalBreakoutRaw(
+  raw: ReversalBreakoutRawSignal | undefined,
+  minInverseRatio: number
+): boolean {
+  if (!raw) return false;
+  if (!raw.breakout || raw.breakout.daysSinceStart >= BREAKOUT_LOOKBACK_DAYS) return false;
+  if (!raw.accumulation) return false;
+  return raw.inverseAlignmentRatio >= minInverseRatio;
 }
 
 export interface ReversalBreakoutSignalDetails {
@@ -186,32 +245,42 @@ export interface ReversalBreakoutSignalDetails {
   breakout_days_since: number | null;
 }
 
+/** buildReversalBreakoutSignalDetails가 raw 원시값으로부터 조립하는 부분만 뺀 것 —
+ * scripts/screen-all-stocks.ts가 캐시된 raw를 재계산 없이 그대로 펼칠 때 쓴다. */
+export function buildReversalBreakoutSignalDetailsFromRaw(
+  raw: ReversalBreakoutRawSignal
+): ReversalBreakoutSignalDetails {
+  return {
+    inverse_alignment_ratio: raw.inverseAlignmentRatio,
+    inverse_alignment_valid_days: raw.inverseAlignmentValidDays,
+    accumulation_bar_date: raw.accumulation?.date ?? null,
+    accumulation_volume_multiple: raw.accumulation?.volumeMultiple ?? null,
+    breakout_date: raw.breakout?.startDate ?? null,
+    breakout_days_since: raw.breakout?.daysSinceStart ?? null,
+  };
+}
+
 /**
  * 판단 근거 로그(screening_results.signal_details)에 남길 원시 계산값. 실제 매칭 판정
  * (computeReversalBreakoutStates)과 같은 계산 함수(computeInverseAlignmentRatio/
  * findAccumulationBar/computeBreakoutFreshness)를 그대로 재사용한다 — DH전략의
  * buildFundamentalSignalDetails(scripts/screen-all-stocks.ts)와 같은 패턴. 오늘(가장
- * 최근 봉) 기준으로만 계산한다.
+ * 최근 봉) 기준으로만 계산한다. computeReversalBreakoutLatestRawSignal이 데이터
+ * 부족(validDays===0)으로 undefined를 반환하는 경우는 이 함수를 실제로 호출하는 곳
+ * (이미 오늘자 매칭이 확정된 종목만 넘김)에서는 발생하지 않지만, 방어적으로 예전과
+ * 동일한 모양(0/null)의 기본값을 반환한다.
  */
 export function buildReversalBreakoutSignalDetails(prices: DailyPriceLike[]): ReversalBreakoutSignalDetails {
-  const closes = prices.map((p) => p.close);
-  const volumes = prices.map((p) => p.volume);
-  const index = prices.length - 1;
-
-  const smaByPeriod = REVERSAL_BREAKOUT_MA_PERIODS.map((period) => computeSMA(closes, period));
-  const breakoutSma = smaByPeriod[0];
-  const prevAvgVolume = computePrevAverageVolume(volumes);
-
-  const alignment = computeInverseAlignmentRatio(smaByPeriod, index);
-  const accumulation = findAccumulationBar(prices, prevAvgVolume, index);
-  const breakout = computeBreakoutFreshness(prices, breakoutSma, index);
-
-  return {
-    inverse_alignment_ratio: alignment.ratio,
-    inverse_alignment_valid_days: alignment.validDays,
-    accumulation_bar_date: accumulation?.date ?? null,
-    accumulation_volume_multiple: accumulation?.volumeMultiple ?? null,
-    breakout_date: breakout?.startDate ?? null,
-    breakout_days_since: breakout?.daysSinceStart ?? null,
-  };
+  const raw = computeReversalBreakoutLatestRawSignal(prices);
+  if (!raw) {
+    return {
+      inverse_alignment_ratio: 0,
+      inverse_alignment_valid_days: 0,
+      accumulation_bar_date: null,
+      accumulation_volume_multiple: null,
+      breakout_date: null,
+      breakout_days_since: null,
+    };
+  }
+  return buildReversalBreakoutSignalDetailsFromRaw(raw);
 }

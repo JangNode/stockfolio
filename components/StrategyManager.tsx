@@ -22,6 +22,7 @@ const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
   dh_value_dividend: "DH전략(대형 배당·가치주)",
   peg_lynch: "피터린치 PEG전략",
   reversal_breakout: "급등주 찾기(역배열 반등)",
+  reversal_breakout_v2: "급등주 찾기 v2 (역배열 반등 - 강화)",
 };
 
 const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
@@ -37,6 +38,8 @@ const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
     "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
   reversal_breakout:
     "역배열(하락 추세) 상태에서 바닥을 다지다 대량 거래를 동반한 반등이 시작되는 시점을 포착하는 전략입니다. ① 최근 60거래일 중 70% 이상 이동평균이 역배열(20일선<60일선<112일선<244일선<448일선)이었고, ② 최근 20거래일 내 거래량이 직전 평균 대비 3배 이상인 양봉(매집봉)이 있었으며, ③ 현재가가 20일선을 최근 5거래일 이내에 돌파했으면 신호로 판단합니다. 기준값은 서버 설정(lib/reversalBreakoutConfig.ts)에서 관리됩니다.",
+  reversal_breakout_v2:
+    "기존과 동일한 조건, 역배열비율만 0.9로 강화한 실험 전략입니다(60거래일 중 90% 이상 역배열이어야 인정). '급등주 찾기(역배열 반등)' v1과 나란히 실서비스로 돌려 신호 수 대비 승률·수익률 트레이드오프를 비교하기 위한 목적입니다. 나머지 조건(매집봉, 전환 신호)과 기준값은 v1과 동일합니다.",
 };
 
 function describeParams(strategy: StrategyRow): string {
@@ -58,7 +61,8 @@ function describeParams(strategy: StrategyRow): string {
   if (
     strategy.rule_type === "dh_value_dividend" ||
     strategy.rule_type === "peg_lynch" ||
-    strategy.rule_type === "reversal_breakout"
+    strategy.rule_type === "reversal_breakout" ||
+    strategy.rule_type === "reversal_breakout_v2"
   ) {
     return "서버 설정 기준값 적용";
   }

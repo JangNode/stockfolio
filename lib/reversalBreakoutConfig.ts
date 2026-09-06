@@ -15,6 +15,11 @@ export const REVERSAL_BREAKOUT_MA_PERIODS = [20, 60, 112, 244, 448] as const;
 export const REVERSAL_HISTORY_LOOKBACK_DAYS = 60;
 export const REVERSAL_MIN_INVERSE_RATIO = 0.7;
 
+// v1(REVERSAL_MIN_INVERSE_RATIO=0.7)과의 트레이드오프를 실제 라이브에서 검증하기 위한
+// 실험값(2026-09-06). 백테스트에서 0.9로 올리면 승률/수익률이 개선되지만 신호 수가
+// 46% 줄어드는 트레이드오프가 확인됐다. v1은 비교 기준선이므로 절대 바꾸지 않는다.
+export const REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO = 0.9;
+
 // 매집봉 발생: 최근 이 일수 내에 거래량이 그 시점 "직전"(당일 제외) 평균 대비
 // ACCUMULATION_VOLUME_MULTIPLIER배 이상이면서 종가>시가(양봉)인 날이 있어야 한다.
 export const ACCUMULATION_LOOKBACK_DAYS = 20;

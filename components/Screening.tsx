@@ -8,6 +8,7 @@ import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
+import { computeScreeningResultStats, type ScreeningResultStatRow } from "@/lib/screeningResultStats";
 
 interface ScreeningResultRow {
   id: string;
@@ -22,6 +23,28 @@ interface ScreeningResultRow {
   status: "active" | "stopped" | "profited";
   matched_at: string;
   closed_at: string | null;
+}
+
+// reversal_breakout(v1)/reversal_breakout_v2 비교 대시보드 조회용 최소 필드.
+interface ReversalBreakoutComparisonRow {
+  strategy_id: string;
+  status: "active" | "stopped" | "profited";
+  return_pct: number;
+  matched_at: string;
+}
+
+type ComparisonPeriod = "all" | "7d" | "30d";
+
+const COMPARISON_PERIOD_OPTIONS: { value: ComparisonPeriod; label: string }[] = [
+  { value: "all", label: "전체 기간" },
+  { value: "7d", label: "최근 7일" },
+  { value: "30d", label: "최근 30일" },
+];
+
+const COMPARISON_PERIOD_DAYS: Record<Exclude<ComparisonPeriod, "all">, number> = { "7d": 7, "30d": 30 };
+
+function formatPct(value: number | null): string {
+  return value === null ? "-" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 type StatusTab = "active" | "closed";
@@ -72,6 +95,86 @@ export default function Screening({ user }: { user: User }) {
   const marketStrategies = useMemo(
     () => strategies?.filter((s) => s.market === market) ?? [],
     [strategies, market]
+  );
+
+  const selectedStrategy = useMemo(
+    () => marketStrategies.find((s) => s.id === strategyId),
+    [marketStrategies, strategyId]
+  );
+
+  // v1(reversal_breakout)/v2(reversal_breakout_v2) 비교 대시보드·동시 매칭 배지에 쓸
+  // 두 전략의 id. 계정에 둘 다 등록돼 있을 때만 값이 채워진다(마이그레이션이 모든
+  // 계정에 시딩하므로 보통 둘 다 있지만, 사용자가 임의로 지웠을 수도 있다).
+  const reversalBreakoutPair = useMemo(() => {
+    const v1 = marketStrategies.find((s) => s.rule_type === "reversal_breakout");
+    const v2 = marketStrategies.find((s) => s.rule_type === "reversal_breakout_v2");
+    return { v1, v2 };
+  }, [marketStrategies]);
+
+  const [comparisonPeriod, setComparisonPeriod] = useState<ComparisonPeriod>("all");
+
+  const hasComparisonPair = Boolean(reversalBreakoutPair.v1 && reversalBreakoutPair.v2);
+
+  // comparisonPeriod를 SWR 키에 포함시켜, 기간 드롭다운을 바꾸면 그 기간만큼의 결과를
+  // 다시 조회한다 — "지금부터 N일 전"의 기준 시각(Date.now())은 렌더 함수 본문이 아니라
+  // 이 fetcher(렌더 바깥에서 실행됨) 안에서만 계산해 impure 호출을 렌더 순수성 밖으로 뺀다.
+  const { data: comparisonRows } = useSWR(
+    reversalBreakoutPair.v1 && reversalBreakoutPair.v2
+      ? ["reversal-breakout-comparison", reversalBreakoutPair.v1.id, reversalBreakoutPair.v2.id, comparisonPeriod]
+      : null,
+    async ([, v1Id, v2Id, period]: [string, string, string, ComparisonPeriod]) => {
+      let query = supabase
+        .from("screening_results")
+        .select("strategy_id, status, return_pct, matched_at")
+        .in("strategy_id", [v1Id, v2Id]);
+
+      if (period !== "all") {
+        const cutoffIso = new Date(Date.now() - COMPARISON_PERIOD_DAYS[period] * 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte("matched_at", cutoffIso);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as ReversalBreakoutComparisonRow[];
+    }
+  );
+
+  const comparisonStats = useMemo(() => {
+    if (!comparisonRows || !reversalBreakoutPair.v1 || !reversalBreakoutPair.v2) return null;
+
+    const toStatRows = (strategyId: string): ScreeningResultStatRow[] =>
+      comparisonRows
+        .filter((r) => r.strategy_id === strategyId)
+        .map((r) => ({ status: r.status, returnPct: r.return_pct, matchedAt: r.matched_at }));
+
+    return {
+      v1: computeScreeningResultStats(toStatRows(reversalBreakoutPair.v1.id)),
+      v2: computeScreeningResultStats(toStatRows(reversalBreakoutPair.v2.id)),
+    };
+  }, [comparisonRows, reversalBreakoutPair]);
+
+  // 현재 선택된 전략이 v1/v2 중 하나면, 짝 전략에서 추적 중인(active) 종목코드 집합을
+  // 조회해 목록에 "그쪽에서도 매칭됨" 배지를 붙인다.
+  const pairStrategy =
+    selectedStrategy?.rule_type === "reversal_breakout"
+      ? reversalBreakoutPair.v2
+      : selectedStrategy?.rule_type === "reversal_breakout_v2"
+        ? reversalBreakoutPair.v1
+        : undefined;
+  const pairBadgeLabel = selectedStrategy?.rule_type === "reversal_breakout" ? "v2에서도 매칭됨" : "v1에서도 매칭됨";
+
+  const { data: pairActiveCodes } = useSWR(
+    pairStrategy ? ["reversal-breakout-pair-active", pairStrategy.id] : null,
+    async ([, pairStrategyId]: [string, string]) => {
+      const { data, error } = await supabase
+        .from("screening_results")
+        .select("stock_code")
+        .eq("strategy_id", pairStrategyId)
+        .eq("status", "active");
+
+      if (error) throw error;
+      return new Set((data ?? []).map((r) => r.stock_code));
+    }
   );
 
   // 전역 시장 전환 시 이전 시장의 전략 선택/종료일 필터가 남아있지 않도록 비운다.
@@ -145,6 +248,93 @@ export default function Screening({ user }: { user: User }) {
 
   return (
     <div className="w-full max-w-4xl">
+      {hasComparisonPair && reversalBreakoutPair.v1 && reversalBreakoutPair.v2 && (
+        <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-black dark:text-zinc-50">
+                급등주 찾기 v1 vs v2 비교
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                v2는 역배열비율 임계값만 0.9로 강화한 실험 전략입니다. v2가 항상 v1의 부분집합이라는 성질이
+                있지만, active 상태가 갱신되는 타이밍 차이로 완벽히 대칭인 집합은 아닐 수 있습니다.
+              </p>
+            </div>
+            <select
+              value={comparisonPeriod}
+              onChange={(e) => setComparisonPeriod(e.target.value as ComparisonPeriod)}
+              className={selectClassName}
+            >
+              {COMPARISON_PERIOD_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {comparisonStats ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-zinc-500 dark:text-zinc-400">
+                    <th className="pb-2 pr-4 font-normal"></th>
+                    <th className="pb-2 pr-4 font-normal">{reversalBreakoutPair.v1.name ?? "v1"}</th>
+                    <th className="pb-2 font-normal">{reversalBreakoutPair.v2.name ?? "v2"}</th>
+                  </tr>
+                </thead>
+                <tbody className="text-black dark:text-zinc-50">
+                  <tr className="border-t border-black/[.08] dark:border-white/[.145]">
+                    <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">신호 수(전체/추적 중/종료)</td>
+                    <td className="py-2 pr-4">
+                      {comparisonStats.v1.total} / {comparisonStats.v1.activeCount} / {comparisonStats.v1.closedCount}
+                    </td>
+                    <td className="py-2">
+                      {comparisonStats.v2.total} / {comparisonStats.v2.activeCount} / {comparisonStats.v2.closedCount}
+                    </td>
+                  </tr>
+                  {comparisonStats.v1.closedCount === 0 && comparisonStats.v2.closedCount === 0 ? (
+                    <tr className="border-t border-black/[.08] dark:border-white/[.145]">
+                      <td className="py-2 text-zinc-500 dark:text-zinc-400" colSpan={3}>
+                        종료된 신호가 아직 없어 비교할 수 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    <>
+                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
+                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">승률(종료 기준)</td>
+                        <td className="py-2 pr-4">
+                          {comparisonStats.v1.winRate === null
+                            ? "-"
+                            : `${(comparisonStats.v1.winRate * 100).toFixed(1)}%`}
+                        </td>
+                        <td className="py-2">
+                          {comparisonStats.v2.winRate === null
+                            ? "-"
+                            : `${(comparisonStats.v2.winRate * 100).toFixed(1)}%`}
+                        </td>
+                      </tr>
+                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
+                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">평균 수익률(종료 기준)</td>
+                        <td className="py-2 pr-4">{formatPct(comparisonStats.v1.avgReturnPct)}</td>
+                        <td className="py-2">{formatPct(comparisonStats.v2.avgReturnPct)}</td>
+                      </tr>
+                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
+                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">중앙값 수익률(종료 기준)</td>
+                        <td className="py-2 pr-4">{formatPct(comparisonStats.v1.medianReturnPct)}</td>
+                        <td className="py-2">{formatPct(comparisonStats.v2.medianReturnPct)}</td>
+                      </tr>
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">비교 데이터를 불러오는 중...</p>
+          )}
+        </div>
+      )}
+
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
@@ -259,6 +449,14 @@ export default function Screening({ user }: { user: User }) {
                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
                             {r.stock_code}
                           </span>
+                          {pairStrategy && pairActiveCodes?.has(r.stock_code) && (
+                            <span
+                              title="v2는 항상 v1의 부분집합이라는 성질이 있지만, active 상태 갱신 타이밍상 완벽히 대칭은 아닐 수 있습니다."
+                              className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-white/[.1] dark:text-zinc-300"
+                            >
+                              {pairBadgeLabel}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 pr-4">
                           <ScoreValue score={r.score} />

@@ -159,10 +159,11 @@ export default function Backtest({ user }: { user: User }) {
         listedSharesByFiscalYear = new Map(data.listedSharesByFiscalYear) as ListedSharesByFiscalYear;
       } else {
         // 그 외 전략(이평 교차, 미너비니, 커스텀, 급등주 찾기 등)은 전부 일봉 기준이므로
-        // 항상 KIS 일봉을 가져온다. reversal_breakout은 기본 조회 건수(500건)로는
-        // 부족해(최소 507건, 여유를 둔 최소 상수 520건 필요) minRows를 명시적으로 붙인다.
+        // 항상 KIS 일봉을 가져온다. reversal_breakout/reversal_breakout_v2는 기본 조회
+        // 건수(500건)로는 부족해(최소 507건, 여유를 둔 최소 상수 520건 필요) minRows를
+        // 명시적으로 붙인다.
         const minRowsQuery =
-          selectedStrategy.rule_type === "reversal_breakout"
+          selectedStrategy.rule_type === "reversal_breakout" || selectedStrategy.rule_type === "reversal_breakout_v2"
             ? `&minRows=${REVERSAL_BREAKOUT_MIN_HISTORY_ROWS}`
             : "";
         const historyRes = await authFetch(

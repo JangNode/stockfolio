@@ -16,6 +16,7 @@ import {
 } from "@/lib/pegRatio";
 import { PEG_MAX_RATIO } from "@/lib/pegConfig";
 import { computeReversalBreakoutStates } from "@/lib/reversalBreakout";
+import { REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO } from "@/lib/reversalBreakoutConfig";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
 // /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
@@ -128,7 +129,11 @@ export type StrategyRule =
   | { rule_type: "custom_composite"; rule_params: CustomCompositeParams }
   | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams }
   | { rule_type: "peg_lynch"; rule_params: PegLynchParams }
-  | { rule_type: "reversal_breakout"; rule_params: ReversalBreakoutParams };
+  | { rule_type: "reversal_breakout"; rule_params: ReversalBreakoutParams }
+  // v1(reversal_breakout)과 나란히 비교하기 위한 실험 전략. 역배열비율 임계값만
+  // REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO(0.9)로 강화하고 rule_params 형태·나머지
+  // 조건은 v1과 동일하다 — ReversalBreakoutParams를 그대로 재사용한다.
+  | { rule_type: "reversal_breakout_v2"; rule_params: ReversalBreakoutParams };
 
 export type StrategyRuleType = StrategyRule["rule_type"];
 
@@ -553,6 +558,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   dh_value_dividend: "state",
   peg_lynch: "state",
   reversal_breakout: "state",
+  reversal_breakout_v2: "state",
 };
 
 /**
@@ -590,6 +596,8 @@ function computeStates(
       return computePegLynchStates(prices, fundamentals, listedSharesByFiscalYear);
     case "reversal_breakout":
       return computeReversalBreakoutStates(prices);
+    case "reversal_breakout_v2":
+      return computeReversalBreakoutStates(prices, REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO);
   }
 }
 
@@ -779,6 +787,7 @@ function computePegLynchEntryPrice(prices: DailyPrice[]): number {
 /**
  * reversal_breakout: minervini/custom_composite와 마찬가지로 상태 조건(이미 조건을
  * 만족한 채로 매칭될 수 있음)이라 같은 방식(최근 20거래일 고점 돌파가)을 진입가로 쓴다.
+ * reversal_breakout_v2도 진입가 계산은 임계값과 무관하므로 그대로 재사용한다.
  */
 function computeReversalBreakoutEntryPrice(prices: DailyPrice[]): number {
   return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
@@ -812,6 +821,7 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       entryPrice = computePegLynchEntryPrice(prices);
       break;
     case "reversal_breakout":
+    case "reversal_breakout_v2":
       entryPrice = computeReversalBreakoutEntryPrice(prices);
       break;
   }

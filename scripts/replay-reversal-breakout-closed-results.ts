@@ -205,13 +205,35 @@ async function main(): Promise<void> {
     list.sort((a, b) => a.matched_at.localeCompare(b.matched_at));
   }
 
+  // 1차 실행 때 UPDATE 순서가 matched_at과 무관했던 탓에, 그룹의 마지막(가장 최근)
+  // 에피소드가 아닌 과거 에피소드가 먼저 active 슬롯을 선점했을 가능성이 있다(리뷰에서
+  // 지적됨). 이런 그룹은 진짜 마지막 에피소드를 재오픈하려 해도 이미 다른 행이
+  // active라 유니크 인덱스 충돌로 실패하므로, 미리 감지해 명확한 사유로 스킵하고
+  // 사람이 확인하도록 한다(스크립트가 자동으로 되돌리지 않음 — 어느 쪽이 진짜
+  // active여야 하는지 예단하지 않기 위함).
+  const misplacedActiveGroups = new Set<string>();
+  for (const [key, list] of groups.entries()) {
+    const activeIndex = list.findIndex((r) => r.status === "active");
+    if (activeIndex !== -1 && activeIndex !== list.length - 1) {
+      misplacedActiveGroups.add(key);
+      console.error(
+        `  [주의] ${list[0].stock_code} — 그룹 내 active 행이 마지막 에피소드가 아님(1차 실행 시 잘못 선점된 것으로 추정). 이 그룹은 자동 처리하지 않고 스킵 — 수동 확인 필요.`
+      );
+    }
+  }
+
   let updated = 0;
   let reopened = 0;
   let unchanged = 0;
   let approximated = 0;
   let skipped = 0;
+  let misplacedActiveSkipped = 0;
 
-  for (const list of groups.values()) {
+  for (const [key, list] of groups.entries()) {
+    if (misplacedActiveGroups.has(key)) {
+      misplacedActiveSkipped += list.filter((r) => r.status !== "active").length;
+      continue;
+    }
     for (let i = 0; i < list.length; i++) {
       const row = list[i];
       if (row.status === "active") continue; // active 행은 마이그레이션이 이미 보정했다 — 참고만 하고 갱신 대상에서 제외
@@ -282,7 +304,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `\n=== 완료: 갱신 ${updated}건(재오픈 ${reopened}건, 근사확정 ${approximated}건, 상태 동일 ${unchanged}건), 스킵 ${skipped}건 ===`
+    `\n=== 완료: 갱신 ${updated}건(재오픈 ${reopened}건, 근사확정 ${approximated}건, 상태 동일 ${unchanged}건), 스킵 ${skipped}건, active 선점 이상으로 스킵 ${misplacedActiveSkipped}건(${misplacedActiveGroups.size}개 종목×전략 그룹) ===`
   );
 }
 

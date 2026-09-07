@@ -734,8 +734,13 @@ export function matchesToday(
 
 // 이제 모든 전략이 일봉을 쓰므로, "최근 4주 고점"은 약 20거래일(주 5거래일 × 4주)로 환산한다.
 const ENTRY_BREAKOUT_LOOKBACK_BARS = 20;
-const DEFAULT_STOP_LOSS_PCT = 0.07;
-const DEFAULT_TAKE_PROFIT_PCT = 0.2;
+// scripts/replay-reversal-breakout-closed-results.ts와
+// supabase/migrations/20260907000000_fix_reversal_breakout_live_tracking_entry_price.sql이
+// rule_params에 손절/익절 비율이 없는 기존 행을 보정할 때 이 값과 정확히 같은 기본값을
+// 하드코딩해서 쓴다(마이그레이션은 SQL이라 이 파일을 import할 수 없다) — 이 값을 바꾸면
+// 그 두 파일도 함께 확인해야 한다.
+export const DEFAULT_STOP_LOSS_PCT = 0.07;
+export const DEFAULT_TAKE_PROFIT_PCT = 0.2;
 
 export interface EntryPlan {
   entryPrice: number;
@@ -785,12 +790,13 @@ function computePegLynchEntryPrice(prices: DailyPrice[]): number {
 }
 
 /**
- * reversal_breakout: minervini/custom_composite와 마찬가지로 상태 조건(이미 조건을
- * 만족한 채로 매칭될 수 있음)이라 같은 방식(최근 20거래일 고점 돌파가)을 진입가로 쓴다.
+ * reversal_breakout: minervini/custom_composite와 달리 신호 조건 자체(MA20 돌파 시점
+ * 포함)가 곧 매수 시점이라 별도로 대기할 피봇가가 필요 없다. 신호일 종가를 그대로
+ * 진입가로 쓴다(ma_cross/dh_value_dividend/peg_lynch와 같은 이유).
  * reversal_breakout_v2도 진입가 계산은 임계값과 무관하므로 그대로 재사용한다.
  */
 function computeReversalBreakoutEntryPrice(prices: DailyPrice[]): number {
-  return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
+  return prices[prices.length - 1].close;
 }
 
 /**

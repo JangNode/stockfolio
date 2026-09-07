@@ -27,10 +27,7 @@
     "backfill:index-daily-prices": "tsx --conditions=react-server scripts/backfill-index-daily-prices.ts",
     "calc:stock-beta": "tsx --conditions=react-server scripts/calc-stock-beta.ts",
     "backfill:stock-industry-classification": "tsx --conditions=react-server scripts/backfill-stock-industry-classification.ts",
-    "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
-    "replay:reversal-breakout-closed-results": "tsx --conditions=react-server scripts/replay-reversal-breakout-closed-results.ts",
-    "diagnose:surge-stock-bug-impact": "tsx --conditions=react-server scripts/diagnose-surge-stock-bug-impact.ts",
-    "verify:reversal-breakout-final-stats": "tsx --conditions=react-server scripts/verify-reversal-breakout-final-stats.ts"
+    "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

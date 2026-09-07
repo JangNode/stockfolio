@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "어제(9/3) 스크리닝 실측으로 dh_value_dividend 매칭 0건 버그가 완전히 해결됐음을 확인했습니다 — 실제 매칭 건수가 dh_value_dividend 68건으로 정상 범위였습니다(#214에서 검증). 대형·저변동·배당 중심이라는 성격상 안정형의 후보 풀(30개)을 채우기에 충분한 물량이라 판단해 source_rule_types는 그대로 유지합니다. 다만 아직은 매칭 '건수'만 확인했을 뿐 실제 체결 성과(수익률/승률)는 이 세션에서 조회할 수 없어, 진입 범위·투입 비중 같은 수치 조건을 지금 조정할 근거는 없습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
-  "generated_at": "2026-09-04T05:13:59Z",
+  "rationale": "지난 재생성(9/4, #221) 이후 커밋 이력을 확인한 결과, 이번 주말~오늘 사이 변경은 급등주 찾기(surge_stock 스타일 전용 reversal_breakout 전략)의 진입가 계산 버그 수정(#254)과 DCF 적정주가·DART 부채구조 관련 작업(#226~#230)에 집중돼 있었고, 안정형이 참조하는 ma_cross/minervini_trend_template/dh_value_dividend의 매칭 로직이나 스코어링에는 영향을 주는 변경이 없었습니다. dh_value_dividend는 대형·저변동·배당 중심이라는 성격상 안정형의 후보 풀(30개)을 채우기에 여전히 충분한 물량으로 판단됩니다. 이 세션에서 실제 체결 성과(수익률/승률)를 조회할 방법이 없어 진입 범위·투입 비중 같은 수치 조건을 지금 조정할 근거도 없습니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%, ma_cross/minervini_trend_template/dh_value_dividend)을 그대로 유지합니다.",
+  "generated_at": "2026-09-07T05:15:06Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "dh_value_dividend"],
     "min_signal_return_pct": -2,

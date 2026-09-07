@@ -23,8 +23,17 @@ import {
   type StrategyRuleType,
 } from "@/lib/backtest";
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
-import { buildReversalBreakoutSignalDetails } from "@/lib/reversalBreakout";
-import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
+import {
+  computeReversalBreakoutLatestRawSignal,
+  matchesReversalBreakoutRaw,
+  buildReversalBreakoutSignalDetailsFromRaw,
+  type ReversalBreakoutRawSignal,
+} from "@/lib/reversalBreakout";
+import {
+  REVERSAL_BREAKOUT_MIN_HISTORY_ROWS,
+  REVERSAL_MIN_INVERSE_RATIO,
+  REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO,
+} from "@/lib/reversalBreakoutConfig";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import {
   loadFundamentalsSeries,
@@ -154,7 +163,7 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
       const { ma_cross, rsi, volume_surge } = strategy.rule_params;
       const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
       target = Math.max(target, maxPeriod + 20);
-    } else if (strategy.rule_type === "reversal_breakout") {
+    } else if (strategy.rule_type === "reversal_breakout" || strategy.rule_type === "reversal_breakout_v2") {
       target = Math.max(target, REVERSAL_BREAKOUT_MIN_HISTORY_ROWS);
     }
     // dh_value_dividend/peg_lynch는 KIS 일봉을 아예 안 쓰므로(scanFundamentalStrategies가
@@ -466,7 +475,8 @@ async function runStrategyScan(
   strategy: StrategyRow,
   priceByCode: Map<string, StockPriceEntry>,
   activeKeys: Set<string>,
-  marketCapByCode: Map<string, number>
+  marketCapByCode: Map<string, number>,
+  reversalBreakoutRawCache: Map<string, ReversalBreakoutRawSignal | undefined>
 ): Promise<{ matched: number; lowScore: number; errors: number }> {
   const label = `${strategy.name ?? strategy.rule_type}(${strategy.rule_type})`;
   console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
@@ -492,11 +502,27 @@ async function runStrategyScan(
       strategy.rule_params.rsi !== undefined ||
       strategy.rule_params.volume_surge !== undefined);
 
+  // reversal_breakout/reversal_breakout_v2는 역배열비율 임계값(0.7/0.9)만 다르고 그
+  // 이전 단계(이평선 계산, 역배열 이력, 매집봉, 전환 신호)는 완전히 같다. 두 전략이
+  // 같은 실행에 함께 등록돼 있으면 종목당 이 원시값을 한 번만 계산해 캐시(호출부가
+  // 전략 루프 바깥에서 만들어 넘김)에서 재사용한다.
+  const isReversalBreakoutFamily =
+    strategy.rule_type === "reversal_breakout" || strategy.rule_type === "reversal_breakout_v2";
+  const reversalBreakoutMinInverseRatio =
+    strategy.rule_type === "reversal_breakout_v2" ? REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO : REVERSAL_MIN_INVERSE_RATIO;
+
   for (const [stockCode, { name: stockName, prices }] of priceByCode) {
     try {
       let evalPrices = prices;
+      let reversalBreakoutRaw: ReversalBreakoutRawSignal | undefined;
 
-      if (fundamentalConditions && strategy.rule_type === "custom_composite") {
+      if (isReversalBreakoutFamily) {
+        if (!reversalBreakoutRawCache.has(stockCode)) {
+          reversalBreakoutRawCache.set(stockCode, computeReversalBreakoutLatestRawSignal(evalPrices));
+        }
+        reversalBreakoutRaw = reversalBreakoutRawCache.get(stockCode);
+        if (!matchesReversalBreakoutRaw(reversalBreakoutRaw, reversalBreakoutMinInverseRatio)) continue;
+      } else if (fundamentalConditions && strategy.rule_type === "custom_composite") {
         if (hasTechnicalConditions) {
           const technicalOnlyRule: StrategyRule = {
             rule_type: "custom_composite",
@@ -550,11 +576,15 @@ async function runStrategyScan(
         continue;
       }
 
-      // reversal_breakout은 판단 근거(역배열 지속 비율, 매집봉 발생일/거래량 배수, 이평
-      // 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안 드러나므로 DH전략과 같은 이유로
-      // signal_details를 채운다 — 실제 판정에 쓴 계산 함수를 그대로 재사용한다.
+      // reversal_breakout/reversal_breakout_v2는 판단 근거(역배열 지속 비율, 매집봉
+      // 발생일/거래량 배수, 이평 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안 드러나므로
+      // DH전략과 같은 이유로 signal_details를 채운다 — 위에서 이미 계산해 캐시해둔 raw를
+      // 그대로 펼치기만 하고 재계산하지 않는다(reversalBreakoutRaw는 매칭 시점에 이미
+      // undefined가 아님이 확인됐다).
       const signalDetails =
-        strategy.rule_type === "reversal_breakout" ? buildReversalBreakoutSignalDetails(evalPrices) : undefined;
+        isReversalBreakoutFamily && reversalBreakoutRaw
+          ? buildReversalBreakoutSignalDetailsFromRaw(reversalBreakoutRaw)
+          : undefined;
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
         strategy_id: strategy.id,
@@ -665,13 +695,19 @@ async function scanAllStocks(
   let totalLowScore = 0;
   let totalErrors = fetchErrors + quoteFetchErrors;
 
+  // reversal_breakout/reversal_breakout_v2가 함께 등록돼 있어도 종목당 이평선 계산이
+  // 한 번만 일어나도록 전략 루프 바깥에 캐시를 둔다(runStrategyScan의
+  // isReversalBreakoutFamily 분기 참고).
+  const reversalBreakoutRawCache = new Map<string, ReversalBreakoutRawSignal | undefined>();
+
   for (const strategy of strategies) {
     try {
       const { matched, lowScore, errors } = await runStrategyScan(
         strategy,
         priceByCode,
         activeKeys,
-        marketCapByCode
+        marketCapByCode,
+        reversalBreakoutRawCache
       );
       totalMatched += matched;
       totalLowScore += lowScore;

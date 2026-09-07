@@ -128,7 +128,10 @@ function computeConditionScore(prices: DailyPrice[], rule: StrategyRule): number
     return computeCustomCompositeConditionScore(prices, rule.rule_params);
   }
 
-  if (rule.rule_type === "reversal_breakout") {
+  if (rule.rule_type === "reversal_breakout" || rule.rule_type === "reversal_breakout_v2") {
+    // 조건 충족도는 MA20 이격도/전환 신선도/거래량 배수 여유분만 보고 역배열비율
+    // 임계값(v1 0.7 vs v2 0.9)은 참조하지 않으므로 v1/v2가 동일한 계산을 그대로
+    // 재사용할 수 있다.
     return computeReversalBreakoutConditionScore(prices);
   }
 
@@ -161,9 +164,10 @@ function referenceLongPeriod(rule: StrategyRule): number {
     return CUSTOM_COMPOSITE_FALLBACK_LOOKBACK_BARS;
   }
 
-  // reversal_breakout: 역배열 이력 판정에 쓰는 이동평균 중 가장 긴 기간(448일)이
-  // 추세 강도(장기 이평선 상승 기울기) 계산의 기준이 된다.
-  if (rule.rule_type === "reversal_breakout") {
+  // reversal_breakout/reversal_breakout_v2: 역배열 이력 판정에 쓰는 이동평균 중 가장
+  // 긴 기간(448일)이 추세 강도(장기 이평선 상승 기울기) 계산의 기준이 된다(v1/v2
+  // 공통 — 임계값만 다르고 이동평균 기간은 동일하다).
+  if (rule.rule_type === "reversal_breakout" || rule.rule_type === "reversal_breakout_v2") {
     return Math.max(...REVERSAL_BREAKOUT_MA_PERIODS);
   }
 

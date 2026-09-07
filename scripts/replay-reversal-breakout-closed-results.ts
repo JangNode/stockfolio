@@ -28,6 +28,14 @@
  * 시작 직전까지도 애매하게 끝난 경우), active로 만들 수는 없으므로 구간 마지막 날
  * 종가 기준 손익 부호로 stopped/profited를 근사 확정한다(로그에 근사치임을 표시).
  *
+ * 2026-09-07 3차 수정: 2차 버전은 "그룹의 마지막이 아닌데 active인" 행을 만나면
+ * 자동 처리하지 않고 스킵했는데(1차 실행 때 UPDATE 순서가 matched_at과 무관해 과거
+ * 에피소드가 active 슬롯을 먼저 선점할 수 있었기 때문), 실제로 21개 그룹에서 이
+ * 상황이 발생해 36건이 처리되지 못했다. 이제는 이런 "잘못 선점된" active 행도 다른
+ * closed 행과 동일하게 "다음 에피소드 시작 직전까지" 재생해 강제 종료 처리한다 —
+ * 그룹을 matched_at 오름차순으로 순회하므로 선점된 행이 먼저 종료돼 슬롯이 비워진
+ * 뒤에 진짜 마지막 에피소드의 재오픈을 시도하게 되어 유니크 인덱스 충돌이 없다.
+ *
  * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *   tsx --conditions=react-server scripts/replay-reversal-breakout-closed-results.ts
  */
@@ -206,44 +214,33 @@ async function main(): Promise<void> {
   }
 
   // 1차 실행 때 UPDATE 순서가 matched_at과 무관했던 탓에, 그룹의 마지막(가장 최근)
-  // 에피소드가 아닌 과거 에피소드가 먼저 active 슬롯을 선점했을 가능성이 있다(리뷰에서
-  // 지적됨). 이런 그룹은 진짜 마지막 에피소드를 재오픈하려 해도 이미 다른 행이
-  // active라 유니크 인덱스 충돌로 실패하므로, 미리 감지해 명확한 사유로 스킵하고
-  // 사람이 확인하도록 한다(스크립트가 자동으로 되돌리지 않음 — 어느 쪽이 진짜
-  // active여야 하는지 예단하지 않기 위함).
-  const misplacedActiveGroups = new Set<string>();
-  for (const [key, list] of groups.entries()) {
-    const activeIndex = list.findIndex((r) => r.status === "active");
-    if (activeIndex !== -1 && activeIndex !== list.length - 1) {
-      misplacedActiveGroups.add(key);
-      console.error(
-        `  [주의] ${list[0].stock_code} — 그룹 내 active 행이 마지막 에피소드가 아님(1차 실행 시 잘못 선점된 것으로 추정). 이 그룹은 자동 처리하지 않고 스킵 — 수동 확인 필요.`
-      );
-    }
-  }
-
+  // 에피소드가 아닌 과거 에피소드가 먼저 active 슬롯을 선점했을 수 있다(리뷰에서 지적됨,
+  // 2차 실행에서 실제로 21개 그룹에서 확인됨). 이런 "선점된" active 행도 다른 closed
+  // 행과 똑같이 취급한다 — status가 무엇이든, 그룹의 진짜 마지막 에피소드가 아니면
+  // "다음 에피소드 시작 직전까지" 재생해서 강제로 종료 처리한다(active 슬롯을 비운다).
+  // 그룹을 matched_at 오름차순으로 순회하므로, 선점된 행(더 이른 인덱스)이 먼저
+  // 종료 처리돼 슬롯이 비워진 뒤에야 진짜 마지막 에피소드의 재오픈을 시도하게 되어
+  // 유니크 인덱스 충돌 없이 처리된다.
   let updated = 0;
   let reopened = 0;
   let unchanged = 0;
   let approximated = 0;
+  let demoted = 0;
   let skipped = 0;
-  let misplacedActiveSkipped = 0;
 
-  for (const [key, list] of groups.entries()) {
-    if (misplacedActiveGroups.has(key)) {
-      misplacedActiveSkipped += list.filter((r) => r.status !== "active").length;
-      continue;
-    }
+  for (const list of groups.values()) {
     for (let i = 0; i < list.length; i++) {
       const row = list[i];
-      if (row.status === "active") continue; // active 행은 마이그레이션이 이미 보정했다 — 참고만 하고 갱신 대상에서 제외
+      const isLastEpisode = i === list.length - 1;
+      // 이미 active이고 진짜 마지막 에피소드면(정상 상태) 마이그레이션이 이미 올바른
+      // 기준으로 보정해뒀으므로 다시 손댈 필요가 없다.
+      if (row.status === "active" && isLastEpisode) continue;
 
       const strategy = strategyById.get(row.strategy_id);
       const stopPct = strategy?.rule_params.stop_loss_pct ?? DEFAULT_STOP_LOSS_PCT;
       const takePct = strategy?.rule_params.take_profit_pct ?? DEFAULT_TAKE_PROFIT_PCT;
 
       const next = list[i + 1];
-      const isLastEpisode = !next;
       const startDate = addDays(toDateKey(row.matched_at), 1);
       const endDate = isLastEpisode ? today : addDays(toDateKey(next.matched_at), -1);
 
@@ -285,7 +282,14 @@ async function main(): Promise<void> {
       }
 
       const fromLabel = `${row.status}(${row.return_pct.toFixed(2)}%)`;
-      if (outcome.reopened) {
+      if (row.status === "active") {
+        // 그룹의 마지막 에피소드가 아닌데 active였다 — 1차 실행 때 잘못 선점된 슬롯.
+        // 다른 closed 행과 동일한 방식으로 재판정해 슬롯을 비운다.
+        demoted++;
+        console.log(
+          `  ${row.stock_code}: ${fromLabel} → ${outcome.status}(${outcome.returnPct.toFixed(2)}%) (잘못 선점된 active 해제, 다음 에피소드 시작으로 강제 종료)`
+        );
+      } else if (outcome.reopened) {
         reopened++;
         console.log(`  ${row.stock_code}: ${fromLabel} → active(재오픈, ${outcome.returnPct.toFixed(2)}%)`);
       } else if (outcome.approximated) {
@@ -304,7 +308,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `\n=== 완료: 갱신 ${updated}건(재오픈 ${reopened}건, 근사확정 ${approximated}건, 상태 동일 ${unchanged}건), 스킵 ${skipped}건, active 선점 이상으로 스킵 ${misplacedActiveSkipped}건(${misplacedActiveGroups.size}개 종목×전략 그룹) ===`
+    `\n=== 완료: 갱신 ${updated}건(재오픈 ${reopened}건, 근사확정 ${approximated}건, 상태 동일 ${unchanged}건, 잘못 선점된 active 해제 ${demoted}건), 스킵 ${skipped}건 ===`
   );
 }
 

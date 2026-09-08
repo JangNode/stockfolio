@@ -27,6 +27,23 @@
  * burst rate limit 증상(상태코드 없는 네트워크 단절, 고정 1.5초 재시도로는 회복 안 됨)
  * 인데, 그 스크립트는 PR #211로 이미 고쳤고 이 스크립트만 고치지 않은 채 남아있었다.
  * 같은 수정(동시성 2, 5·10·20초 지수 백오프)을 그대로 적용한다.
+ *
+ * 2026-09-08 CFS→OFS 폴백 + 상태코드 방어 로직 + 배치 이상 감지 추가: 위 수정 이후
+ * 재실행하니 실패는 0건이 됐지만 6,564건 중 6,553건이 "데이터없음(013)"으로 나와
+ * 신규 반영이 11건뿐이었다. 원인 진단 스크립트(diagnose-dart-cfs-ofs-hypothesis.ts,
+ * diagnose-dart-status-code-masking.ts, 둘 다 사용 후 삭제됨)로 확인한 결과:
+ * (1) CFS/OFS 구분 문제는 일부만 설명한다(표본 8종목 중 2종목만, 그것도 1~2개 연도만
+ *     구제됨) — 그래도 실제 도움이 되니 backfill-dart-cashflow-debt.ts와 동일한 CFS
+ *     우선 조회 후 OFS 폴백 패턴을 이식한다.
+ * (2) fetchFundamentals가 status==="013"과 "list 필드가 없는 다른 모든 상태"(예:
+ *     020 요청 제한 초과)를 구분하지 않고 전부 "데이터없음"으로 처리하던 게 위험한
+ *     잠재 버그였다 — 013이 아닌데 list가 없으면 이제 에러로 올려 재시도·로그되게
+ *     고쳤다(운영 재현 진단에서 이번 사건 자체가 상태코드 마스킹이었다는 직접 증거는
+ *     못 찾았지만, 앞으로 비슷한 일이 생기면 최소한 조용히 넘어가지는 않는다).
+ * (3) 진짜 문제는 6,553/6,564(99.8%)라는 비정상 비율이 error_count=0으로 기록되며
+ *     "성공"으로 끝났다는 점 — 013 자체가 정상 응답이라 에러로 안 잡힌다. 배치 종료
+ *     시 013 비율을 계산해 임계값을 넘으면 stock_data_backfill_runs에 status='anomaly'로
+ *     남기게 했다(알림 없이 기록만).
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -39,6 +56,15 @@ const FISCAL_YEAR_START = 2009;
 const CONCURRENCY = 2;
 const CALL_RETRY_COUNT = 3;
 const CALL_RETRY_BASE_DELAY_MS = 5000;
+
+// 013(데이터없음) 자연 발생률은 2026-09-08 진단(운영과 동일 조건 재현, 900건 표본)
+// 기준 약 50%(013:451, 000:449)였고, 느린 표본 조사(8종목×17개년)에서도 약 38%였다.
+// 신규 후보 종목 다수가 상장 전/스핀오프 이전 연도라 013이 정상적으로 절반 안팎
+// 나오는 게 자연스럽다. 실제 사건(2026-09-08 00:42 UTC)은 99.8%(6,553/6,564)였다 —
+// 자연 발생률(40~60%)보다 확실히 높은 값을 이상 신호로 잡되, 특정 배치가 유독
+// 신규상장 종목 비중이 높아 자연스럽게 60~70%대가 나올 수 있는 여유도 남기려고
+// 80%로 잡는다.
+const NO_DATA_RATIO_ANOMALY_THRESHOLD = 0.8;
 
 const NET_INCOME_ACCOUNT_ID = "ifrs-full_ProfitLossAttributableToOwnersOfParent";
 const EQUITY_ACCOUNT_ID = "ifrs-full_EquityAttributableToOwnersOfParent";
@@ -115,41 +141,85 @@ interface DartAccountRow {
   thstrm_amount: string;
 }
 
-async function fetchFundamentals(
+interface FetchedFundamentals {
+  rceptNo: string;
+  rceptDate: string;
+  fsDiv: "CFS" | "OFS";
+  netIncomeParent: number | null;
+  equityParent: number | null;
+}
+
+// 콜당 평균 응답 시간 — 배치 이상 감지 시 원인 추적 단서로 남긴다(2026-09-08 사건
+// 재현 진단에서 정상 시 0.1~0.2초/콜, 사건 재현 시도 시 약 3.8초/콜로 뚜렷한 차이가
+// 있었다). 실패로 끝난 시도도 포함해 실제 걸린 시간을 그대로 잰다.
+let totalCallLatencyMs = 0;
+let callLatencyCount = 0;
+
+async function callSingleAcntAll(
   corpCode: string,
   fiscalYear: number,
+  fsDiv: "CFS" | "OFS",
   apiKey: string
-): Promise<{ rceptNo: string; rceptDate: string; netIncomeParent: number | null; equityParent: number | null } | null> {
+): Promise<DartAccountRow[] | null> {
   const url = new URL(`${DART_BASE_URL}/fnlttSinglAcntAll.json`);
   url.searchParams.set("crtfc_key", apiKey);
   url.searchParams.set("corp_code", corpCode);
   url.searchParams.set("bsns_year", String(fiscalYear));
   url.searchParams.set("reprt_code", "11011"); // 사업보고서
-  url.searchParams.set("fs_div", "CFS"); // 연결재무제표
+  url.searchParams.set("fs_div", fsDiv);
 
+  const startedAt = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } finally {
+    totalCallLatencyMs += Date.now() - startedAt;
+    callLatencyCount++;
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { status: string; list?: DartAccountRow[] };
+
+  // status "013"은 "조회된 데이터가 없습니다" — 그 연도에 사업보고서가 없는 경우
+  // (상장 전 등)라 정상적인 "없음"으로 취급하고 에러로 올리지 않는다. 그 외에
+  // list가 없는 모든 경우(예: 020 요청 제한 초과)는 "없음"으로 조용히 넘기지 않고
+  // 에러로 올려 재시도·로그되게 한다 — 013과 다른 실패를 뭉뚱그리면 요청 제한 같은
+  // 진짜 문제가 "데이터없음"으로 위장돼 조용히 묻힌다(2026-09-08 사건 이후 추가된
+  // 방어 로직, 위 파일 상단 주석 참고).
+  if (body.status === "013") return null;
+  if (body.status !== "000" || !body.list || body.list.length === 0) {
+    throw new Error(`DART 오류 또는 예상치 못한 응답(status=${body.status})`);
+  }
+  return body.list;
+}
+
+async function fetchFundamentals(
+  corpCode: string,
+  fiscalYear: number,
+  apiKey: string
+): Promise<FetchedFundamentals | null> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= CALL_RETRY_COUNT; attempt++) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { status: string; list?: DartAccountRow[] };
+      // 연결재무제표(CFS)를 우선 조회하고, 없으면 별도재무제표(OFS)로 폴백한다 —
+      // backfill-dart-cashflow-debt.ts와 동일한 패턴(자회사가 없는 종목은 애초에
+      // CFS를 작성하지 않는 경우가 있다).
+      let list = await callSingleAcntAll(corpCode, fiscalYear, "CFS", apiKey);
+      let fsDiv: "CFS" | "OFS" = "CFS";
+      if (!list) {
+        list = await callSingleAcntAll(corpCode, fiscalYear, "OFS", apiKey);
+        fsDiv = "OFS";
+      }
+      if (!list) return null;
 
-      // status "013"은 "조회된 데이터가 없습니다" — 그 연도에 사업보고서가 없는 경우
-      // (상장 전 등)라 정상적인 "없음"으로 취급하고 에러로 올리지 않는다.
-      if (body.status === "013" || !body.list || body.list.length === 0) return null;
-      if (body.status !== "000") throw new Error(`DART 오류(${body.status})`);
-
-      const rceptNo = body.list[0].rcept_no;
-      const netIncomeRow = body.list.find((r) => r.account_id === NET_INCOME_ACCOUNT_ID);
-      const equityRow = body.list.find((r) => r.account_id === EQUITY_ACCOUNT_ID);
+      const rceptNo = list[0].rcept_no;
+      const netIncomeRow = list.find((r) => r.account_id === NET_INCOME_ACCOUNT_ID);
+      const equityRow = list.find((r) => r.account_id === EQUITY_ACCOUNT_ID);
 
       // 접속사·지주사가 아니거나 비지배지분이 없는 회사는 "지배기업 소유주지분"이
       // 별도 항목으로 안 나오고 전체 당기순이익/자본총계 항목만 있을 수 있다 — 이
       // 경우 전체 값을 그대로 쓴다(비지배지분이 없으니 전체=지배지분).
-      const fallbackNetIncome = body.list.find(
-        (r) => r.sj_div === "IS" && r.account_id === "ifrs-full_ProfitLoss"
-      );
-      const fallbackEquity = body.list.find((r) => r.sj_div === "BS" && r.account_id === "ifrs-full_Equity");
+      const fallbackNetIncome = list.find((r) => r.sj_div === "IS" && r.account_id === "ifrs-full_ProfitLoss");
+      const fallbackEquity = list.find((r) => r.sj_div === "BS" && r.account_id === "ifrs-full_Equity");
 
       const netIncomeSource = netIncomeRow ?? fallbackNetIncome;
       const equitySource = equityRow ?? fallbackEquity;
@@ -157,6 +227,7 @@ async function fetchFundamentals(
       return {
         rceptNo,
         rceptDate: `${rceptNo.slice(0, 4)}-${rceptNo.slice(4, 6)}-${rceptNo.slice(6, 8)}`,
+        fsDiv,
         netIncomeParent: netIncomeSource ? Number(netIncomeSource.thstrm_amount) : null,
         equityParent: equitySource ? Number(equitySource.thstrm_amount) : null,
       };
@@ -211,6 +282,8 @@ async function main(): Promise<void> {
   let skippedNoData = 0;
   let errorCount = 0;
   let completed = 0;
+  let fetchedViaCfs = 0;
+  let fetchedViaOfs = 0;
 
   await runWithConcurrency(targets, CONCURRENCY, async (target) => {
     try {
@@ -220,6 +293,7 @@ async function main(): Promise<void> {
           stock_code: target.stockCode,
           corp_code: target.corpCode,
           fiscal_year: target.fiscalYear,
+          fs_div: result.fsDiv,
           rcept_no: result.rceptNo,
           rcept_date: result.rceptDate,
           net_income_parent: result.netIncomeParent,
@@ -227,6 +301,8 @@ async function main(): Promise<void> {
         });
         if (error) throw new Error(error.message);
         fetched++;
+        if (result.fsDiv === "OFS") fetchedViaOfs++;
+        else fetchedViaCfs++;
       } else {
         skippedNoData++;
       }
@@ -242,6 +318,10 @@ async function main(): Promise<void> {
     }
   });
 
+  const noDataRatio = targets.length > 0 ? skippedNoData / targets.length : 0;
+  const avgResponseTimeMs = callLatencyCount > 0 ? totalCallLatencyMs / callLatencyCount : null;
+  const status = noDataRatio > NO_DATA_RATIO_ANOMALY_THRESHOLD ? "anomaly" : "success";
+
   const { error: checkpointError } = await supabaseAdmin.from("stock_data_backfill_runs").insert({
     data_source: DATA_SOURCE,
     last_completed_date: null,
@@ -249,12 +329,22 @@ async function main(): Promise<void> {
     finished_at: new Date().toISOString(),
     rows_fetched: fetched,
     error_count: errorCount,
+    status,
+    total_targets: targets.length,
+    no_data_ratio: noDataRatio,
+    avg_response_time_ms: avgResponseTimeMs,
   });
   if (checkpointError) console.error(`체크포인트 저장 실패: ${checkpointError.message}`);
 
   console.log(
-    `DART 재무 백필 완료: 채움 ${fetched}건, 데이터없음 ${skippedNoData}건, 실패 ${errorCount}건 (실패분은 다음 실행에서 재시도됨)`
+    `DART 재무 백필 완료: 채움 ${fetched}건(CFS ${fetchedViaCfs}, OFS ${fetchedViaOfs}), 데이터없음 ${skippedNoData}건, 실패 ${errorCount}건 (실패분은 다음 실행에서 재시도됨)`
   );
+  console.log(
+    `데이터없음 비율 ${(noDataRatio * 100).toFixed(1)}% (임계값 ${(NO_DATA_RATIO_ANOMALY_THRESHOLD * 100).toFixed(0)}%), 콜당 평균 응답 시간 ${avgResponseTimeMs?.toFixed(0) ?? "?"}ms, 배치 상태: ${status}`
+  );
+  if (status === "anomaly") {
+    console.warn("이상 종료로 기록됨 — stock_data_backfill_runs에서 확인하세요.");
+  }
 }
 
 main().catch((error) => {

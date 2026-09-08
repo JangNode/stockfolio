@@ -1,0 +1,44 @@
+name: (임시) DART 응답속도 점검 후 조건부 재무제표 재백필
+
+# 2026-09-08 사건(대량 호출 후 DART 응답이 느려진 상태로 추정되는 구간에서 재실행하면
+# 결과가 나빠도 원인이 스로틀링인지 실제 문제인지 구분이 안 됨) 재발 방지용. 수동
+# 실행 전용 — 콜당 평균 응답 시간이 정상 범위(1초 이하)일 때만 실제 백필을 돌리고,
+# 느리면 백필을 건너뛴다. 점검·재실행 확인 끝나면 이 워크플로와 probe 스크립트는
+# 삭제한다(실제 백필 자체는 기존 스케줄 워크플로가 계속 담당).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe-and-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Probe DART response latency
+        id: probe
+        run: npm run probe:dart-response-latency
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+
+      - name: Backfill DART fundamentals (조건부 — 응답속도 정상일 때만)
+        if: steps.probe.outputs.healthy == 'true'
+        run: npm run backfill:stock-annual-fundamentals
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Skip 안내 (응답속도 느림)
+        if: steps.probe.outputs.healthy != 'true'
+        run: echo "DART 응답 속도가 여전히 느려(평균 ${{ steps.probe.outputs.avg_latency_ms }}ms) 백필을 건너뜁니다."

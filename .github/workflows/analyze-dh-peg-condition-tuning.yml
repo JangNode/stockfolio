@@ -1,0 +1,31 @@
+name: (임시) DH/PEG전략 조건 튜닝 분석
+
+# 수동 실행 전용, 순수 조회(읽기 전용) — DB/Storage만 조회하고 아무것도 쓰지 않는다.
+# DH전략/PEG전략 과거 신호 재현 + 조건 스윕(1~4단계) 분석. 690~700여개 후보종목 ×
+# 최대 15년치 일별시세/재무를 훑어야 해서 시간이 걸릴 수 있어 timeout을 넉넉히 둔다.
+# 확인 끝나면 다른 분석용 임시 스크립트/워크플로와 함께 정리 PR로 삭제.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Analyze DH/PEG condition tuning
+        run: npm run analyze:dh-peg-condition-tuning
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

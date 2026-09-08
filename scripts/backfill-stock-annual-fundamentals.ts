@@ -44,6 +44,22 @@
  *     "성공"으로 끝났다는 점 — 013 자체가 정상 응답이라 에러로 안 잡힌다. 배치 종료
  *     시 013 비율을 계산해 임계값을 넘으면 stock_data_backfill_runs에 status='anomaly'로
  *     남기게 했다(알림 없이 기록만).
+ *
+ * 2026-09-08 이상 감지를 절대 임계값(80%)에서 "직전 동일 data_source 실행 대비 013
+ * 비율 변화"로 바꿈: 위 절대 임계값 방식으로 실제 재실행(6,553건 처리, 채움 595건)을
+ * 돌려보니 013 비율이 90.9%로 나와 또 anomaly로 잡혔다. 그런데 이건 버그가 아니었다
+ * — 원인 진단 스크립트(diagnose-dart-cfs-ofs-hypothesis.ts)가 "자연 발생률 40~60%"를
+ * 추정할 때 표본을 페이지네이션 없이(1000행 제한) 뽑아서, 이미 데이터가 있던 종목들을
+ * "신규 후보"로 잘못 분류해 표본이 오염돼 있었다. 실제 신규 편입 소형주 후보군(자회사가
+ * 없고 어린 회사 비중이 높음)은 013 비율이 90%대인 게 오히려 정상일 수 있다 — 즉
+ * "이미 데이터가 확인된 종목"과 "신규 편입 후보군"은 성격이 다른 두 집단이라 하나의
+ * 절대 임계값으로 재는 것 자체가 잘못된 접근이었다. 절대값을 다시 추정해도 표본에 따라
+ * 또 달라질 뿐이라, 절대 기준 대신 "직전 실행 대비 급증"으로 바꿨다 — 9/3~9/4 사건
+ * (평소 수준에서 갑자기 99.8%로 뛴 경우)은 잡히고, 신규 소형주 편입으로 자연스럽게
+ * 013 비율이 높아지는 경우는 잡히지 않는다. 채움 건수가 처리 대상 대비 지나치게 적은
+ * 경우(9/8 00:42 UTC 사건처럼 6,564건 처리에 11건만 채워진 경우)는 013 비율과 무관하게
+ * 별도 절대 임계값으로 잡는다 — 이건 "정상 집단이 원래 낮다/높다"는 표본 문제가 없는
+ * 순수한 실패 신호라 절대값으로 재도 안전하다.
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -57,14 +73,18 @@ const CONCURRENCY = 2;
 const CALL_RETRY_COUNT = 3;
 const CALL_RETRY_BASE_DELAY_MS = 5000;
 
-// 013(데이터없음) 자연 발생률은 2026-09-08 진단(운영과 동일 조건 재현, 900건 표본)
-// 기준 약 50%(013:451, 000:449)였고, 느린 표본 조사(8종목×17개년)에서도 약 38%였다.
-// 신규 후보 종목 다수가 상장 전/스핀오프 이전 연도라 013이 정상적으로 절반 안팎
-// 나오는 게 자연스럽다. 실제 사건(2026-09-08 00:42 UTC)은 99.8%(6,553/6,564)였다 —
-// 자연 발생률(40~60%)보다 확실히 높은 값을 이상 신호로 잡되, 특정 배치가 유독
-// 신규상장 종목 비중이 높아 자연스럽게 60~70%대가 나올 수 있는 여유도 남기려고
-// 80%로 잡는다.
-const NO_DATA_RATIO_ANOMALY_THRESHOLD = 0.8;
+// 013(데이터없음) 비율의 "정상 범위"는 그때그때 후보군 구성에 따라 달라져(이미
+// 데이터가 확인된 종목 위주면 낮고, 신규 편입 소형주 위주면 자연스럽게 90%대까지도
+// 나올 수 있다) 절대 임계값으로 재면 안 된다 — 그래서 직전 동일 data_source 실행
+// 대비 "얼마나 뛰었는지"로 이상을 감지한다. 20%p는 임의값이라 이후 실행 데이터가
+// 쌓이면(현재는 anomaly 실행 이력이 1건뿐이라 근거가 부족) 조정 대상이다.
+const NO_DATA_RATIO_JUMP_THRESHOLD_PP = 0.2;
+
+// 채움 건수가 처리 대상 대비 지나치게 적으면(2026-09-08 00:42 UTC 사건: 6,564건 처리
+// 중 11건, 0.17%) 013 비율의 "정상 범위"가 표본마다 다르다는 문제 없이 절대값으로
+// 재도 안전한 순수 실패 신호다. 0.5%는 위 사건(0.17%)보다는 여유를 두면서, 정상
+// 실행(수백~수천 건 채움)과는 확실히 구분되는 값으로 잡았다 — 역시 조정 대상이다.
+const MIN_FETCHED_RATIO = 0.005;
 
 const NET_INCOME_ACCOUNT_ID = "ifrs-full_ProfitLossAttributableToOwnersOfParent";
 const EQUITY_ACCOUNT_ID = "ifrs-full_EquityAttributableToOwnersOfParent";
@@ -115,6 +135,21 @@ async function getCorpCodeMap(stockCodes: string[]): Promise<Map<string, string>
     }
   }
   return map;
+}
+
+/** 같은 data_source의 가장 최근 실행 기록에서 013 비율을 가져온다 — 이번 실행의
+ * 013 비율과 비교해 "직전 대비 급증" 여부를 판단하는 기준이 된다. no_data_ratio가
+ * 없는(이 감지 로직이 생기기 전) 옛 기록은 비교 기준으로 쓸 수 없어 제외한다. */
+async function getPreviousRunNoDataRatio(): Promise<number | null> {
+  const { data, error } = await supabaseAdmin
+    .from("stock_data_backfill_runs")
+    .select("no_data_ratio")
+    .eq("data_source", DATA_SOURCE)
+    .not("no_data_ratio", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`직전 실행 기록 조회 실패: ${error.message}`);
+  return data?.[0]?.no_data_ratio ?? null;
 }
 
 async function getExistingPairs(): Promise<Set<string>> {
@@ -320,7 +355,26 @@ async function main(): Promise<void> {
 
   const noDataRatio = targets.length > 0 ? skippedNoData / targets.length : 0;
   const avgResponseTimeMs = callLatencyCount > 0 ? totalCallLatencyMs / callLatencyCount : null;
-  const status = noDataRatio > NO_DATA_RATIO_ANOMALY_THRESHOLD ? "anomaly" : "success";
+  const fetchedRatio = targets.length > 0 ? fetched / targets.length : 0;
+
+  const previousNoDataRatio = await getPreviousRunNoDataRatio();
+  const anomalyReasons: string[] = [];
+  if (fetchedRatio < MIN_FETCHED_RATIO) {
+    anomalyReasons.push(
+      `채움 비율 부족(${fetched}/${targets.length}건, ${(fetchedRatio * 100).toFixed(2)}% < 임계값 ${(MIN_FETCHED_RATIO * 100).toFixed(2)}%)`
+    );
+  }
+  if (previousNoDataRatio === null) {
+    console.log("비교할 직전 실행 기록이 없어 013 비율 변화 판정은 건너뜁니다.");
+  } else {
+    const jumpPp = noDataRatio - previousNoDataRatio;
+    if (jumpPp >= NO_DATA_RATIO_JUMP_THRESHOLD_PP) {
+      anomalyReasons.push(
+        `013 비율 급증(직전 ${(previousNoDataRatio * 100).toFixed(1)}% → 이번 ${(noDataRatio * 100).toFixed(1)}%, +${(jumpPp * 100).toFixed(1)}%p ≥ 임계값 ${(NO_DATA_RATIO_JUMP_THRESHOLD_PP * 100).toFixed(0)}%p)`
+      );
+    }
+  }
+  const status = anomalyReasons.length > 0 ? "anomaly" : "success";
 
   const { error: checkpointError } = await supabaseAdmin.from("stock_data_backfill_runs").insert({
     data_source: DATA_SOURCE,
@@ -340,10 +394,10 @@ async function main(): Promise<void> {
     `DART 재무 백필 완료: 채움 ${fetched}건(CFS ${fetchedViaCfs}, OFS ${fetchedViaOfs}), 데이터없음 ${skippedNoData}건, 실패 ${errorCount}건 (실패분은 다음 실행에서 재시도됨)`
   );
   console.log(
-    `데이터없음 비율 ${(noDataRatio * 100).toFixed(1)}% (임계값 ${(NO_DATA_RATIO_ANOMALY_THRESHOLD * 100).toFixed(0)}%), 콜당 평균 응답 시간 ${avgResponseTimeMs?.toFixed(0) ?? "?"}ms, 배치 상태: ${status}`
+    `데이터없음 비율 ${(noDataRatio * 100).toFixed(1)}%, 콜당 평균 응답 시간 ${avgResponseTimeMs?.toFixed(0) ?? "?"}ms, 배치 상태: ${status}`
   );
   if (status === "anomaly") {
-    console.warn("이상 종료로 기록됨 — stock_data_backfill_runs에서 확인하세요.");
+    console.warn(`이상 종료로 기록됨 — ${anomalyReasons.join("; ")}`);
   }
 }
 

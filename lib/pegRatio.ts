@@ -43,17 +43,24 @@ export function selectEpsCagrFiscalYears(
  * 않는다):
  * - 순이익 데이터가 없음(비지배주주 항목 미공시 등)
  * - 상장주식수를 모름(그 시점 시세 없음)
+ * - 시작/끝 연도의 fs_div(연결 CFS/별도 OFS)가 다름 — 자회사 포함 여부로 숫자
+ *   자체가 달라져, 그대로 CAGR을 내면 회계기준 변경 효과가 실제 성장률처럼 보인다
+ *   (호출부가 사유를 로그로 남기고 싶으면 lib/stockFundamentals.ts의
+ *   computeEpsCagrAsOf처럼 이 함수를 부르기 전에 fsDiv를 직접 비교하면 된다 — 이
+ *   함수는 백테스트/스크리닝에서 날짜마다 반복 호출돼 여기서 로그를 남기면 대량
+ *   경고가 찍히므로 조용히 null만 반환한다)
  * - 시작/끝 연도 중 하나라도 EPS가 0 이하(적자)
  * - 계산된 성장률이 0 이하(역성장)
  */
 export function computeEpsCagr(
-  start: { netIncomeParent: number | null; listedShares: number | null },
-  end: { netIncomeParent: number | null; listedShares: number | null },
+  start: { netIncomeParent: number | null; listedShares: number | null; fsDiv: "CFS" | "OFS" },
+  end: { netIncomeParent: number | null; listedShares: number | null; fsDiv: "CFS" | "OFS" },
   years: number = PEG_GROWTH_LOOKBACK_YEARS
 ): number | null {
   if (start.netIncomeParent === null || end.netIncomeParent === null) return null;
   if (start.listedShares === null || start.listedShares <= 0) return null;
   if (end.listedShares === null || end.listedShares <= 0) return null;
+  if (start.fsDiv !== end.fsDiv) return null; // 연결/별도 혼재 — 회계기준 불일치로 계산 불가
 
   const epsStart = start.netIncomeParent / start.listedShares;
   const epsEnd = end.netIncomeParent / end.listedShares;
@@ -85,8 +92,16 @@ export function computeEpsCagrFromResolvedShares(
   years: number = PEG_GROWTH_LOOKBACK_YEARS
 ): number | null {
   return computeEpsCagr(
-    { netIncomeParent: pair.start.netIncomeParent, listedShares: listedSharesByFiscalYear.get(pair.start.fiscalYear) ?? null },
-    { netIncomeParent: pair.end.netIncomeParent, listedShares: listedSharesByFiscalYear.get(pair.end.fiscalYear) ?? null },
+    {
+      netIncomeParent: pair.start.netIncomeParent,
+      listedShares: listedSharesByFiscalYear.get(pair.start.fiscalYear) ?? null,
+      fsDiv: pair.start.fsDiv,
+    },
+    {
+      netIncomeParent: pair.end.netIncomeParent,
+      listedShares: listedSharesByFiscalYear.get(pair.end.fiscalYear) ?? null,
+      fsDiv: pair.end.fsDiv,
+    },
     years
   );
 }

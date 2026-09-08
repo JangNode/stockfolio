@@ -20,6 +20,13 @@
  *   tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts
  *
  * 필요 환경변수: DART_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ *
+ * 2026-09-07 동시성 완화(8→2)/지수 백오프 적용: 2026-09-03~09-04 사이 4회 연속 실행
+ * (신규 반영 0건, 매번 5,544~5,547건 전부 "fetch failed")이 실측됐다. 같은 시기 같은
+ * DART API 키를 쓰는 scripts/backfill-dart-cashflow-debt.ts가 겪은 것과 동일한
+ * burst rate limit 증상(상태코드 없는 네트워크 단절, 고정 1.5초 재시도로는 회복 안 됨)
+ * 인데, 그 스크립트는 PR #211로 이미 고쳤고 이 스크립트만 고치지 않은 채 남아있었다.
+ * 같은 수정(동시성 2, 5·10·20초 지수 백오프)을 그대로 적용한다.
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -29,9 +36,9 @@ import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DATA_SOURCE = "dart_fundamentals" as const;
 const FISCAL_YEAR_START = 2009;
-const CONCURRENCY = 8;
-const CALL_RETRY_COUNT = 2;
-const CALL_RETRY_DELAY_MS = 1500;
+const CONCURRENCY = 2;
+const CALL_RETRY_COUNT = 3;
+const CALL_RETRY_BASE_DELAY_MS = 5000;
 
 const NET_INCOME_ACCOUNT_ID = "ifrs-full_ProfitLossAttributableToOwnersOfParent";
 const EQUITY_ACCOUNT_ID = "ifrs-full_EquityAttributableToOwnersOfParent";
@@ -155,7 +162,9 @@ async function fetchFundamentals(
       };
     } catch (error) {
       lastError = error;
-      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_DELAY_MS);
+      // 지수 백오프(5초, 10초, 20초) — burst rate limit으로 추정되는 "fetch failed"가
+      // 짧은 고정 간격 재시도로는 회복되지 않았던 실측 결과를 반영했다(위 상단 주석 참고).
+      if (attempt < CALL_RETRY_COUNT) await sleep(CALL_RETRY_BASE_DELAY_MS * 2 ** attempt);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));

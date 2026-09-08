@@ -13,6 +13,10 @@ export interface StockFundamentalsAsOf {
   rceptDate: string; // YYYY-MM-DD
   netIncomeParent: number | null;
   equityParent: number | null;
+  fsDiv: "CFS" | "OFS"; // 연결/별도 — lib/pegRatio.ts의 computeEpsCagr이 두 연도를
+  // 비교할 때 기준이 다르면 산출 불가로 처리하는 데 쓴다(연결/별도 혼재는 자회사
+  // 포함 여부 때문에 숫자 자체가 달라져, 그대로 CAGR을 내면 회계기준 변경 효과가
+  // 실제 성장률처럼 보일 수 있다).
 }
 
 export interface StockDividendPayment {

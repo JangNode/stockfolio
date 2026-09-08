@@ -45,7 +45,7 @@ export async function loadFundamentalsSeries(stockCode: string): Promise<Fundame
   const [annualResult, dividendResult] = await Promise.all([
     supabaseAdmin
       .from("stock_annual_fundamentals")
-      .select("fiscal_year, rcept_no, rcept_date, net_income_parent, equity_parent")
+      .select("fiscal_year, rcept_no, rcept_date, net_income_parent, equity_parent, fs_div")
       .eq("stock_code", stockCode)
       .order("rcept_date", { ascending: true }),
     supabaseAdmin
@@ -66,6 +66,7 @@ export async function loadFundamentalsSeries(stockCode: string): Promise<Fundame
       rceptDate: row.rcept_date,
       netIncomeParent: row.net_income_parent === null ? null : Number(row.net_income_parent),
       equityParent: row.equity_parent === null ? null : Number(row.equity_parent),
+      fsDiv: row.fs_div as "CFS" | "OFS",
     })),
     dividends: (dividendResult.data ?? []).map((row) => ({
       recordDate: row.record_date,
@@ -151,14 +152,24 @@ export async function computeEpsCagrAsOf(
   const pair = selectEpsCagrFiscalYears(series, date, years);
   if (!pair) return null;
 
+  // computeEpsCagr도 자체적으로 같은 판정을 하지만(계산 결과에 반영됨), 이 함수는
+  // 종목당 한 번만 호출되는 단건 조회라(백테스트처럼 날짜별로 반복 호출되지 않음)
+  // 여기서만 사유를 로그로 남긴다 — 반복 호출되는 순수 함수(computeEpsCagr) 쪽에
+  // 넣으면 백테스트/스크리닝 루프에서 같은 경고가 대량으로 찍힌다.
+  if (pair.start.fsDiv !== pair.end.fsDiv) {
+    console.warn(
+      `${stockCode} EPS CAGR 산출 불가(회계기준 불일치): FY${pair.start.fiscalYear}(${pair.start.fsDiv}) vs FY${pair.end.fiscalYear}(${pair.end.fsDiv})`
+    );
+  }
+
   const [startPrice, endPrice] = await Promise.all([
     getDailyPriceOnOrBefore(stockCode, pair.start.rceptDate),
     getDailyPriceOnOrBefore(stockCode, pair.end.rceptDate),
   ]);
 
   const growthPct = computeEpsCagr(
-    { netIncomeParent: pair.start.netIncomeParent, listedShares: startPrice?.listedShares ?? null },
-    { netIncomeParent: pair.end.netIncomeParent, listedShares: endPrice?.listedShares ?? null },
+    { netIncomeParent: pair.start.netIncomeParent, listedShares: startPrice?.listedShares ?? null, fsDiv: pair.start.fsDiv },
+    { netIncomeParent: pair.end.netIncomeParent, listedShares: endPrice?.listedShares ?? null, fsDiv: pair.end.fsDiv },
     years
   );
 

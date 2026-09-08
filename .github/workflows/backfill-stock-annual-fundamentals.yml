@@ -26,8 +26,11 @@ jobs:
     # 후보종목×연도 조합 수천 건씩 두 스텝, DART 일일 한도 40,000회 안에서 한 번에
     # 끝날 것으로 예상되지만 넉넉히 잡는다. 2026-09-03 실측(burst rate limit 추정
     # "fetch failed" 대량 발생, scripts/backfill-dart-cashflow-debt.ts 주석 참고)
-    # 이후 동시성을 8→2로 낮춰 처리 시간이 늘어난 만큼 여유를 더 크게 잡는다.
-    timeout-minutes: 300
+    # 이후 두 스텝 모두 동시성을 8→2로 낮췄다(2026-09-07: 재무제표 스텝도 뒤늦게
+    # 같은 수정 적용 — 그 전까지는 이 스텝만 동시성 8로 남아 있어 2026-09-03~09-04
+    # 4회 연속 전체 실패했다). 재무제표 스텝의 대상 건수(6,500여 건)가 현금흐름/부채
+    # 스텝보다 많아 처리 시간이 더 길 것으로 예상돼 여유를 한 번 더 늘린다.
+    timeout-minutes: 480
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

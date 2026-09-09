@@ -62,11 +62,34 @@ async function verify(code: string, label: string): Promise<void> {
 
 async function main(): Promise<void> {
   console.log("########## DCF fs_div 수정 후 실데이터 검증 ##########");
-  // fs_div 일치(정상 케이스) 회귀 확인
-  await verify("005930", "삼성전자");
-  await verify("000660", "SK하이닉스");
-  // fs_div 불일치 종목(diagnose-dcf-coverage.ts에서 FY2021:OFS vs FY2025:CFS로 확인됨)
-  await verify("016790", "fs_div 불일치 종목");
+  // fs_div 일치(정상 케이스) 회귀 확인 — 이미 확인 완료(삼성전자/SK하이닉스 둘 다
+  // 정상 계산됨). 이번 재실행은 fs_div 불일치 종목 확인에만 집중한다.
+
+  // 016790은 베타 산출 불가(상장 3년 미만 등)로 fs_div 검사 이전 단계에서 이미
+  // UNKNOWN 처리돼, fs_div 검사 로직 자체가 실행되는지 확인하지 못했다.
+  // diagnose-dcf-coverage.ts가 찾은 나머지 fs_div 불일치 종목을 순서대로 시도해
+  // 베타가 있어 fs_div 검사까지 도달하는 종목을 찾는다.
+  const fsDivMismatchCandidates = [
+    "047920",
+    "056080",
+    "114190",
+    "141080",
+    "166090",
+    "187660",
+    "195940",
+    "199800",
+    "225570",
+    "256840",
+    "271940",
+    "281820",
+    "302440",
+    "307750",
+    "347700",
+    "388720",
+  ];
+  for (const code of fsDivMismatchCandidates) {
+    await verify(code, "fs_div 불일치 종목");
+  }
   console.log("\n=== 검증 종료 ===");
 }
 

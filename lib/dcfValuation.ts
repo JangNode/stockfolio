@@ -31,23 +31,34 @@ export interface DcfValuationInput {
  * 제외한다. fiscal_year 오름차순을 유지한다. */
 export function computeFcfSeries(
   cashflowRows: CashflowStatementRow[]
-): { fiscalYear: number; fcf: number }[] {
+): { fiscalYear: number; fsDiv: "CFS" | "OFS"; fcf: number }[] {
   return cashflowRows
     .filter((row) => row.operatingCf !== null && row.capex !== null)
-    .map((row) => ({ fiscalYear: row.fiscalYear, fcf: (row.operatingCf as number) - (row.capex as number) }));
+    .map((row) => ({
+      fiscalYear: row.fiscalYear,
+      fsDiv: row.fsDiv,
+      fcf: (row.operatingCf as number) - (row.capex as number),
+    }));
 }
 
-/** 첫 해와 마지막 해 FCF로 CAGR(%)을 계산한다. 첫 해 또는 마지막 해가 0 이하면 계산
- * 불가(null) — 억지로 성장시키지 않는다. 결과는 DCF_FCF_GROWTH_RATE_CAP_PCT로 캡을
- * 씌운다. */
-export function computeFcfGrowthRatePct(fcfSeries: number[]): number | null {
+/** 첫 해와 마지막 해 FCF로 CAGR(%)을 계산한다. 아래 경우는 계산 불가(null)로 취급한다
+ * (억지로 성장시키지 않는다):
+ * - 첫 해 또는 마지막 해 FCF가 0 이하(적자)
+ * - 첫 해와 마지막 해의 fs_div(연결 CFS/별도 OFS)가 다름 — lib/pegRatio.ts의
+ *   computeEpsCagr과 동일한 이유(회계기준 변경 효과가 실제 성장률처럼 보이는 것을
+ *   방지). 이 함수도 조용히 null만 반환한다(로그는 호출부 책임).
+ * 결과는 DCF_FCF_GROWTH_RATE_CAP_PCT로 캡을 씌운다. */
+export function computeFcfGrowthRatePct(
+  fcfSeries: { fsDiv: "CFS" | "OFS"; fcf: number }[]
+): number | null {
   const first = fcfSeries[0];
   const last = fcfSeries[fcfSeries.length - 1];
   if (first === undefined || last === undefined) return null;
-  if (first <= 0 || last <= 0) return null;
+  if (first.fsDiv !== last.fsDiv) return null;
+  if (first.fcf <= 0 || last.fcf <= 0) return null;
 
   const n = fcfSeries.length;
-  const cagrPct = (Math.pow(last / first, 1 / (n - 1)) - 1) * 100;
+  const cagrPct = (Math.pow(last.fcf / first.fcf, 1 / (n - 1)) - 1) * 100;
   return Math.max(-DCF_FCF_GROWTH_RATE_CAP_PCT, Math.min(DCF_FCF_GROWTH_RATE_CAP_PCT, cagrPct));
 }
 
@@ -155,9 +166,15 @@ export function computeDcfFairValue(input: DcfValuationInput): FairValueResult {
     return unknown("과거 현금흐름 데이터 5개년 미만");
   }
 
-  const fcfValues = fcfSeries.map((row) => row.fcf);
-  const growthRatePct = computeFcfGrowthRatePct(fcfValues);
+  const growthRatePct = computeFcfGrowthRatePct(fcfSeries);
   if (growthRatePct === null) {
+    const first = fcfSeries[0];
+    const last = fcfSeries[fcfSeries.length - 1];
+    if (first.fsDiv !== last.fsDiv) {
+      return unknown(
+        `FCF 성장률 산출 불가(회계기준 불일치): FY${first.fiscalYear}(${first.fsDiv}) vs FY${last.fiscalYear}(${last.fsDiv})`
+      );
+    }
     return unknown("최근 FCF 적자로 성장률 추정 불가");
   }
 
@@ -191,7 +208,7 @@ export function computeDcfFairValue(input: DcfValuationInput): FairValueResult {
     return unknown("요구수익률(WACC)이 영구성장률과 너무 가까워 계산 불가(발산 위험)");
   }
 
-  const lastActualFcf = fcfValues[fcfValues.length - 1];
+  const lastActualFcf = fcfSeries[fcfSeries.length - 1].fcf;
   const projectedFcf = projectFcf(lastActualFcf, growthRatePct);
   const enterpriseValueWon = computeEnterpriseValueWon(projectedFcf, waccPct, DCF_TERMINAL_GROWTH_RATE_PCT);
 

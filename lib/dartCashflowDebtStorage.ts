@@ -9,12 +9,14 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export interface CashflowStatementRow {
   fiscalYear: number;
+  fsDiv: "CFS" | "OFS";
   operatingCf: number | null;
   capex: number | null;
 }
 
 interface CashflowStatementDbRow {
   fiscal_year: number;
+  fs_div: "CFS" | "OFS";
   operating_cf: number | string | null;
   capex: number | string | null;
 }
@@ -39,12 +41,13 @@ interface DebtStructureDbRow {
 export async function getCashflowStatements(stockCode: string): Promise<CashflowStatementRow[]> {
   const { data, error } = await supabaseAdmin
     .from("dart_cashflow_statements")
-    .select("fiscal_year, operating_cf, capex")
+    .select("fiscal_year, fs_div, operating_cf, capex")
     .eq("stock_code", stockCode)
     .order("fiscal_year", { ascending: true });
   if (error) throw new Error(`${stockCode} 현금흐름표 조회 실패: ${error.message}`);
   return ((data ?? []) as CashflowStatementDbRow[]).map((row) => ({
     fiscalYear: row.fiscal_year,
+    fsDiv: row.fs_div,
     operatingCf: row.operating_cf === null ? null : Number(row.operating_cf),
     capex: row.capex === null ? null : Number(row.capex),
   }));

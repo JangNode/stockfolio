@@ -76,7 +76,7 @@ function StatBlock({ label, value, hint }: { label: string; value: string; hint?
 
 const FAIR_VALUE_METHOD_LABEL: Record<FairValueResult["method"], string> = {
   RIM: "RIM(잔여이익모델)",
-  PEER_PER: "방법A(업종 평균 PER)",
+  PEER_PER: "상대가치(업종 PER)",
   DCF: "DCF(현금흐름할인법)",
 };
 
@@ -229,7 +229,7 @@ export default function StockValuation({ code }: { code: string }) {
             return (
               <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
                 <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  적정주가(RIM / 업종 평균 PER / DCF)
+                  적정주가(RIM / 상대가치 / DCF)
                 </p>
                 {showSummary && (
                   <span className="mb-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">

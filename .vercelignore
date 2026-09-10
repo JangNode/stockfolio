@@ -1,0 +1,10 @@
+# GitHub Actions 전용 배치·백필·진단 스크립트. Vercel 서버리스 함수는 이 중
+# 어떤 것도 import하지 않는다(2026-09-10 실측 확인) — 빌드/배포 업로드에서 제외.
+scripts/
+
+# Supabase 마이그레이션. "Apply Supabase Migrations" GitHub Actions 워크플로가
+# 별도로 적용하며, Vercel 배포와는 무관하다.
+supabase/migrations/
+
+# GitHub Actions 워크플로 정의. Vercel 빌드에 불필요하다.
+.github/

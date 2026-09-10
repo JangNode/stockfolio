@@ -1,11 +1,14 @@
 name: Central Bank News Sync
 
-# FOMC/한국은행 관련 뉴스를 연준·한국은행 공식 RSS에서 20분 간격으로 수집해
-# DB에 반영한다. "실시간에 가깝게"가 목적이라 GitHub Actions의 schedule 트리거
-# 지연(부하 시 몇 시간씩 밀릴 수 있음)이 목적을 해칠 수 있어, 다른 정시성 중요
-# 배치(스크리닝, 금리 발표 backoff)와 같은 이유로 Supabase pg_cron이
-# workflow_dispatch API를 직접 호출한다(supabase/migrations의
-# 20260830130000_create_central_bank_news.sql).
+# FOMC/한국은행 관련 뉴스를 연준·한국은행 공식 RSS에서 매일 한국시간(KST)
+# 오전 7시(미국 정규장 마감 이후 — 전날 밤~새벽 뉴스가 전부 반영된 시점)에
+# 수집해 DB에 반영한다. 화면 표시 전용이라 실시간성이 필요 없고(매매 판단에
+# 미연동, FOMC/금통위 발표 직후 감지는 Rate Announcement Check가 백오프로
+# 전담), 2026-09-11 20분 간격 → 하루 1회로 줄였다(GitHub Actions 무료 실행
+# 시간의 최대 소비처였음). pg_cron 트리거는 그 이전(20분 간격이던 시절)부터
+# 쓰던 방식을 그대로 유지한다(supabase/migrations/
+# 20260830130000_create_central_bank_news.sql, 스케줄 변경은
+# 20260911000000_reduce_central_bank_news_sync_interval.sql).
 on:
   workflow_dispatch:
 

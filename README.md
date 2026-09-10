@@ -1,3 +1,5 @@
+> 개인용으로 만든 프로젝트입니다. 외부 기여(PR)나 이슈 제보는 받지 않으며, 코드는 참고용으로 공개해 두었습니다.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

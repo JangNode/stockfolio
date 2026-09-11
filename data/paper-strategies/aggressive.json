@@ -1,7 +1,7 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "지난 재생성(9/9, #286) 이후 커밋 이력을 확인한 결과, 변경은 DCF 적정주가의 FCF 5년 CAGR 계산에 fs_div 일치 검사를 추가한 작업(#281~284)과 '방법A' 표시명을 상대가치(업종 PER)로 바꾼 UI 변경(#285)뿐이었고, 공격형이 참조하는 ma_cross/minervini_trend_template/peg_lynch의 매칭 로직이나 스코어링에는 영향이 없었습니다. 새로운 실측 근거가 없어 조건을 바꿀 이유가 없습니다. source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
-  "generated_at": "2026-09-10T05:12:12Z",
+  "rationale": "지난 재생성(9/10, #287) 이후 커밋 이력을 확인한 결과, 변경은 GitHub Actions/Vercel 무료 사용량 초과 대응(Vercel Functions Storage 초과 대응 #288, Central Bank News Sync 폴링 주기 축소 #290)과 README 문구(#289)뿐이었고, 공격형이 참조하는 ma_cross/minervini_trend_template/peg_lynch의 매칭 로직이나 스코어링에는 영향이 없었습니다. 어제 국내 스크리닝이 GitHub Actions 사용량 한도 초과로 두 차례 즉시 실패했던 건도 이 인프라 조치로 해소된 것으로 보이며(이후 미국 스크리닝은 정상 완료), 전략 조건 자체와는 무관합니다. 새로운 실측 근거가 없어 조건을 바꿀 이유가 없습니다. source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
+  "generated_at": "2026-09-11T05:12:18Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "peg_lynch"],
     "min_signal_return_pct": -2,

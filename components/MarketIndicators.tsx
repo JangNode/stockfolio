@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
+import MarketBriefingSection from "@/components/MarketBriefingSection";
 
 interface UsRatePoint {
   effectiveDate: string;
@@ -184,6 +185,8 @@ export default function MarketIndicators() {
 
   return (
     <div className="w-full max-w-4xl">
+      <MarketBriefingSection />
+
       <div className="mb-6 flex items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           미국(FOMC)·한국(금통위) 기준금리 추이와 다가오는 회의 일정입니다.

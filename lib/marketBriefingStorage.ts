@@ -1,6 +1,11 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+// RULES.md 3번(DB 용량 예산·보관 기간 정책)에 따른 보관 기간. 하루 1건·구조화된
+// JSON 텍스트 수준이라 연간 증가량은 크지 않지만(추정 수 MB/년), 무기한 누적은
+// 피하고 1년치만 유지한다.
+const RETENTION_DAYS = 365;
+
 /**
  * rawJson이 object이고 meta.date_kst가 비어있지 않은 문자열인지 확인해 그 값을
  * 돌려준다. 웹훅 라우트와 관리자 라우트 양쪽에서 호출하므로, 호출부에서 이미
@@ -36,4 +41,11 @@ export async function upsertMarketBriefing(rawJson: unknown): Promise<{ dateKst:
   if (error) throw new Error(`시장 브리핑 저장 실패: ${error.message}`);
 
   return { dateKst };
+}
+
+/** date_kst 기준 보관 기간(RETENTION_DAYS)이 지난 브리핑을 정리한다. */
+export async function deleteOldMarketBriefings(): Promise<void> {
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { error } = await supabaseAdmin.from("market_briefings").delete().lt("date_kst", cutoff);
+  if (error) throw new Error(`시장 브리핑 정리 실패: ${error.message}`);
 }

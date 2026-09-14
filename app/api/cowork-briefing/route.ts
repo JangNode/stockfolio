@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { upsertMarketBriefing } from "@/lib/marketBriefingStorage";
+import { upsertMarketBriefing, deleteOldMarketBriefings } from "@/lib/marketBriefingStorage";
 
 const RATE_LIMIT_WINDOW_HOURS = 24;
 const RATE_LIMIT_MAX_CALLS = 10;
@@ -74,6 +74,12 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "save failed" }, { status: 400 });
   }
+
+  // 오래된 브리핑 정리는 저장 성공 여부와 무관한 부가 작업이라, 실패해도 이번
+  // 요청의 핵심 결과(저장 성공)에는 영향을 주지 않는다 — 로그만 남긴다.
+  deleteOldMarketBriefings().catch((e) => {
+    console.error("오래된 시장 브리핑 정리 실패:", e instanceof Error ? e.message : e);
+  });
 
   return NextResponse.json({ ok: true });
 }

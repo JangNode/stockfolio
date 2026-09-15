@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { formatNumber, formatPrice, type Market } from "@/lib/market";
+import { ibmPlexSansKr } from "@/lib/fonts";
 
 interface StockPrice {
   stockCode: string;
@@ -40,7 +41,7 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
   const name = nameProp ?? STOCK_NAMES[code] ?? code;
 
   const cardClassName =
-    "w-full max-w-sm cursor-pointer rounded-xl border border-black/[.08] bg-white p-6 transition-colors hover:border-black/20 dark:border-white/[.145] dark:bg-zinc-950 dark:hover:border-white/30";
+    "w-full max-w-sm cursor-pointer rounded-card border border-border bg-surface p-6 transition-colors hover:border-black/20 dark:hover:border-white/30";
 
   const goToChart = () => {
     router.push(`/stock/${code}?name=${encodeURIComponent(name)}&market=${market}`);
@@ -65,7 +66,7 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
         onRemove();
       }}
       aria-label={`${name} 관심종목에서 삭제`}
-      className="text-zinc-400 transition-colors hover:text-blue-600 dark:text-zinc-500 dark:hover:text-blue-400"
+      className="text-ink-faint transition-colors hover:text-fall"
     >
       ✕
     </button>
@@ -86,7 +87,7 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
       <div {...cardInteractionProps} className={cardClassName}>
         <div className="flex items-baseline justify-between">
           <p
-            className="text-sm text-zinc-600 dark:text-zinc-400"
+            className={`${ibmPlexSansKr.className} text-sm text-zinc-600 dark:text-zinc-400`}
             onClick={(e) => e.stopPropagation()}
           >
             {name}
@@ -102,18 +103,14 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
 
   const isUp = price.change > 0;
   const isDown = price.change < 0;
-  const colorClass = isUp
-    ? "text-red-600 dark:text-red-400"
-    : isDown
-      ? "text-blue-600 dark:text-blue-400"
-      : "text-zinc-600 dark:text-zinc-400";
+  const colorClass = isUp ? "text-rise" : isDown ? "text-fall" : "text-zinc-600 dark:text-zinc-400";
   const sign = isUp ? "+" : "";
 
   return (
     <div {...cardInteractionProps} className={cardClassName}>
       <div className="flex items-baseline justify-between">
         <p
-          className="text-sm font-medium text-zinc-600 dark:text-zinc-400"
+          className={`${ibmPlexSansKr.className} text-sm font-medium text-zinc-600 dark:text-zinc-400`}
           onClick={(e) => e.stopPropagation()}
         >
           {name}
@@ -124,42 +121,34 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
         </div>
       </div>
 
-      <p className={`mt-2 text-3xl font-semibold ${colorClass}`}>
+      <p className={`mt-2 tabular-nums text-3xl font-semibold ${colorClass}`}>
         {formatPrice(price.currentPrice, market)}
         {market === "KR" ? "원" : ""}
       </p>
 
-      <p className={`mt-1 text-sm font-medium ${colorClass}`}>
+      <p className={`mt-1 tabular-nums text-sm font-medium ${colorClass}`}>
         {sign}
         {formatPrice(price.change, market)}
         {market === "KR" ? "원" : ""} ({sign}
         {price.changeRate.toFixed(2)}%)
       </p>
 
-      <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-black/[.08] pt-4 text-sm dark:border-white/[.145]">
+      <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm">
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">시가</dt>
-          <dd className="text-black dark:text-zinc-50">
-            {formatPrice(price.openPrice, market)}
-          </dd>
+          <dt className="text-ink-muted">시가</dt>
+          <dd className="tabular-nums text-ink">{formatPrice(price.openPrice, market)}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">거래량</dt>
-          <dd className="text-black dark:text-zinc-50">
-            {formatNumber(price.volume, market)}
-          </dd>
+          <dt className="text-ink-muted">거래량</dt>
+          <dd className="tabular-nums text-ink">{formatNumber(price.volume, market)}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">고가</dt>
-          <dd className="text-red-600 dark:text-red-400">
-            {formatPrice(price.highPrice, market)}
-          </dd>
+          <dt className="text-ink-muted">고가</dt>
+          <dd className="tabular-nums text-rise">{formatPrice(price.highPrice, market)}</dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">저가</dt>
-          <dd className="text-blue-600 dark:text-blue-400">
-            {formatPrice(price.lowPrice, market)}
-          </dd>
+          <dt className="text-ink-muted">저가</dt>
+          <dd className="tabular-nums text-fall">{formatPrice(price.lowPrice, market)}</dd>
         </div>
       </dl>
     </div>

@@ -3,6 +3,24 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* 공통 디자인 시스템 토큰 — "증시근황" 목업(components/MarketBriefingSection.tsx)에서
+   * 실제로 쓰인 색상을 그대로 옮겨온 값이다. 아직 다른 화면 컴포넌트는 이 토큰을
+   * 쓰지 않는다 — 화면별로 순서대로 마이그레이션할 예정. */
+  --surface: #ffffff;
+  --surface-sunken: #fafafa;
+  --border: rgba(0, 0, 0, 0.08);
+  --ink: #000000;
+  --ink-muted: #71717a;
+  --ink-faint: #a1a1aa;
+  --rise: #dc2626;
+  --rise-soft: #fee2e2;
+  --fall: #2563eb;
+  --fall-soft: #dbeafe;
+  --flat: var(--ink);
+  --est: #b45309;
+  --est-soft: #fef3c7;
+  --radius-card: 0.75rem;
 }
 
 @theme inline {
@@ -10,12 +28,40 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-rise: var(--rise);
+  --color-rise-soft: var(--rise-soft);
+  --color-fall: var(--fall);
+  --color-fall-soft: var(--fall-soft);
+  --color-flat: var(--flat);
+  --color-est: var(--est);
+  --color-est-soft: var(--est-soft);
+  --radius-card: var(--radius-card);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --surface: #09090b;
+    --surface-sunken: #18181b;
+    --border: rgba(255, 255, 255, 0.145);
+    --ink: #fafafa;
+    --ink-muted: #a1a1aa;
+    --ink-faint: #71717a;
+    --rise: #f87171;
+    --rise-soft: rgba(127, 29, 29, 0.3);
+    --fall: #60a5fa;
+    --fall-soft: rgba(30, 58, 138, 0.3);
+    --est: #fbbf24;
+    --est-soft: rgba(120, 53, 15, 0.4);
   }
 }
 

@@ -235,7 +235,7 @@ function IndicesSection({ indices }: { indices: Record<string, unknown> }) {
 
 /** 오늘(KST) 날짜 문자열(YYYY-MM-DD)을 만든다. */
 function todayKstDateString(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
 function computeDaysAgo(dateKst: string): number | null {

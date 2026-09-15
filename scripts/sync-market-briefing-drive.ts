@@ -10,9 +10,16 @@
  *   tsx --conditions=react-server scripts/sync-market-briefing-drive.ts
  * (package.json의 sync:market-briefing-drive 스크립트가 이 플래그를 포함한다.)
  *
+ * 폴더 ID로 "'<id>' in parents" 필터링을 시도했으나, 서비스 계정이 폴더 안의
+ * 파일 자체는 볼 수 있어도(공유 전파 방식 때문으로 추정) 폴더 객체를 직접 ID로
+ * 참조하거나 그 폴더를 부모로 지정한 조회는 계속 404("File not found")가
+ * 나는 게 실제 Drive API 응답으로 확인됐다(2026-09-15 진단). 그래서 폴더
+ * 필터링 없이, 이 서비스 계정에게 공유된 파일 전체 중 최근 수정된 파일을
+ * 그대로 가져오는 방식으로 바꿨다 — 이 서비스 계정은 이 용도로만 새로 만든
+ * 전용 계정이라 다른 파일이 섞일 위험이 없다.
+ *
  * 필요 환경변수:
  *   GOOGLE_SERVICE_ACCOUNT_KEY  서비스 계정 JSON을 base64로 인코딩한 문자열
- *   GOOGLE_DRIVE_FOLDER_ID      브리핑 파일이 저장되는 Drive 폴더 ID
  *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
@@ -38,11 +45,6 @@ function getServiceAccountCredentials(): Record<string, unknown> {
 }
 
 async function main(): Promise<void> {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!folderId) {
-    throw new Error("GOOGLE_DRIVE_FOLDER_ID 환경변수가 설정되지 않았습니다.");
-  }
-
   const credentials = getServiceAccountCredentials();
   const auth = new google.auth.GoogleAuth({
     credentials,
@@ -51,21 +53,21 @@ async function main(): Promise<void> {
   });
   const drive = google.drive({ version: "v3", auth });
 
+  // 폴더를 부모로 지정한 필터링은 쓰지 않는다(위 주석 참고) — 이 서비스 계정에게
+  // 공유된 파일(폴더 제외) 전체 중 가장 최근 수정된 것 하나를 그대로 가져온다.
   const listRes = await drive.files.list({
-    q: `'${folderId}' in parents and trashed = false`,
+    q: "trashed = false and mimeType != 'application/vnd.google-apps.folder'",
     orderBy: "modifiedTime desc",
     pageSize: 1,
     fields: "files(id, name, mimeType, modifiedTime)",
-    // 서비스 계정이 소유하지 않고 공유만 받은 폴더(공유 드라이브 포함)를 조회할 때
-    // 이 플래그가 없으면 실제로 접근 권한이 있어도 Drive API가 "File not found"를
-    // 반환한다(잘 알려진 동작) — 개인 My Drive 대상일 때는 그냥 무시된다.
+    corpora: "allDrives",
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
 
   const files = listRes.data.files ?? [];
   if (files.length === 0) {
-    console.log("Drive 폴더에 파일이 없습니다 — 스킵");
+    console.log("서비스 계정에게 공유된 파일이 없습니다 — 스킵");
     return;
   }
 

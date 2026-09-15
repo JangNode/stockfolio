@@ -56,6 +56,11 @@ async function main(): Promise<void> {
     orderBy: "modifiedTime desc",
     pageSize: 1,
     fields: "files(id, name, mimeType, modifiedTime)",
+    // 서비스 계정이 소유하지 않고 공유만 받은 폴더(공유 드라이브 포함)를 조회할 때
+    // 이 플래그가 없으면 실제로 접근 권한이 있어도 Drive API가 "File not found"를
+    // 반환한다(잘 알려진 동작) — 개인 My Drive 대상일 때는 그냥 무시된다.
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
 
   const files = listRes.data.files ?? [];
@@ -84,7 +89,10 @@ async function main(): Promise<void> {
     );
     rawContent = exportRes.data as string;
   } else {
-    const getRes = await drive.files.get({ fileId, alt: "media" }, { responseType: "text" });
+    const getRes = await drive.files.get(
+      { fileId, alt: "media", supportsAllDrives: true },
+      { responseType: "text" },
+    );
     rawContent = getRes.data as string;
   }
 

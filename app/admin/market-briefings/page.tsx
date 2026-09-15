@@ -29,14 +29,10 @@ export default function AdminMarketBriefingsPage() {
       return;
     }
 
-    const meta = (parsed as Record<string, unknown>).meta;
-    const dateKst =
-      typeof meta === "object" && meta !== null
-        ? (meta as Record<string, unknown>).date_kst
-        : undefined;
+    const reportDate = (parsed as Record<string, unknown>).report_date;
 
-    if (typeof dateKst !== "string" || dateKst.trim() === "") {
-      setValidationError("meta.date_kst가 없습니다.");
+    if (typeof reportDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+      setValidationError("report_date가 올바른 형식(YYYY-MM-DD)이 아닙니다.");
       return;
     }
 
@@ -90,14 +86,14 @@ export default function AdminMarketBriefingsPage() {
             <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
               <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
                 Cowork 브리핑 JSON을 붙여넣고 저장하면 웹훅으로 받은 것과
-                동일하게 저장됩니다. 같은 날짜(meta.date_kst)가 이미 있으면
+                동일하게 저장됩니다. 같은 날짜(report_date)가 이미 있으면
                 덮어씁니다.
               </p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={16}
-                placeholder='{ "meta": { "date_kst": "2026-09-14", ... }, ... }'
+                placeholder='{ "report_date": "2026-09-14", ... }'
                 className="w-full rounded-lg border border-black/[.08] bg-transparent p-3 font-mono text-xs text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30"
               />
 

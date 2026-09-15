@@ -107,18 +107,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  const meta =
-    typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>).meta
-      : undefined;
   const dateKst =
-    typeof meta === "object" && meta !== null
-      ? (meta as Record<string, unknown>).date_kst
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>).report_date
       : undefined;
 
   if (typeof dateKst !== "string" || !DATE_KST_PATTERN.test(dateKst)) {
     console.error(
-      `meta.date_kst가 올바른 형식(YYYY-MM-DD)이 아닙니다: ${fileName} (id=${fileId}), 값=${String(dateKst)}`,
+      `report_date가 올바른 형식(YYYY-MM-DD)이 아닙니다: ${fileName} (id=${fileId}), 값=${String(dateKst)}`,
     );
     process.exit(1);
     return;

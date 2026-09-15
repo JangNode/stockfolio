@@ -1,11 +1,13 @@
 name: Sync Market Briefing from Drive
 
 on:
-  schedule:
-    # 매일 한국시간(KST, UTC+9) 오전 7시 30분 = UTC 22시 30분. "증시근황" 섹션에
-    # 표시만 되는 데이터라 몇 시간 밀려도 실피해가 없어 pg_cron 대신 GitHub Actions
-    # 네이티브 schedule 트리거를 쓴다(SKILLS.md 배치 스케줄링 방식 선택 기준).
-    - cron: "30 22 * * *"
+  # 매일 한국시간(KST, UTC+9) 오전 7시 30분 = UTC 22시 30분. Cowork가 브리핑을 만드는
+  # 시점과 최대한 가깝게 정시에 가져오고 싶어, GitHub Actions 네이티브 schedule(부하 시
+  # 몇 시간씩 지연될 수 있음 — 처음엔 표시용 데이터라 이 지연을 감수하고 썼었다) 대신
+  # Supabase pg_cron이 이 워크플로의 workflow_dispatch를 직접 호출하는 방식으로 바꿨다
+  # (kr/us 스크리닝·중앙은행 뉴스와 동일 패턴, supabase/migrations의
+  # 20260915225658_add_market_briefing_dispatch_cron.sql 참고). 그래서 이 워크플로엔
+  # 더 이상 schedule 트리거가 없다.
   workflow_dispatch: {}
 
 jobs:

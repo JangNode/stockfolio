@@ -47,7 +47,7 @@ export default function NavBar() {
       </nav>
 
       {!MARKET_TOGGLE_HIDDEN_PATHS.includes(pathname) && (
-        <div className="ml-auto flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
+        <div className="ml-auto flex gap-1 rounded-full border border-border p-0.5">
           {MARKET_TABS.map((m) => (
             <button
               key={m}

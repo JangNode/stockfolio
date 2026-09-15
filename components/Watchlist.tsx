@@ -161,7 +161,7 @@ export default function Watchlist({ user }: { user: User }) {
 
   return (
     <div className="w-full max-w-5xl">
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-card border border-border bg-surface p-4">
         <div className="relative flex flex-1 flex-col gap-1">
           <label className="text-xs text-zinc-500 dark:text-zinc-400">
             종목코드 또는 종목명
@@ -178,7 +178,7 @@ export default function Watchlist({ user }: { user: User }) {
             }}
             placeholder={market === "KR" ? "005930 또는 삼성전자" : "AAPL 또는 Apple"}
             autoComplete="off"
-            className="h-10 w-full min-w-[12rem] rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30"
+            className="h-10 w-full min-w-[12rem] rounded-card border border-border bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:text-zinc-50 dark:focus:border-white/30"
           />
 
           {suggestions.length > 0 && (

@@ -6,27 +6,25 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 // 피하고 1년치만 유지한다.
 const RETENTION_DAYS = 365;
 
+/** report_date(YYYY-MM-DD) 형식 검증용. */
+const DATE_KST_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
- * rawJson이 object이고 meta.date_kst가 비어있지 않은 문자열인지 확인해 그 값을
- * 돌려준다. 웹훅 라우트와 관리자 라우트 양쪽에서 호출하므로, 호출부에서 이미
- * 한 번 검증했더라도 여기서 다시 한번 방어적으로 확인한다.
+ * rawJson이 object이고 최상위 report_date가 YYYY-MM-DD 형식의 문자열인지
+ * 확인해 그 값을 돌려준다. 웹훅 라우트와 관리자 라우트 양쪽에서 호출하므로,
+ * 호출부에서 이미 한 번 검증했더라도 여기서 다시 한번 방어적으로 확인한다.
  */
 function extractDateKst(rawJson: unknown): string {
   if (typeof rawJson !== "object" || rawJson === null) {
     throw new Error("브리핑 데이터가 올바른 JSON 객체가 아닙니다.");
   }
 
-  const meta = (rawJson as Record<string, unknown>).meta;
-  if (typeof meta !== "object" || meta === null) {
-    throw new Error("meta.date_kst가 없습니다.");
+  const reportDate = (rawJson as Record<string, unknown>).report_date;
+  if (typeof reportDate !== "string" || !DATE_KST_PATTERN.test(reportDate)) {
+    throw new Error("report_date가 올바른 형식(YYYY-MM-DD)이 아닙니다.");
   }
 
-  const dateKst = (meta as Record<string, unknown>).date_kst;
-  if (typeof dateKst !== "string" || dateKst.trim() === "") {
-    throw new Error("meta.date_kst가 없습니다.");
-  }
-
-  return dateKst;
+  return reportDate;
 }
 
 /** 하루 1건만 유지하면 되므로 date_kst 기준으로 upsert한다(같은 날 재전송 시

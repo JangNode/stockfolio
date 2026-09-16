@@ -1,7 +1,7 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "지난 재생성(9/14, #292) 이후 커밋 이력을 확인한 결과, 변경은 \"Cowork 시장 브리핑\" 표시 기능 추가/웹훅→Google Drive 폴링 전환(#293~296)뿐이었고, 공격형이 참조하는 ma_cross/minervini_trend_template/peg_lynch의 매칭 로직이나 스코어링에는 영향이 없었습니다. 새로운 실측 근거가 없어 조건을 바꿀 이유가 없습니다. source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
-  "generated_at": "2026-09-15T05:11:58Z",
+  "rationale": "지난 재생성(9/15, #297) 이후 커밋 이력을 확인한 결과, 변경은 시장 브리핑 UI/배치 작업(#300~305)과 상장폐지 종목 생존편향 실측 진단(#306~307)뿐이었습니다. 후자는 peg_lynch가 쓰는 스크리닝 유니버스가 KIS 종목마스터 기반이라 상장폐지 종목을 구조적으로 배제한다는 기존에 알려진 한계를 재확인한 것으로, 조건 자체는 변경되지 않았습니다(순수 진단, 로직 변경 없음). 공격형이 참조하는 ma_cross/minervini_trend_template/peg_lynch의 매칭 로직이나 스코어링에는 실질적 영향이 없어 조건을 바꿀 근거가 없습니다. source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
+  "generated_at": "2026-09-16T05:11:19Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "peg_lynch"],
     "min_signal_return_pct": -2,

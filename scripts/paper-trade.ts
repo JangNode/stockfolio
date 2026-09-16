@@ -227,8 +227,8 @@ async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> 
       exchange: (r.exchange as string | null) ?? null,
     }));
 
-  // dh_value_dividend/peg_lynch/reversal_breakout처럼 계정마다 한 행씩 시딩되는
-  // rule_type(20260828030000_seed_dh_value_dividend_strategy.sql류 패턴)은 같은 종목이
+  // peg_lynch/reversal_breakout처럼 계정마다 한 행씩 시딩되는
+  // rule_type(20260828040000_seed_peg_lynch_strategy.sql류 패턴)은 같은 종목이
   // strategy_id(=계정)만 다른 채로 screening_results에 여러 번 찍힌다. 이 함수 이후
   // 단계(selectBuyCandidates)는 후보를 종목 단위로 다루므로, 같은 종목을 중복으로
   // 넘기면 종목당 포지션을 한 번만 열 수 있는 paper_positions unique 제약과 충돌해

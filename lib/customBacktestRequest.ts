@@ -13,7 +13,7 @@ function fundamentalCondition(min: number, max: number) {
 }
 
 // 값 범위는 화면 오입력을 거르는 정도의 넉넉한 상한/하한이다(기준값 자체를 여기서
-// 강제하지 않는다 — DH전략/PEG전략처럼 고정 상수가 아니라 사용자가 직접 입력하는
+// 강제하지 않는다 — PEG전략처럼 고정 상수가 아니라 사용자가 직접 입력하는
 // 값이라서다).
 export const CustomFundamentalConditionsSchema = z
   .object({

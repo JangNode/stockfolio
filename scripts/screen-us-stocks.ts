@@ -126,7 +126,7 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
       const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
       target = Math.max(target, maxPeriod + 20);
     }
-    // dh_value_dividend는 DART/KRX 기반이라 KR 전용이다 — 이 스크립트는 market="US"
+    // peg_lynch는 DART/KRX 기반이라 KR 전용이다 — 이 스크립트는 market="US"
     // 전략만 조회하므로 실제로는 등장하지 않지만, 타입 완전성을 위해 대상에서 제외한다.
   }
 

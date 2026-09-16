@@ -17,19 +17,19 @@ import { PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 export type { PaperStyle };
 export const PAPER_STYLES = PAPER_STYLE_ORDER;
 
-// 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/dh_value_dividend/
-// peg_lynch/reversal_breakout)이 만들어내는 rule_type과 동일한 값. 새 원 전략이
-// 추가되면 여기도 같이 늘어난다. custom_composite는 실험실에서 채택한 커스텀 전략이
-// 스크리닝 신호원이 될 때 쓴다(채택 플로우 작업에서 실제로 값이 채워지기 시작한다).
-// dh_value_dividend/peg_lynch를 실제로 참조하는 paper-strategies JSON을 만들지는 이
-// 저장소 밖의 별도 Routine(매일 도는 전략 생성 세션)이 판단한다 — 여기서는 참조를
-// "허용"만 해둔다. reversal_breakout은 'surge_stock' 스타일의 entry_conditions가
-// 참조한다(마이그레이션이 직접 시딩).
+// 원 스크리닝 전략(ma_cross/minervini_trend_template/custom_composite/peg_lynch/
+// reversal_breakout)이 만들어내는 rule_type과 동일한 값. 새 원 전략이 추가되면
+// 여기도 같이 늘어난다(dh_value_dividend는 신뢰할 수 없는 전략으로 판단해 2026-09-16
+// 완전히 제거됐다 — 더 이상 유효한 값이 아니다). custom_composite는 실험실에서
+// 채택한 커스텀 전략이 스크리닝 신호원이 될 때 쓴다(채택 플로우 작업에서 실제로
+// 값이 채워지기 시작한다). peg_lynch를 실제로 참조하는 paper-strategies JSON을
+// 만들지는 이 저장소 밖의 별도 Routine(매일 도는 전략 생성 세션)이 판단한다 —
+// 여기서는 참조를 "허용"만 해둔다. reversal_breakout은 'surge_stock' 스타일의
+// entry_conditions가 참조한다(마이그레이션이 직접 시딩).
 const SOURCE_RULE_TYPES = [
   "ma_cross",
   "minervini_trend_template",
   "custom_composite",
-  "dh_value_dividend",
   "peg_lynch",
   "reversal_breakout",
 ] as const;

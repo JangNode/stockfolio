@@ -162,7 +162,12 @@ function MatchedStockTrades({ trades, market }: { trades: BacktestTrade[]; marke
             <tr key={i} className="border-t border-black/[.08] dark:border-white/[.145]">
               <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.buyDate}</td>
               <td className="py-2 pr-4 text-black dark:text-zinc-50">{formatPrice(trade.buyPrice, market)}</td>
-              <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.sellDate}</td>
+              <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                {trade.sellDate}
+                {trade.isForcedLiquidation && (
+                  <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">(미청산)</span>
+                )}
+              </td>
               <td className="py-2 pr-4 text-black dark:text-zinc-50">{formatPrice(trade.sellPrice, market)}</td>
               <td className={`py-2 ${statColorClass(trade.returnPct)}`}>{(trade.returnPct * 100).toFixed(2)}%</td>
             </tr>
@@ -210,6 +215,11 @@ function RunResultPanel({
     );
   }
 
+  const forcedLiquidationCount = result.matchedStocks.reduce(
+    (sum, stock) => sum + stock.trades.filter((t) => t.isForcedLiquidation).length,
+    0
+  );
+
   return (
     <>
       <dl className="grid grid-cols-2 gap-3 border-b border-black/[.08] pb-4 text-sm sm:grid-cols-5 dark:border-white/[.145]">
@@ -240,6 +250,13 @@ function RunResultPanel({
           <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{run.trade_count ?? 0}건</dd>
         </div>
       </dl>
+
+      {forcedLiquidationCount > 0 && (
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          총 거래 {run.trade_count ?? 0}건 중 {forcedLiquidationCount}건은 기간 끝까지 매도 신호가 없어
+          마지막 종가로 강제 청산 처리한 미실현 거래입니다(종목별 내역의 &ldquo;미청산&rdquo; 표시).
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 border-b border-black/[.08] py-4 dark:border-white/[.145]">
         {run.adopted_at ? (

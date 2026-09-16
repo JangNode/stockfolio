@@ -336,6 +336,13 @@ export default function Backtest({ user }: { user: User }) {
                 </div>
               </dl>
 
+              {result.forcedLiquidationCount > 0 && (
+                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  이 중 {result.forcedLiquidationCount}건은 기간 끝까지 매도 신호가 없어 마지막 종가로
+                  강제 청산 처리한 미실현 거래입니다(아래 표의 &ldquo;미청산&rdquo; 표시).
+                </p>
+              )}
+
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -354,7 +361,12 @@ export default function Backtest({ user }: { user: User }) {
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
                           {formatPrice(trade.buyPrice, market)}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.sellDate}</td>
+                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                          {trade.sellDate}
+                          {trade.isForcedLiquidation && (
+                            <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">(미청산)</span>
+                          )}
+                        </td>
                         <td className="py-2 pr-4 text-black dark:text-zinc-50">
                           {formatPrice(trade.sellPrice, market)}
                         </td>

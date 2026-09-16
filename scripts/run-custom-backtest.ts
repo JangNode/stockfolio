@@ -456,6 +456,12 @@ async function main(): Promise<void> {
       storagePath,
     });
 
+    if (aggregate.forcedLiquidationCount > 0) {
+      console.log(
+        `  ㄴ 이 중 ${aggregate.forcedLiquidationCount}건은 기간 끝까지 매도 신호가 없어 마지막 종가로 강제 청산 처리(미실현).`
+      );
+    }
+
     const kisStats = getKisCallStats();
     console.log(
       `커스텀 백테스트 배치 종료: 매칭 ${matchedStocks.length}개 종목, 거래 ${aggregate.tradeCount}건, ` +

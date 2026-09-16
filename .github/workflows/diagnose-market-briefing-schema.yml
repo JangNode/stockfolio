@@ -1,0 +1,29 @@
+name: Diagnose Market Briefing Schema (temporary)
+
+# 날짜/시각 표기 정리 작업 조사용 디스포저블 워크플로. 읽기 전용 스크립트만
+# 실행한다(scripts/diagnose-market-briefing-schema.ts). 확인 후 삭제 예정.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run diagnostic script
+        run: npm run diagnose:market-briefing-schema
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

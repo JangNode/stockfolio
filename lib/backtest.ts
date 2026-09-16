@@ -607,6 +607,9 @@ export interface BacktestTrade {
   sellDate: string;
   sellPrice: number;
   returnPct: number;
+  /** 기간 끝까지 매도 신호가 뜨지 않아 마지막 봉 종가로 강제 청산한 거래면 true.
+   * 미실현 손익을 실현 손익처럼 취급한 값이라는 뜻이므로, 결과를 보여줄 땐 구분 표시한다. */
+  isForcedLiquidation?: boolean;
 }
 
 export interface BacktestResult {
@@ -615,6 +618,7 @@ export interface BacktestResult {
   tradeCount: number;
   winRate: number;
   mddPct: number;
+  forcedLiquidationCount: number;
   insufficientData: boolean;
 }
 
@@ -646,6 +650,8 @@ export interface TradeAggregate {
   tradeCount: number;
   winRate: number;
   mddPct: number;
+  /** trades 중 isForcedLiquidation(기간 끝 강제 청산)인 거래 수. */
+  forcedLiquidationCount: number;
 }
 
 /**
@@ -660,8 +666,9 @@ export function aggregateTrades(trades: BacktestTrade[]): TradeAggregate {
   const sorted = [...trades].sort((a, b) => a.buyDate.localeCompare(b.buyDate));
   const totalReturnPct = (sorted.reduce((acc, t) => acc * (1 + t.returnPct), 1) - 1) * 100;
   const mddPct = computeMaxDrawdownPct(trades);
+  const forcedLiquidationCount = trades.filter((t) => t.isForcedLiquidation).length;
 
-  return { totalReturnPct, tradeCount, winRate, mddPct };
+  return { totalReturnPct, tradeCount, winRate, mddPct, forcedLiquidationCount };
 }
 
 /**
@@ -669,8 +676,13 @@ export function aggregateTrades(trades: BacktestTrade[]): TradeAggregate {
  * 단일 포지션 시뮬레이션. ma_cross는 골든/데드크로스, minervini_trend_template은 7개
  * 조건을 모두 만족/이탈하는 시점이 각각 매수/매도 신호가 된다. 이평선 등은 prices 전체로
  * 계산해 windowStartDate 시점에 이미 안정된 값을 쓰고, windowStartDate 이후에 발생한
- * 신호만 매매에 반영한다. 기간 끝에 매도 신호 없이 포지션이 열려 있으면(미청산) 그
- * 거래는 통계에서 제외한다.
+ * 신호만 매매에 반영한다. 기간 끝에 매도 신호 없이 포지션이 열려 있으면(미청산) 마지막
+ * 봉 종가로 강제 청산해 통계에 포함시킨다(isForcedLiquidation: true로 표시 — 미실현
+ * 손익을 실현 손익처럼 취급했다는 뜻이므로, 결과를 보여줄 땐 이 표시로 구분해야 한다).
+ * 완전히 제외하면 정보 손실이 더 크고(표본이 계속 줄고, 어느 방향으로 왜곡됐는지도 알
+ * 수 없다), 특히 dh_value_dividend/peg_lynch처럼 상태가 최대 보유기간 없이 몇 년이고
+ * 유지될 수 있는 전략에서는 가장 최근 진입한(어쩌면 가장 중요한) 거래가 통째로
+ * 사라지는 문제가 있었다.
  */
 export function runBacktest(
   prices: DailyPrice[],
@@ -682,7 +694,15 @@ export function runBacktest(
   const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
 
   if (states.every((s) => s === undefined)) {
-    return { trades: [], totalReturnPct: 0, tradeCount: 0, winRate: 0, mddPct: 0, insufficientData: true };
+    return {
+      trades: [],
+      totalReturnPct: 0,
+      tradeCount: 0,
+      winRate: 0,
+      mddPct: 0,
+      forcedLiquidationCount: 0,
+      insufficientData: true,
+    };
   }
 
   const signals = detectStateTransitions(prices, states).filter((s) => s.date >= windowStartDate);
@@ -704,6 +724,18 @@ export function runBacktest(
       });
       openBuy = null;
     }
+  }
+
+  if (openBuy) {
+    const lastBar = prices[prices.length - 1];
+    trades.push({
+      buyDate: openBuy.date,
+      buyPrice: openBuy.price,
+      sellDate: lastBar.date,
+      sellPrice: lastBar.close,
+      returnPct: (lastBar.close - openBuy.price) / openBuy.price,
+      isForcedLiquidation: true,
+    });
   }
 
   return { trades, ...aggregateTrades(trades), insufficientData: false };

@@ -6,7 +6,6 @@ import {
   type FundamentalsSeries,
   type StockDividendPayment,
 } from "@/lib/pointInTimeFundamentals";
-import { DH_MIN_MARKET_CAP_EOK, DH_MAX_PER, DH_MAX_PBR, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS } from "@/lib/dhStrategyConfig";
 import {
   selectEpsCagrFiscalYears,
   computeEpsCagrFromResolvedShares,
@@ -21,7 +20,7 @@ import { REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO } from "@/lib/reversalBreakoutCo
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
 // /api/stock/[code]/history가 내려주는 JSON 응답과 동일한 모양이다. marketCapEok/
 // listedShares는 KIS 일봉엔 없는 값이라 선택 필드다 — lib/stockDailyPricesStorage.ts
-// 기반으로 구성한 시리즈(dh_value_dividend 등)에만 채워진다. 이 파일이 클라이언트
+// 기반으로 구성한 시리즈(peg_lynch 등)에만 채워진다. 이 파일이 클라이언트
 // 컴포넌트(components/Backtest.tsx)에서도 쓰이기 때문에 lib/pointInTimeFundamentals.ts
 // (server-only 아님, 순수 함수만)에서만 값을 import한다 — lib/stockFundamentals.ts를
 // 직접 import하면 그 파일의 "server-only" 표시 때문에 클라이언트 번들 빌드가 깨진다.
@@ -95,26 +94,15 @@ export interface CustomCompositeParams {
   take_profit_pct?: number;
 }
 
-/**
- * DH전략(대형 배당·가치주). 기준값(시가총액/PER/PBR/배당 연속연수)은 lib/dhStrategyConfig.ts
- * 상수로 고정돼 있어 rule_params엔 다른 전략과 공통인 손절/익절만 남는다 — 종목마다
- * 다른 이동평균 기간 같은 개인화 여지가 없는 전략이라, ma_cross/minervini처럼
- * rule_params에 기준값을 담을 이유가 없다(기준값을 바꾸고 싶으면 상수만 고치면
- * 전체 계정 공통으로 적용된다).
- */
-export interface DhValueDividendParams {
-  stop_loss_pct?: number;
-  take_profit_pct?: number;
-}
-
-/** 피터린치 PEG전략. DH전략과 같은 이유로 기준값(PEG_MAX_RATIO, lib/pegConfig.ts)을
- * rule_params가 아니라 상수로 고정한다. */
+/** 피터린치 PEG전략. 기준값(PEG_MAX_RATIO, lib/pegConfig.ts)을 rule_params가 아니라
+ * 상수로 고정한다 — 종목마다 다른 이동평균 기간 같은 개인화 여지가 없는 전략이라,
+ * ma_cross/minervini처럼 rule_params에 기준값을 담을 이유가 없다. */
 export interface PegLynchParams {
   stop_loss_pct?: number;
   take_profit_pct?: number;
 }
 
-/** "급등주 찾기"(역배열 반등) 전략. DH전략/PEG전략과 같은 이유로 기준값(이동평균
+/** "급등주 찾기"(역배열 반등) 전략. PEG전략과 같은 이유로 기준값(이동평균
  * 기간, 역배열/매집봉/전환 신호 임계값)을 rule_params가 아니라 lib/reversalBreakoutConfig.ts
  * 상수로 고정한다. */
 export interface ReversalBreakoutParams {
@@ -127,7 +115,6 @@ export type StrategyRule =
   | { rule_type: "ma_cross"; rule_params: MaCrossParams }
   | { rule_type: "minervini_trend_template"; rule_params: MinerviniParams }
   | { rule_type: "custom_composite"; rule_params: CustomCompositeParams }
-  | { rule_type: "dh_value_dividend"; rule_params: DhValueDividendParams }
   | { rule_type: "peg_lynch"; rule_params: PegLynchParams }
   | { rule_type: "reversal_breakout"; rule_params: ReversalBreakoutParams }
   // v1(reversal_breakout)과 나란히 비교하기 위한 실험 전략. 역배열비율 임계값만
@@ -386,8 +373,7 @@ function computeCustomFundamentalStates(
  * 재평가해 모두 만족하면 참인 상태 조건. 지정되지 않은 조건은 판정에서 제외된다.
  * 조건이 하나도 지정되지 않으면 항상 undefined(데이터 부족과 동일하게 취급 — 매칭
  * 없음). fundamentals/listedSharesByFiscalYear는 rule_params.fundamentals가 지정된
- * 경우에만 쓰인다(dh_value_dividend/peg_lynch와 동일한 인자 — 호출부가 한 번만 로드해
- * 넘긴다).
+ * 경우에만 쓰인다(peg_lynch와 동일한 인자 — 호출부가 한 번만 로드해 넘긴다).
  */
 function computeCustomCompositeStates(
   prices: DailyPrice[],
@@ -478,44 +464,13 @@ export function evaluateConsecutiveDividendYears(
 }
 
 /**
- * DH전략: 매일 재평가되는 상태 조건. 시가총액/PER/PBR/배당 연속연수 기준을 전부
- * lib/dhStrategyConfig.ts 상수에서 읽는다(값 자체는 나중에 그 파일만 고치면 조정된다).
- * fundamentals가 없으면(호출부가 안 넘겼으면) 전부 undefined(판정 불가)로 취급한다.
- * marketCapEok/listedShares가 없는 날(KIS 기반 시리즈를 잘못 넘긴 경우 등)도 마찬가지다.
- * 조건 미달은 명확히 false로 반환한다(undefined는 "그 시점까지 공시된 재무가 아예
- * 없다"처럼 진짜 판정 불가 상황에만 쓴다) — false/undefined를 섞어 쓰면
- * detectStateTransitions가 데이터 공백을 매도 신호로 착각하지 않는다.
- */
-function computeDhValueDividendStates(
-  prices: DailyPrice[],
-  fundamentals: FundamentalsSeries | undefined
-): (boolean | undefined)[] {
-  if (!fundamentals) return prices.map(() => undefined);
-
-  return prices.map((p) => {
-    if (p.marketCapEok === undefined || p.listedShares === undefined) return undefined;
-    if (p.marketCapEok < DH_MIN_MARKET_CAP_EOK) return false;
-
-    const fund = pickFundamentalsAsOf(fundamentals, p.date);
-    if (!fund) return undefined; // 그 시점까지 공시된 재무 없음(신규상장 직후 등)
-
-    const { per, pbr } = computeValuationFromSeries(p.close, p.listedShares, fund);
-    if (per === null || per <= 0 || per > DH_MAX_PER) return false;
-    if (pbr === null || pbr <= 0 || pbr > DH_MAX_PBR) return false;
-
-    const dividends = pickDividendsPaidAsOf(fundamentals, p.date);
-    return evaluateConsecutiveDividendYears(dividends, p.date, DH_MIN_CONSECUTIVE_DIVIDEND_YEARS).consecutiveOk;
-  });
-}
-
-/**
  * 피터린치 PEG전략: 매일 재평가되는 상태 조건. 적자기업은 제외하고(당기순이익 > 0),
  * PEG(=PER÷최근 5년 EPS CAGR)가 PEG_MAX_RATIO(lib/pegConfig.ts) 이하면 참. fundamentals/
  * listedSharesByFiscalYear 중 하나라도 없으면(호출부가 안 넘겼으면) 전부 undefined.
  * "그 시점까지 공시된 재무가 아예 없음"/"5년 전 연도 데이터가 없어 성장률 계산
  * 불가"(상장 초기 등)는 undefined(판정 불가), "적자"/"역성장·PER 계산 불가로 PEG를
- * 못 구함"/"PEG가 기준 초과"는 false(조건 미달)로 구분한다 — DH전략과 같은 이유
- * (computeDhValueDividendStates 코멘트 참고).
+ * 못 구함"/"PEG가 기준 초과"는 false(조건 미달)로 구분한다 — false/undefined를 섞어
+ * 쓰면 detectStateTransitions가 데이터 공백을 매도 신호로 착각하지 않는다.
  */
 function computePegLynchStates(
   prices: DailyPrice[],
@@ -555,7 +510,6 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
   ma_cross: "event",
   minervini_trend_template: "state",
   custom_composite: "state",
-  dh_value_dividend: "state",
   peg_lynch: "state",
   reversal_breakout: "state",
   reversal_breakout_v2: "state",
@@ -569,7 +523,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 4) 아래 computeStates와 computeEntryPlan의 switch에 case 추가.
  * 그 외 matchesToday/runBacktest는 전략 종류와 무관하게 그대로 동작한다.
  *
- * fundamentals는 재무/배당 조건이 필요한 전략(dh_value_dividend, peg_lynch, rule_params에
+ * fundamentals는 재무/배당 조건이 필요한 전략(peg_lynch, rule_params에
  * fundamentals가 지정된 custom_composite)만 쓴다 — 순수 가격 기반 전략은 무시한다.
  * 호출부가 lib/stockFundamentals.ts의 loadFundamentalsSeries로 한 번만 로드해 넘기면,
  * pickFundamentalsAsOf/pickDividendsPaidAsOf로 날짜별 point-in-time 판정을 DB 호출
@@ -590,8 +544,6 @@ function computeStates(
       return computeMaCrossStates(prices, rule.rule_params);
     case "custom_composite":
       return computeCustomCompositeStates(prices, rule.rule_params, fundamentals, listedSharesByFiscalYear);
-    case "dh_value_dividend":
-      return computeDhValueDividendStates(prices, fundamentals);
     case "peg_lynch":
       return computePegLynchStates(prices, fundamentals, listedSharesByFiscalYear);
     case "reversal_breakout":
@@ -680,9 +632,8 @@ export function aggregateTrades(trades: BacktestTrade[]): TradeAggregate {
  * 봉 종가로 강제 청산해 통계에 포함시킨다(isForcedLiquidation: true로 표시 — 미실현
  * 손익을 실현 손익처럼 취급했다는 뜻이므로, 결과를 보여줄 땐 이 표시로 구분해야 한다).
  * 완전히 제외하면 정보 손실이 더 크고(표본이 계속 줄고, 어느 방향으로 왜곡됐는지도 알
- * 수 없다), 특히 dh_value_dividend/peg_lynch처럼 상태가 최대 보유기간 없이 몇 년이고
- * 유지될 수 있는 전략에서는 가장 최근 진입한(어쩌면 가장 중요한) 거래가 통째로
- * 사라지는 문제가 있었다.
+ * 수 없다), 특히 peg_lynch처럼 상태가 최대 보유기간 없이 몇 년이고 유지될 수 있는
+ * 전략에서는 가장 최근 진입한(어쩌면 가장 중요한) 거래가 통째로 사라지는 문제가 있었다.
  */
 export function runBacktest(
   prices: DailyPrice[],
@@ -806,17 +757,8 @@ function computeCustomCompositeEntryPrice(prices: DailyPrice[]): number {
   return Math.max(...prices.slice(-ENTRY_BREAKOUT_LOOKBACK_BARS).map((p) => p.high));
 }
 
-/**
- * dh_value_dividend: 가치·배당주 전략이라 돌파 개념이 안 맞는다(추세추종이 아니라
- * "저평가·고배당 상태"를 사는 전략). ma_cross처럼 신호 당일 종가를 그대로 진입가로
- * 쓴다.
- */
-function computeDhValueDividendEntryPrice(prices: DailyPrice[]): number {
-  return prices[prices.length - 1].close;
-}
-
-/** peg_lynch도 dh_value_dividend와 같은 이유(가치주 전략, 돌파 개념 없음)로 신호 당일
- * 종가를 그대로 진입가로 쓴다. */
+/** peg_lynch: 가치·성장주 전략이라 돌파 개념이 안 맞는다(추세추종이 아니라 "저평가
+ * 상태"를 사는 전략). ma_cross처럼 신호 당일 종가를 그대로 진입가로 쓴다. */
 function computePegLynchEntryPrice(prices: DailyPrice[]): number {
   return prices[prices.length - 1].close;
 }
@@ -824,7 +766,7 @@ function computePegLynchEntryPrice(prices: DailyPrice[]): number {
 /**
  * reversal_breakout: minervini/custom_composite와 달리 신호 조건 자체(MA20 돌파 시점
  * 포함)가 곧 매수 시점이라 별도로 대기할 피봇가가 필요 없다. 신호일 종가를 그대로
- * 진입가로 쓴다(ma_cross/dh_value_dividend/peg_lynch와 같은 이유).
+ * 진입가로 쓴다(ma_cross/peg_lynch와 같은 이유).
  * reversal_breakout_v2도 진입가 계산은 임계값과 무관하므로 그대로 재사용한다.
  */
 function computeReversalBreakoutEntryPrice(prices: DailyPrice[]): number {
@@ -851,9 +793,6 @@ export function computeEntryPlan(prices: DailyPrice[], rule: StrategyRule): Entr
       break;
     case "custom_composite":
       entryPrice = computeCustomCompositeEntryPrice(prices);
-      break;
-    case "dh_value_dividend":
-      entryPrice = computeDhValueDividendEntryPrice(prices);
       break;
     case "peg_lynch":
       entryPrice = computePegLynchEntryPrice(prices);

@@ -263,8 +263,8 @@ export function buildReversalBreakoutSignalDetailsFromRaw(
 /**
  * 판단 근거 로그(screening_results.signal_details)에 남길 원시 계산값. 실제 매칭 판정
  * (computeReversalBreakoutStates)과 같은 계산 함수(computeInverseAlignmentRatio/
- * findAccumulationBar/computeBreakoutFreshness)를 그대로 재사용한다 — DH전략의
- * buildFundamentalSignalDetails(scripts/screen-all-stocks.ts)와 같은 패턴. 오늘(가장
+ * findAccumulationBar/computeBreakoutFreshness)를 그대로 재사용한다 — PEG전략의
+ * buildPegLynchSignalDetails(scripts/screen-all-stocks.ts)와 같은 패턴. 오늘(가장
  * 최근 봉) 기준으로만 계산한다. computeReversalBreakoutLatestRawSignal이 데이터
  * 부족(validDays===0)으로 undefined를 반환하는 경우는 이 함수를 실제로 호출하는 곳
  * (이미 오늘자 매칭이 확정된 종목만 넘김)에서는 발생하지 않지만, 방어적으로 예전과

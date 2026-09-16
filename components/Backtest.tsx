@@ -12,9 +12,9 @@ import type { FundamentalsSeries } from "@/lib/pointInTimeFundamentals";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
 
-// dh_value_dividend/peg_lynch는 KIS 일봉이 아니라 DH 가격 레이어+재무 이력을 쓰므로
+// peg_lynch는 KIS 일봉이 아니라 별도 가격 레이어+재무 이력을 쓰므로
 // /api/stock/[code]/fundamentals-backtest를 통해 별도로 데이터를 가져와야 한다.
-const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["dh_value_dividend", "peg_lynch"]);
+const FUNDAMENTAL_RULE_TYPES = new Set<StrategyRuleType>(["peg_lynch"]);
 
 const WINDOW_OPTIONS = [
   { months: 3, label: "3개월" },

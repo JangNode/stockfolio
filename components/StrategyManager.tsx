@@ -19,7 +19,6 @@ const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
   ma_cross: "이평선 골든/데드크로스",
   minervini_trend_template: "미너비니 트렌드 템플릿",
   custom_composite: "커스텀 조건 조합",
-  dh_value_dividend: "DH전략(대형 배당·가치주)",
   peg_lynch: "피터린치 PEG전략",
   reversal_breakout: "급등주 찾기(역배열 반등)",
   reversal_breakout_v2: "급등주 찾기 v2 (역배열 반등 - 강화)",
@@ -32,8 +31,6 @@ const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
     "마크 미너비니의 추세추종 전략입니다. 주가가 단기·중기·장기 이동평균선 위에 있고 이동평균선이 정배열(단기>중기>장기)을 이루며 장기 이동평균선이 상승 추세이고, 250거래일 신저가 대비 30% 이상 올랐으면서 250거래일 신고가에서 25% 이내인 등 7가지 조건을 모두 만족해야 신호로 인정합니다.",
   custom_composite:
     "실험실에서 직접 구성한 전략입니다. 지정한 조건(이동평균 교차, RSI, 거래량 급증 등)을 모두 동시에 만족해야 신호로 판단합니다.",
-  dh_value_dividend:
-    "대형 배당·가치주를 노리는 전략입니다. 시가총액이 충분히 크면서 PER/PBR이 낮고(저평가) 배당을 여러 해 연속으로 지급해온 종목을 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/dhStrategyConfig.ts)에서 관리되며 종목마다 다르게 지정할 수 없습니다.",
   peg_lynch:
     "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
   reversal_breakout:
@@ -59,7 +56,6 @@ function describeParams(strategy: StrategyRow): string {
     return parts.length > 0 ? parts.join(", ") : "조건 미지정";
   }
   if (
-    strategy.rule_type === "dh_value_dividend" ||
     strategy.rule_type === "peg_lynch" ||
     strategy.rule_type === "reversal_breakout" ||
     strategy.rule_type === "reversal_breakout_v2"

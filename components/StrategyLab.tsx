@@ -51,7 +51,7 @@ interface FundamentalFieldState {
 type FundamentalFieldsState = Record<FundamentalFieldKey, FundamentalFieldState>;
 
 // 값 자체는 사용자가 화면에서 바꿔가며 반복 실행하는 게 전제라 상수로 강제하지
-// 않는다 — 여기 기본값은 DH전략/PEG전략과 비슷한 감각의 "체크박스를 켰을 때 채워질
+// 않는다 — 여기 기본값은 PEG전략과 비슷한 감각의 "체크박스를 켰을 때 채워질
 // 초기값"일 뿐이다.
 const DEFAULT_FUNDAMENTAL_FIELDS: FundamentalFieldsState = {
   market_cap_eok: { enabled: false, comparator: "gte", value: 10000 },

@@ -1,0 +1,30 @@
+name: (임시) 상장폐지 종목 커버리지·생존편향 실측
+
+# 수동 실행 전용, 순수 조회(읽기 전용) — DB/Storage/외부 HTTP만 조회하고 아무것도
+# 쓰지 않는다. 급등주 찾기(reversal_breakout)/DH전략/PEG전략 백테스트 유니버스의
+# 생존편향 실측용(2026-09-16 팀장 승인). 확인 끝나면 정리 PR로 스크립트/워크플로 삭제.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose delisted stock coverage
+        run: npm run diagnose:delisted-stock-coverage
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -11,6 +11,7 @@ import {
   type Profile,
   type ProfileStatus,
 } from "@/lib/useSession";
+import { formatKstDateTime } from "@/lib/formatKst";
 
 const SECTIONS: { status: ProfileStatus; title: string; empty: string }[] = [
   {
@@ -32,10 +33,7 @@ const SECTIONS: { status: ProfileStatus; title: string; empty: string }[] = [
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return formatKstDateTime(value, { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default function AdminPage() {

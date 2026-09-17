@@ -9,6 +9,7 @@ import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 import { computeScreeningResultStats, type ScreeningResultStatRow } from "@/lib/screeningResultStats";
+import { toKstDateString, formatKstDate, formatKstDateTime } from "@/lib/formatKst";
 
 interface ScreeningResultRow {
   id: string;
@@ -61,28 +62,17 @@ const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; classN
 };
 
 function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatKstDateTime(iso, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 // 종료일 드롭다운의 값/표시용. KST 기준 달력 날짜로 묶어야 자정 근처 종료 건이
 // 엉뚱한 날짜로 갈리지 않는다.
 function closedDateKey(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+  return toKstDateString(iso);
 }
 
 function closedDateLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("ko-KR", {
-    timeZone: "Asia/Seoul",
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
+  return formatKstDate(iso, { month: "long", day: "numeric", weekday: "short" });
 }
 
 export default function Screening({ user }: { user: User }) {

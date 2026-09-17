@@ -407,6 +407,11 @@ export interface StockPrice {
   sharesOutstanding: number | null;
   week52High: number | null;
   week52Low: number | null;
+  // 기준시점(영업일자·체결시각) 필드는 이 API 응답에 없다 — 실측 확인 결과
+  // d250_hgpr_date/dryy_hgpr_date/w52_hgpr_date/w52_lwpr_date처럼 연중·52주
+  // 최고/최저의 날짜만 있고, stck_prpr 자체가 언제 기준인지는 알 수 없다
+  // (2026-09-17, #326 디스포저블 진단 스크립트로 확인 — lib/kis.ts의
+  // IndexQuote.asOfDate 주석과 같은 국내지수 케이스와 동일한 결론).
 }
 
 interface InquirePriceResponse extends KisResponse {
@@ -435,23 +440,6 @@ interface InquirePriceResponse extends KisResponse {
  * 안 보는 자동 실행이면 "batch"로 넘긴다 — 배치는 더 낮은 초당 한도로 묶여
  * 사용자 요청을 밀어내지 않는다.
  */
-// TEMP(scripts/diagnose-domestic-stock-price-fields.ts): output 원본 그대로 반환 —
-// 기준시점(영업일자·체결시각 등) 필드가 실제로 있는지 확인한 뒤 진단 스크립트와
-// 함께 제거 예정.
-export async function debugRawStockPrice(stockCode: string): Promise<unknown> {
-  const { appKey, appSecret } = getCredentials();
-  const accessToken = await getAccessToken();
-
-  const url = new URL(
-    "/uapi/domestic-stock/v1/quotations/inquire-price",
-    KIS_BASE_URL
-  );
-  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
-  url.searchParams.set("FID_INPUT_ISCD", stockCode);
-
-  return kisFetch(url, TR_ID_INQUIRE_PRICE, accessToken, appKey, appSecret, "user");
-}
-
 export async function getStockPrice(
   stockCode: string,
   priority: "user" | "batch" = "user"

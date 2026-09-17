@@ -828,6 +828,22 @@ interface InquireIndexPriceResponse extends KisResponse {
   };
 }
 
+// TEMP(scripts/diagnose-domestic-index-fields.ts): output 원본 그대로 반환 —
+// 기준시점(영업일자 등) 필드가 실제로 있는지 확인한 뒤 진단 스크립트와 함께 제거 예정.
+export async function debugRawDomesticIndex(code: string): Promise<unknown> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL(
+    "/uapi/domestic-stock/v1/quotations/inquire-index-price",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "U");
+  url.searchParams.set("FID_INPUT_ISCD", code);
+
+  return kisFetch(url, TR_ID_INQUIRE_INDEX_PRICE, accessToken, appKey, appSecret);
+}
+
 /** 코스피(0001)/코스닥(1001) 등 국내 업종지수 현재가를 조회한다. */
 async function getDomesticIndex(code: string, name: string): Promise<IndexQuote> {
   const { appKey, appSecret } = getCredentials();

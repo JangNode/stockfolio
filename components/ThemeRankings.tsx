@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { todayKstDateString as todayKstIsoDate } from "@/lib/formatKst";
 import type { ThemeCode } from "@/lib/themeConfig";
 import { THEME_CODES, THEME_CONSTITUENTS_RETENTION_YEARS } from "@/lib/themeConfig";
 import type { ThemePeriod } from "@/lib/themeReturns";
@@ -51,10 +52,6 @@ const PERIOD_OPTIONS: { value: ThemePeriod; label: string }[] = [
 // 매직넘버 분리 원칙에 따라 여기 상수로 둔다 — 이 화면에서만 쓰는 UI 축약 기준이라
 // lib/*Config.ts가 아니라 여기 둔다).
 const TOP_MOVERS_LIMIT = 10;
-
-function todayKstIsoDate(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
-}
 
 // 국내 시세 관례: 상승=빨강, 하락=파랑(components/Screening.tsx의 returnColor와 동일).
 function changeRateColorClass(value: number): string {

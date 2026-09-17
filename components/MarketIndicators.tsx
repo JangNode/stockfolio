@@ -150,9 +150,9 @@ function describeKrChange(prev: KrRatePoint | null, cur: KrRatePoint): RateChang
 }
 
 function changeLabelColorClass(label: string): string {
-  if (label === "인상") return "text-red-600 dark:text-red-400";
-  if (label === "인하") return "text-blue-600 dark:text-blue-400";
-  return "text-zinc-600 dark:text-zinc-400";
+  if (label === "인상") return "text-rise";
+  if (label === "인하") return "text-fall";
+  return "text-flat";
 }
 
 const RECENT_CHANGES_LIMIT = 10;
@@ -203,18 +203,18 @@ export default function MarketIndicators() {
   }, [data]);
 
   const selectClassName =
-    "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+    "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
   return (
     <div className="w-full max-w-4xl">
       <MarketBriefingSection />
 
-      <div className="mb-6 flex items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="mb-6 flex items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
+        <p className="text-sm text-ink-muted">
           미국(FOMC)·한국(금통위) 기준금리 추이와 다가오는 회의 일정입니다.
         </p>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">기간</label>
+          <label className="text-xs text-ink-muted">기간</label>
           <select
             value={years}
             onChange={(e) => setYears(Number(e.target.value) as (typeof PERIOD_OPTIONS)[number]["years"])}
@@ -230,15 +230,15 @@ export default function MarketIndicators() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+        <p className="text-sm text-ink-muted">불러오는 중...</p>
       ) : error || !data ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">시장 지표를 불러오지 못했습니다.</p>
       ) : (
         <>
-          <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-            <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">미국 기준금리(FOMC 목표 범위)</p>
+          <div className="mb-6 rounded-card border border-border bg-surface p-4">
+            <p className="mb-3 text-sm font-medium text-ink">미국 기준금리(FOMC 목표 범위)</p>
             {usWindowed.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">데이터가 없습니다.</p>
+              <p className="text-sm text-ink-muted">데이터가 없습니다.</p>
             ) : (
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -286,10 +286,10 @@ export default function MarketIndicators() {
             )}
           </div>
 
-          <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-            <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">한국 기준금리(금통위)</p>
+          <div className="mb-6 rounded-card border border-border bg-surface p-4">
+            <p className="mb-3 text-sm font-medium text-ink">한국 기준금리(금통위)</p>
             {krWindowed.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">데이터가 없습니다.</p>
+              <p className="text-sm text-ink-muted">데이터가 없습니다.</p>
             ) : (
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -316,10 +316,10 @@ export default function MarketIndicators() {
             )}
           </div>
 
-          <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-            <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">다가오는 일정</p>
+          <div className="mb-6 rounded-card border border-border bg-surface p-4">
+            <p className="mb-3 text-sm font-medium text-ink">다가오는 일정</p>
             {data.upcoming.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">예정된 일정이 없습니다.</p>
+              <p className="text-sm text-ink-muted">예정된 일정이 없습니다.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {data.upcoming.map((m) => {
@@ -327,19 +327,19 @@ export default function MarketIndicators() {
                   return (
                     <li
                       key={`${m.market}-${m.date}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145]"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm"
                     >
                       {schedule ? (
                         <div className="flex flex-col gap-1">
-                          <span className="text-black dark:text-zinc-50">{schedule.et}</span>
+                          <span className="tabular-nums text-ink">{schedule.et}</span>
                           <span className="inline-flex w-fit items-center rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-ink-muted dark:bg-white/[.08]">
                             {schedule.kst}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-black dark:text-zinc-50">{m.date}</span>
+                        <span className="tabular-nums text-ink">{m.date}</span>
                       )}
-                      <span className="text-zinc-500 dark:text-zinc-400">{MARKET_LABELS[m.market]}</span>
+                      <span className="text-ink-muted">{MARKET_LABELS[m.market]}</span>
                     </li>
                   );
                 })}
@@ -348,21 +348,21 @@ export default function MarketIndicators() {
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-              <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">미국 — 지난 회의 결과</p>
+            <div className="rounded-card border border-border bg-surface p-4">
+              <p className="mb-3 text-sm font-medium text-ink">미국 — 지난 회의 결과</p>
               {usRecentChanges.length === 0 ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">기록이 없습니다.</p>
+                <p className="text-sm text-ink-muted">기록이 없습니다.</p>
               ) : (
                 <ul className="flex flex-col gap-2 text-sm">
                   {usRecentChanges.map((row) => (
                     <li key={row.effectiveDate} className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-500 dark:text-zinc-400">{row.effectiveDate}</span>
+                      <span className="tabular-nums text-ink-muted">{row.effectiveDate}</span>
                       <span className="flex items-baseline gap-1.5">
                         <span className={changeLabelColorClass(row.label)}>
                           {row.label}
                           {row.deltaText && ` (${row.deltaText})`}
                         </span>
-                        <span className="font-medium text-black dark:text-zinc-50">{row.valueText}</span>
+                        <span className="font-medium tabular-nums text-ink">{row.valueText}</span>
                       </span>
                     </li>
                   ))}
@@ -370,21 +370,21 @@ export default function MarketIndicators() {
               )}
             </div>
 
-            <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-              <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">한국 — 지난 회의 결과</p>
+            <div className="rounded-card border border-border bg-surface p-4">
+              <p className="mb-3 text-sm font-medium text-ink">한국 — 지난 회의 결과</p>
               {krRecentChanges.length === 0 ? (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">기록이 없습니다.</p>
+                <p className="text-sm text-ink-muted">기록이 없습니다.</p>
               ) : (
                 <ul className="flex flex-col gap-2 text-sm">
                   {krRecentChanges.map((row) => (
                     <li key={row.effectiveDate} className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-500 dark:text-zinc-400">{row.effectiveDate}</span>
+                      <span className="tabular-nums text-ink-muted">{row.effectiveDate}</span>
                       <span className="flex items-baseline gap-1.5">
                         <span className={changeLabelColorClass(row.label)}>
                           {row.label}
                           {row.deltaText && ` (${row.deltaText})`}
                         </span>
-                        <span className="font-medium text-black dark:text-zinc-50">{row.valueText}</span>
+                        <span className="font-medium tabular-nums text-ink">{row.valueText}</span>
                       </span>
                     </li>
                   ))}
@@ -395,14 +395,14 @@ export default function MarketIndicators() {
         </>
       )}
 
-      <div className="mt-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">관련 뉴스</p>
+      <div className="mt-6 rounded-card border border-border bg-surface p-4">
+        <p className="mb-3 text-sm font-medium text-ink">관련 뉴스</p>
         {newsLoading ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+          <p className="text-sm text-ink-muted">불러오는 중...</p>
         ) : newsError || !newsData ? (
           <p className="text-sm text-blue-600 dark:text-blue-400">뉴스를 불러오지 못했습니다.</p>
         ) : newsData.news.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">표시할 뉴스가 없습니다.</p>
+          <p className="text-sm text-ink-muted">표시할 뉴스가 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {newsData.news.map((item) => (
@@ -411,14 +411,14 @@ export default function MarketIndicators() {
                   href={item.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-black hover:underline dark:text-zinc-50"
+                  className="text-ink hover:underline"
                 >
-                  <span className="mr-2 rounded bg-black/[.04] px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-white/[.08] dark:text-zinc-400">
+                  <span className="mr-2 rounded bg-black/[.04] px-1.5 py-0.5 text-xs text-ink-muted dark:bg-white/[.08]">
                     {NEWS_SOURCE_LABELS[item.source]}
                   </span>
                   {item.title}
                 </a>
-                <span className="shrink-0 whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="tabular-nums shrink-0 whitespace-nowrap text-xs text-ink-muted">
                   {formatNewsDateTime(item.publishedAt)}
                 </span>
               </li>

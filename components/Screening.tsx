@@ -10,6 +10,7 @@ import { useMarket } from "@/components/MarketContext";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 import { computeScreeningResultStats, type ScreeningResultStatRow } from "@/lib/screeningResultStats";
 import { toKstDateString, formatKstDate, formatKstDateTime } from "@/lib/formatKst";
+import { formatPercent } from "@/lib/formatNumber";
 
 interface ScreeningResultRow {
   id: string;
@@ -45,7 +46,7 @@ const COMPARISON_PERIOD_OPTIONS: { value: ComparisonPeriod; label: string }[] = 
 const COMPARISON_PERIOD_DAYS: Record<Exclude<ComparisonPeriod, "all">, number> = { "7d": 7, "30d": 30 };
 
 function formatPct(value: number | null): string {
-  return value === null ? "-" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  return value === null ? "-" : formatPercent(value);
 }
 
 type StatusTab = "active" | "closed";
@@ -56,9 +57,9 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
 ];
 
 const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; className: string }> = {
-  active: { label: "추적 중", className: "text-zinc-500 dark:text-zinc-400" },
-  stopped: { label: "손절", className: "text-blue-600 dark:text-blue-400" },
-  profited: { label: "익절", className: "text-red-600 dark:text-red-400" },
+  active: { label: "추적 중", className: "text-ink-muted" },
+  stopped: { label: "손절", className: "text-fall" },
+  profited: { label: "익절", className: "text-rise" },
 };
 
 function formatDateTime(iso: string): string {
@@ -234,18 +235,18 @@ export default function Screening({ user }: { user: User }) {
       : results;
 
   const selectClassName =
-    "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+    "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
   return (
     <div className="w-full max-w-4xl">
       {hasComparisonPair && reversalBreakoutPair.v1 && reversalBreakoutPair.v2 && (
-        <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="mb-6 rounded-card border border-border bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-medium text-black dark:text-zinc-50">
+              <h3 className="text-sm font-medium text-ink">
                 급등주 찾기 v1 vs v2 비교
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-ink-muted">
                 v2는 역배열비율 임계값만 0.9로 강화한 실험 전략입니다. v2가 항상 v1의 부분집합이라는 성질이
                 있지만, active 상태가 갱신되는 타이밍 차이로 완벽히 대칭인 집합은 아닐 수 있습니다.
               </p>
@@ -267,15 +268,15 @@ export default function Screening({ user }: { user: User }) {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="text-zinc-500 dark:text-zinc-400">
+                  <tr className="text-ink-muted">
                     <th className="pb-2 pr-4 font-normal"></th>
                     <th className="pb-2 pr-4 font-normal">{reversalBreakoutPair.v1.name ?? "v1"}</th>
                     <th className="pb-2 font-normal">{reversalBreakoutPair.v2.name ?? "v2"}</th>
                   </tr>
                 </thead>
-                <tbody className="text-black dark:text-zinc-50">
-                  <tr className="border-t border-black/[.08] dark:border-white/[.145]">
-                    <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">신호 수(전체/추적 중/종료)</td>
+                <tbody className="tabular-nums text-ink">
+                  <tr className="border-t border-border">
+                    <td className="py-2 pr-4 text-ink-muted">신호 수(전체/추적 중/종료)</td>
                     <td className="py-2 pr-4">
                       {comparisonStats.v1.total} / {comparisonStats.v1.activeCount} / {comparisonStats.v1.closedCount}
                     </td>
@@ -284,33 +285,33 @@ export default function Screening({ user }: { user: User }) {
                     </td>
                   </tr>
                   {comparisonStats.v1.closedCount === 0 && comparisonStats.v2.closedCount === 0 ? (
-                    <tr className="border-t border-black/[.08] dark:border-white/[.145]">
-                      <td className="py-2 text-zinc-500 dark:text-zinc-400" colSpan={3}>
+                    <tr className="border-t border-border">
+                      <td className="py-2 text-ink-muted" colSpan={3}>
                         종료된 신호가 아직 없어 비교할 수 없습니다.
                       </td>
                     </tr>
                   ) : (
                     <>
-                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">승률(종료 기준)</td>
+                      <tr className="border-t border-border">
+                        <td className="py-2 pr-4 text-ink-muted">승률(종료 기준)</td>
                         <td className="py-2 pr-4">
                           {comparisonStats.v1.winRate === null
                             ? "-"
-                            : `${(comparisonStats.v1.winRate * 100).toFixed(1)}%`}
+                            : formatPercent(comparisonStats.v1.winRate * 100, { sign: false })}
                         </td>
                         <td className="py-2">
                           {comparisonStats.v2.winRate === null
                             ? "-"
-                            : `${(comparisonStats.v2.winRate * 100).toFixed(1)}%`}
+                            : formatPercent(comparisonStats.v2.winRate * 100, { sign: false })}
                         </td>
                       </tr>
-                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">평균 수익률(종료 기준)</td>
+                      <tr className="border-t border-border">
+                        <td className="py-2 pr-4 text-ink-muted">평균 수익률(종료 기준)</td>
                         <td className="py-2 pr-4">{formatPct(comparisonStats.v1.avgReturnPct)}</td>
                         <td className="py-2">{formatPct(comparisonStats.v2.avgReturnPct)}</td>
                       </tr>
-                      <tr className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">중앙값 수익률(종료 기준)</td>
+                      <tr className="border-t border-border">
+                        <td className="py-2 pr-4 text-ink-muted">중앙값 수익률(종료 기준)</td>
                         <td className="py-2 pr-4">{formatPct(comparisonStats.v1.medianReturnPct)}</td>
                         <td className="py-2">{formatPct(comparisonStats.v2.medianReturnPct)}</td>
                       </tr>
@@ -320,14 +321,14 @@ export default function Screening({ user }: { user: User }) {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">비교 데이터를 불러오는 중...</p>
+            <p className="text-sm text-ink-muted">비교 데이터를 불러오는 중...</p>
           )}
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
         <div className="flex flex-1 min-w-[14rem] flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
+          <label className="text-xs text-ink-muted">전략</label>
           <select
             value={strategyId}
             onChange={(e) => {
@@ -344,16 +345,16 @@ export default function Screening({ user }: { user: User }) {
             ))}
           </select>
           {strategiesLoading && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
+            <p className="text-xs text-ink-muted">전략을 불러오는 중...</p>
           )}
           {!strategiesLoading && marketStrategies.length === 0 && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-ink-muted">
               등록된 {MARKET_LABELS[market]} 전략이 없습니다. 전략 관리에서 먼저 전략을 추가해주세요.
             </p>
           )}
         </div>
 
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs text-ink-muted">
           {lastRun
             ? `마지막 스캔: ${formatDateTime(lastRun.finished_at)} (전종목 ${lastRun.scanned_count.toLocaleString(
                 "ko-KR"
@@ -363,9 +364,9 @@ export default function Screening({ user }: { user: User }) {
       </div>
 
       {!strategyId ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 선택해주세요.</p>
+        <p className="text-sm text-ink-muted">전략을 선택해주세요.</p>
       ) : (
-        <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="rounded-card border border-border bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-1">
               {STATUS_TABS.map((tab) => (
@@ -378,7 +379,7 @@ export default function Screening({ user }: { user: User }) {
                   className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
                     statusTab === tab.value
                       ? "bg-foreground text-background"
-                      : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                      : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
                   }`}
                 >
                   {tab.label}
@@ -403,14 +404,14 @@ export default function Screening({ user }: { user: User }) {
           </div>
 
           {resultsLoading ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">결과를 불러오는 중...</p>
+            <p className="text-sm text-ink-muted">결과를 불러오는 중...</p>
           ) : resultsError ? (
             <p className="text-sm text-blue-600 dark:text-blue-400">결과를 불러오지 못했습니다.</p>
           ) : displayedResults && displayedResults.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="text-zinc-500 dark:text-zinc-400">
+                  <tr className="text-ink-muted">
                     <th className="pb-2 pr-4 font-normal">종목명</th>
                     <th className="pb-2 pr-4 font-normal">점수</th>
                     <th className="pb-2 pr-4 font-normal">진입 추천가</th>
@@ -426,23 +427,23 @@ export default function Screening({ user }: { user: User }) {
                   {displayedResults.map((r) => {
                     const returnColor =
                       r.return_pct > 0
-                        ? "text-red-600 dark:text-red-400"
+                        ? "text-rise"
                         : r.return_pct < 0
-                          ? "text-blue-600 dark:text-blue-400"
-                          : "text-black dark:text-zinc-50";
+                          ? "text-fall"
+                          : "text-flat";
                     const badge = STATUS_BADGE[r.status];
 
                     return (
-                      <tr key={r.id} className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                      <tr key={r.id} className="border-t border-border">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {r.stock_name}{" "}
-                          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                          <span className="text-xs text-ink-faint">
                             {r.stock_code}
                           </span>
                           {pairStrategy && pairActiveCodes?.has(r.stock_code) && (
                             <span
                               title="v2는 항상 v1의 부분집합이라는 성질이 있지만, active 상태 갱신 타이밍상 완벽히 대칭은 아닐 수 있습니다."
-                              className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-white/[.1] dark:text-zinc-300"
+                              className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-ink-muted dark:bg-white/[.1]"
                             >
                               {pairBadgeLabel}
                             </span>
@@ -451,23 +452,22 @@ export default function Screening({ user }: { user: User }) {
                         <td className="py-2 pr-4">
                           <ScoreValue score={r.score} />
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(r.entry_price, market)}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(r.stop_loss_price, market)}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(r.take_profit_price, market)}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(r.current_price, market)}
                         </td>
-                        <td className={`py-2 pr-4 font-medium ${returnColor}`}>
-                          {r.return_pct > 0 ? "+" : ""}
-                          {r.return_pct.toFixed(2)}%
+                        <td className={`py-2 pr-4 tabular-nums font-medium ${returnColor}`}>
+                          {formatPercent(r.return_pct)}
                         </td>
-                        <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">
+                        <td className="py-2 pr-4 tabular-nums text-ink-muted">
                           {formatDateTime(r.matched_at)}
                         </td>
                         {statusTab === "closed" && (
@@ -480,7 +480,7 @@ export default function Screening({ user }: { user: User }) {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="text-sm text-ink-muted">
               {statusTab === "active"
                 ? "현재 추적 중인 종목이 없습니다."
                 : closedDate

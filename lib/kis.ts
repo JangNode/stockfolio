@@ -813,6 +813,11 @@ export interface IndexQuote {
   price: number;
   change: number;
   changeRate: number;
+  /** 이 시세가 실제로 반영하는 거래일(YYYY-MM-DD). 해외지수는 한국시간 기준
+   * "오늘"과 다를 수 있다(예: 미 정규장 개장 전이면 전 거래일 종가) — 화면에서
+   * 기준시점을 밝히는 데 쓴다. 국내지수는 KIS 응답에 이 필드가 없어(또는 항상
+   * 당일이라 의미가 없어) undefined로 둔다. */
+  asOfDate?: string;
 }
 
 interface InquireIndexPriceResponse extends KisResponse {
@@ -859,6 +864,16 @@ interface InquireOverseasIndexResponse extends KisResponse {
     ovrs_nmix_prdy_vrss: string;
     prdy_ctrt: string;
   };
+  // 일별 데이터 배열(최신순). output1(요약)엔 기준시점 필드가 없어(2026-09-17
+  // scripts/diagnose-overseas-index-fields.ts 실측 확인) output2[0]의 영업일자를
+  // output1의 기준시점으로 쓴다 — output1.ovrs_nmix_prpr가 정확히 output2[0]의
+  // ovrs_nmix_prpr와 같은 값임을 실제 응답으로 확인했다.
+  output2: { stck_bsop_date: string }[];
+}
+
+/** KIS 영업일자(YYYYMMDD)를 YYYY-MM-DD로 바꾼다. */
+function formatBsopDate(yyyymmdd: string): string {
+  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
 /**
@@ -866,26 +881,6 @@ interface InquireOverseasIndexResponse extends KisResponse {
  * (원/달러 "FX@KRW", market="X") 현재가를 조회한다. 전용 "현재가" 엔드포인트가
  * 따로 없어 일별 차트 조회의 output1(요약)을 사용한다.
  */
-// TEMP(scripts/diagnose-overseas-index-fields.ts): output1 원본 그대로 반환 —
-// 기준시점 필드 실제 이름을 확인한 뒤 진단 스크립트와 함께 제거 예정.
-export async function debugRawOverseasIndex(marketDiv: "N" | "X", code: string): Promise<unknown> {
-  const { appKey, appSecret } = getCredentials();
-  const accessToken = await getAccessToken();
-
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - 7);
-
-  const url = new URL("/uapi/overseas-price/v1/quotations/inquire-daily-chartprice", KIS_BASE_URL);
-  url.searchParams.set("FID_COND_MRKT_DIV_CODE", marketDiv);
-  url.searchParams.set("FID_INPUT_ISCD", code);
-  url.searchParams.set("FID_INPUT_DATE_1", formatDate(start));
-  url.searchParams.set("FID_INPUT_DATE_2", formatDate(today));
-  url.searchParams.set("FID_PERIOD_DIV_CODE", "D");
-
-  return kisFetch(url, TR_ID_INQUIRE_OVERSEAS_INDEX, accessToken, appKey, appSecret);
-}
-
 async function getOverseasIndex(
   marketDiv: "N" | "X",
   code: string,
@@ -915,7 +910,8 @@ async function getOverseasIndex(
     appKey,
     appSecret
   )) as InquireOverseasIndexResponse;
-  const { output1 } = data;
+  const { output1, output2 } = data;
+  const latestBsopDate = output2[0]?.stck_bsop_date;
 
   return {
     category: "해외",
@@ -923,6 +919,7 @@ async function getOverseasIndex(
     price: Number(output1.ovrs_nmix_prpr),
     change: Number(output1.ovrs_nmix_prdy_vrss),
     changeRate: Number(output1.prdy_ctrt),
+    asOfDate: latestBsopDate ? formatBsopDate(latestBsopDate) : undefined,
   };
 }
 

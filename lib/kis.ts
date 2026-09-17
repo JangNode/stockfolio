@@ -815,8 +815,9 @@ export interface IndexQuote {
   changeRate: number;
   /** 이 시세가 실제로 반영하는 거래일(YYYY-MM-DD). 해외지수는 한국시간 기준
    * "오늘"과 다를 수 있다(예: 미 정규장 개장 전이면 전 거래일 종가) — 화면에서
-   * 기준시점을 밝히는 데 쓴다. 국내지수는 KIS 응답에 이 필드가 없어(또는 항상
-   * 당일이라 의미가 없어) undefined로 둔다. */
+   * 기준시점을 밝히는 데 쓴다. 국내지수(inquire-index-price)는 응답에 영업일자
+   * 필드 자체가 없음을 실측 확인했다(2026-09-17, #322 디스포저블 진단 스크립트로
+   * 확인) — undefined로 둔다. */
   asOfDate?: string;
 }
 
@@ -826,22 +827,6 @@ interface InquireIndexPriceResponse extends KisResponse {
     bstp_nmix_prdy_vrss: string;
     bstp_nmix_prdy_ctrt: string;
   };
-}
-
-// TEMP(scripts/diagnose-domestic-index-fields.ts): output 원본 그대로 반환 —
-// 기준시점(영업일자 등) 필드가 실제로 있는지 확인한 뒤 진단 스크립트와 함께 제거 예정.
-export async function debugRawDomesticIndex(code: string): Promise<unknown> {
-  const { appKey, appSecret } = getCredentials();
-  const accessToken = await getAccessToken();
-
-  const url = new URL(
-    "/uapi/domestic-stock/v1/quotations/inquire-index-price",
-    KIS_BASE_URL
-  );
-  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "U");
-  url.searchParams.set("FID_INPUT_ISCD", code);
-
-  return kisFetch(url, TR_ID_INQUIRE_INDEX_PRICE, accessToken, appKey, appSecret);
 }
 
 /** 코스피(0001)/코스닥(1001) 등 국내 업종지수 현재가를 조회한다. */

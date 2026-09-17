@@ -7,6 +7,7 @@ import { authFetch } from "@/lib/authFetch";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice } from "@/lib/market";
+import { formatPercent } from "@/lib/formatNumber";
 import SubTabs, { STRATEGY_BACKTEST_TABS } from "@/components/SubTabs";
 import type { FundamentalsSeries } from "@/lib/pointInTimeFundamentals";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
@@ -197,15 +198,15 @@ export default function Backtest({ user }: { user: User }) {
   };
 
   const selectClassName =
-    "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+    "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
   return (
     <div className="w-full max-w-3xl">
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-card border border-border bg-surface p-4">
         <div className="flex flex-1 min-w-[10rem] flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">전략</label>
+          <label className="text-xs text-ink-muted">전략</label>
           <select
             value={strategyId}
             onChange={(e) => setStrategyId(e.target.value)}
@@ -219,13 +220,13 @@ export default function Backtest({ user }: { user: User }) {
             ))}
           </select>
           {!strategiesLoading && marketStrategies.length === 0 && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-ink-muted">
               등록된 전략이 없습니다.
             </p>
           )}
         </div>
         <div className="relative flex flex-1 min-w-[10rem] flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">종목코드 또는 종목명</label>
+          <label className="text-xs text-ink-muted">종목코드 또는 종목명</label>
           <input
             value={stockQuery}
             onChange={(e) => handleQueryChange(e.target.value)}
@@ -242,7 +243,7 @@ export default function Backtest({ user }: { user: User }) {
           />
 
           {suggestions.length > 0 && (
-            <ul className="absolute top-full left-0 z-10 mt-1 w-full overflow-hidden rounded-lg border border-black/[.08] bg-white shadow-lg dark:border-white/[.145] dark:bg-zinc-900">
+            <ul className="absolute top-full left-0 z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900">
               {suggestions.map((stock) => (
                 <li key={stock.code}>
                   <button
@@ -251,10 +252,10 @@ export default function Backtest({ user }: { user: User }) {
                       e.preventDefault();
                       handleSelectSuggestion(stock);
                     }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-black hover:bg-black/[.04] dark:text-zinc-50 dark:hover:bg-white/[.08]"
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-black/[.04] dark:hover:bg-white/[.08]"
                   >
                     <span>{stock.name}</span>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                    <span className="text-xs text-ink-faint">
                       {stock.code}
                     </span>
                   </button>
@@ -264,7 +265,7 @@ export default function Backtest({ user }: { user: User }) {
           )}
         </div>
         <div className="flex w-28 flex-col gap-1">
-          <label className="text-xs text-zinc-500 dark:text-zinc-400">기간</label>
+          <label className="text-xs text-ink-muted">기간</label>
           <select
             value={months}
             onChange={(e) =>
@@ -292,8 +293,8 @@ export default function Backtest({ user }: { user: User }) {
       </div>
 
       {result && (
-        <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-          <p className="mb-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
+        <div className="rounded-card border border-border bg-surface p-4">
+          <p className="mb-4 text-sm font-medium text-ink-muted">
             {stockLabel} · {selectedStrategy && describeStrategy(selectedStrategy)}
           </p>
 
@@ -302,42 +303,42 @@ export default function Backtest({ user }: { user: User }) {
               조건을 계산하기에 데이터가 부족합니다.
             </p>
           ) : result.tradeCount === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="text-sm text-ink-muted">
               선택한 기간에 매매 신호가 없습니다.
             </p>
           ) : (
             <>
-              <dl className="grid grid-cols-3 gap-3 border-b border-black/[.08] pb-4 text-sm dark:border-white/[.145]">
+              <dl className="grid grid-cols-3 gap-3 border-b border-border pb-4 text-sm">
                 <div>
-                  <dt className="text-zinc-500 dark:text-zinc-400">총 수익률</dt>
+                  <dt className="text-ink-muted">총 수익률</dt>
                   <dd
-                    className={
+                    className={`mt-1 tabular-nums text-lg font-semibold ${
                       result.totalReturnPct > 0
-                        ? "mt-1 text-lg font-semibold text-red-600 dark:text-red-400"
+                        ? "text-rise"
                         : result.totalReturnPct < 0
-                          ? "mt-1 text-lg font-semibold text-blue-600 dark:text-blue-400"
-                          : "mt-1 text-lg font-semibold text-black dark:text-zinc-50"
-                    }
+                          ? "text-fall"
+                          : "text-flat"
+                    }`}
                   >
-                    {result.totalReturnPct.toFixed(2)}%
+                    {formatPercent(result.totalReturnPct)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-zinc-500 dark:text-zinc-400">거래 횟수</dt>
-                  <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">
+                  <dt className="text-ink-muted">거래 횟수</dt>
+                  <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">
                     {result.tradeCount}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-zinc-500 dark:text-zinc-400">승률</dt>
-                  <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">
-                    {(result.winRate * 100).toFixed(1)}%
+                  <dt className="text-ink-muted">승률</dt>
+                  <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">
+                    {formatPercent(result.winRate * 100, { sign: false })}
                   </dd>
                 </div>
               </dl>
 
               {result.forcedLiquidationCount > 0 && (
-                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="mt-3 text-xs text-ink-muted">
                   이 중 {result.forcedLiquidationCount}건은 기간 끝까지 매도 신호가 없어 마지막 종가로
                   강제 청산 처리한 미실현 거래입니다(아래 표의 &ldquo;미청산&rdquo; 표시).
                 </p>
@@ -346,7 +347,7 @@ export default function Backtest({ user }: { user: User }) {
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="text-zinc-500 dark:text-zinc-400">
+                    <tr className="text-ink-muted">
                       <th className="pb-2 pr-4 font-normal">매수일</th>
                       <th className="pb-2 pr-4 font-normal">매수가</th>
                       <th className="pb-2 pr-4 font-normal">매도일</th>
@@ -356,30 +357,30 @@ export default function Backtest({ user }: { user: User }) {
                   </thead>
                   <tbody>
                     {result.trades.map((trade, i) => (
-                      <tr key={i} className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.buyDate}</td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                      <tr key={i} className="border-t border-border">
+                        <td className="py-2 pr-4 tabular-nums text-ink">{trade.buyDate}</td>
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(trade.buyPrice, market)}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {trade.sellDate}
                           {trade.isForcedLiquidation && (
-                            <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">(미청산)</span>
+                            <span className="ml-1 text-xs text-ink-muted">(미청산)</span>
                           )}
                         </td>
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(trade.sellPrice, market)}
                         </td>
                         <td
-                          className={
+                          className={`py-2 tabular-nums ${
                             trade.returnPct > 0
-                              ? "py-2 text-red-600 dark:text-red-400"
+                              ? "text-rise"
                               : trade.returnPct < 0
-                                ? "py-2 text-blue-600 dark:text-blue-400"
-                                : "py-2 text-black dark:text-zinc-50"
-                          }
+                                ? "text-fall"
+                                : "text-flat"
+                          }`}
                         >
-                          {(trade.returnPct * 100).toFixed(2)}%
+                          {formatPercent(trade.returnPct * 100)}
                         </td>
                       </tr>
                     ))}

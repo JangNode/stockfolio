@@ -93,7 +93,7 @@ export default function StrategyManager({ user }: { user: User }) {
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">전략을 불러오는 중...</p>
+        <p className="text-sm text-ink-muted">전략을 불러오는 중...</p>
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">전략을 불러오지 못했습니다.</p>
       ) : marketStrategies.length > 0 ? (
@@ -101,25 +101,25 @@ export default function StrategyManager({ user }: { user: User }) {
           {marketStrategies.map((strategy) => (
             <div
               key={strategy.id}
-              className="w-full max-w-sm rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
+              className="w-full max-w-sm rounded-card border border-border bg-surface p-4"
             >
-              <p className="font-medium text-black dark:text-zinc-50">
-                <span className="mr-2 rounded-full bg-black/[.06] px-2 py-0.5 text-xs font-normal text-zinc-600 dark:bg-white/[.1] dark:text-zinc-300">
+              <p className="font-medium text-ink">
+                <span className="mr-2 rounded-full bg-black/[.06] px-2 py-0.5 text-xs font-normal text-ink-muted dark:bg-white/[.1]">
                   {MARKET_LABELS[strategy.market]}
                 </span>
                 {RULE_TYPE_LABELS[strategy.rule_type]}
               </p>
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              <p className="mt-2 text-sm text-ink-muted">
                 {describeParams(strategy)}
               </p>
-              <p className="mt-3 border-t border-black/[.08] pt-3 text-xs text-zinc-500 dark:border-white/[.145] dark:text-zinc-400">
+              <p className="mt-3 border-t border-border pt-3 text-xs text-ink-muted">
                 {STRATEGY_DESCRIPTIONS[strategy.rule_type]}
               </p>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-sm text-ink-muted">
           등록된 {MARKET_LABELS[market]} 전략이 없습니다.
         </p>
       )}

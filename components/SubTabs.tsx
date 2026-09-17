@@ -25,8 +25,8 @@ export default function SubTabs({ tabs }: { tabs: SubTab[] }) {
           href={tab.href}
           className={`whitespace-nowrap ${
             pathname === tab.href
-              ? "font-medium text-black dark:text-zinc-50"
-              : "text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+              ? "font-medium text-ink"
+              : "text-ink-muted transition-colors hover:text-ink"
           }`}
         >
           {tab.label}

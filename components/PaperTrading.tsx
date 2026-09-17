@@ -9,6 +9,12 @@ import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, type Market } from "@/lib/market";
 import { PAPER_STYLE_LABEL, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
+import {
+  toKstDateString as toKstDate,
+  todayKstDateString as todayKstDate,
+  formatKstDate,
+  formatKstTime,
+} from "@/lib/formatKst";
 
 type SubScreen = "overview" | "detail" | "trades" | "history";
 
@@ -112,14 +118,6 @@ interface PaperRunRow {
 const TRADE_HISTORY_LIMIT = 200;
 const PAPER_RUN_HISTORY_LIMIT = 30;
 
-function toKstDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
-}
-
-function todayKstDate(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
-}
-
 /** 오늘(KST) 배치가 이 시장에서 실행됐는지(매매 발생 여부와 무관) — "조건 미충족으로
  * 매매 없음"과 "배치 자체가 안 돎"을 구분하는 데 쓴다. */
 function hasRunToday(runs: PaperRunRow[]): boolean {
@@ -128,22 +126,18 @@ function hasRunToday(runs: PaperRunRow[]): boolean {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return formatKstTime(iso, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** dateKey(YYYY-MM-DD)를 "8월 20일 (목)" 형태로 표시한다. 정오(KST)로 고정해 타임존
- * 경계에서 날짜가 하루 밀리는 걸 방지한다. */
+ * 경계에서 날짜가 하루 밀리는 걸 방지한다(formatKstDate도 timeZone을 KST로 고정하므로
+ * 이중으로 안전하다). */
 function formatDateHeader(dateKey: string): string {
-  const date = new Date(`${dateKey}T12:00:00+09:00`);
-  return date.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
+  return formatKstDate(`${dateKey}T12:00:00+09:00`, { month: "long", day: "numeric", weekday: "short" });
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  return formatKstDate(iso, { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 /** traded_at 내림차순으로 이미 정렬된 목록을 KST 날짜별로 묶는다(Map은 삽입 순서를

@@ -866,6 +866,26 @@ interface InquireOverseasIndexResponse extends KisResponse {
  * (원/달러 "FX@KRW", market="X") 현재가를 조회한다. 전용 "현재가" 엔드포인트가
  * 따로 없어 일별 차트 조회의 output1(요약)을 사용한다.
  */
+// TEMP(scripts/diagnose-overseas-index-fields.ts): output1 원본 그대로 반환 —
+// 기준시점 필드 실제 이름을 확인한 뒤 진단 스크립트와 함께 제거 예정.
+export async function debugRawOverseasIndex(marketDiv: "N" | "X", code: string): Promise<unknown> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 7);
+
+  const url = new URL("/uapi/overseas-price/v1/quotations/inquire-daily-chartprice", KIS_BASE_URL);
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", marketDiv);
+  url.searchParams.set("FID_INPUT_ISCD", code);
+  url.searchParams.set("FID_INPUT_DATE_1", formatDate(start));
+  url.searchParams.set("FID_INPUT_DATE_2", formatDate(today));
+  url.searchParams.set("FID_PERIOD_DIV_CODE", "D");
+
+  return kisFetch(url, TR_ID_INQUIRE_OVERSEAS_INDEX, accessToken, appKey, appSecret);
+}
+
 async function getOverseasIndex(
   marketDiv: "N" | "X",
   code: string,

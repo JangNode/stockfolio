@@ -8,12 +8,15 @@
 
 import { formatNumber, type Market } from "@/lib/market";
 
-/** 퍼센트를 소수점 digits자리까지, 양수엔 "+"를 붙여 표시한다(음수는 toFixed가
- * 이미 붙이는 "-" 그대로, 0은 부호 없음). 이 앱의 등락률 표시 대부분이 이미 소수
- * 2자리를 쓰고 있어(전수 조사) 기본값을 2로 둔다. */
-export function formatPercent(value: number, digits: number = 2): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}%`;
+/** 퍼센트를 소수점 digits자리까지 표시한다. 이 앱의 등락률 표시 대부분이 이미
+ * 소수 2자리를 쓰고 있어(전수 조사) 기본값을 2로 둔다. sign은 기본 true —
+ * 등락률·괴리율처럼 방향이 의미 있는 값은 양수에 "+"를 붙인다(음수는 toFixed가
+ * 이미 붙이는 "-" 그대로). ROE·배당수익률처럼 방향이 아니라 크기만 보여주면
+ * 되는 비율은 호출부에서 sign: false로 끈다. */
+export function formatPercent(value: number, options: { digits?: number; sign?: boolean } = {}): string {
+  const { digits = 2, sign = true } = options;
+  const prefix = sign && value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(digits)}%`;
 }
 
 // 조 단위로 전환하는 기준(억원). 10,000억원 = 1조원.

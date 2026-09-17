@@ -20,16 +20,16 @@ export default async function StockPage({
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-black/[.08] px-4 py-3 sm:px-6 sm:py-4 dark:border-white/[.145]">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-3 sm:px-6 sm:py-4">
         <Link
           href="/"
-          className="whitespace-nowrap text-sm text-zinc-500 hover:underline dark:text-zinc-400"
+          className="whitespace-nowrap text-sm text-ink-muted hover:underline"
         >
           ← 관심종목
         </Link>
-        <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
+        <h1 className="text-lg font-semibold text-ink">
           {name ?? code}{" "}
-          <span className="text-sm font-normal text-zinc-400 dark:text-zinc-500">
+          <span className="text-sm font-normal text-ink-faint">
             {code}
           </span>
         </h1>

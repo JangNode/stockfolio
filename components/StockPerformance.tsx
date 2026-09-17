@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { formatPercent } from "@/lib/formatNumber";
 
 interface FinancialStatementYear {
   year: number;
@@ -29,15 +30,14 @@ const CHART_METRICS: { key: MetricKey; label: string }[] = [
 ];
 
 function formatPct(value: number | null): string {
-  if (value === null) return "-";
-  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+  return value === null ? "-" : formatPercent(value);
 }
 
 function amountColorClass(value: number | null): string {
-  if (value === null) return "text-zinc-400 dark:text-zinc-500";
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (value === null) return "text-ink-faint";
+  if (value > 0) return "text-rise";
+  if (value < 0) return "text-fall";
+  return "text-ink";
 }
 
 /** 증감률은 음수가 흔해서(기준선이 0) 재무제표 섹션의 막대그래프와 달리 0을 중심으로
@@ -54,7 +54,7 @@ function GrowthBarRow({
 
   return (
     <div>
-      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
+      <p className="text-xs font-medium text-ink-muted">{label}</p>
       <div className="mt-1 flex items-stretch gap-3">
         {years.map(({ year, value }) => {
           const barPx = value === null ? 0 : (Math.abs(value) / max) * half;
@@ -64,15 +64,15 @@ function GrowthBarRow({
               <div className="flex h-16 w-full flex-col justify-center">
                 <div style={{ height: `${half}px` }} className="flex w-full items-end justify-center">
                   {!isNegative && (
-                    <div className="w-6 rounded-t bg-red-500" style={{ height: `${barPx}px` }} />
+                    <div className="w-6 rounded-t bg-rise" style={{ height: `${barPx}px` }} />
                   )}
                 </div>
                 <div className="h-px w-full bg-black/[.15] dark:bg-white/[.2]" />
                 <div style={{ height: `${half}px` }} className="flex w-full justify-center">
-                  {isNegative && <div className="w-6 rounded-b bg-blue-500" style={{ height: `${barPx}px` }} />}
+                  {isNegative && <div className="w-6 rounded-b bg-fall" style={{ height: `${barPx}px` }} />}
                 </div>
               </div>
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{year}</span>
+              <span className="tabular-nums text-[10px] text-ink-faint">{year}</span>
             </div>
           );
         })}
@@ -92,24 +92,24 @@ export default function StockPerformance({ code }: { code: string }) {
   );
 
   return (
-    <div className="mt-4 w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-      <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">실적 정보</p>
+    <div className="mt-4 w-full rounded-card border border-border bg-surface p-4">
+      <p className="mb-3 text-sm font-medium text-ink">실적 정보</p>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">실적 정보를 불러오는 중...</p>
+        <p className="text-sm text-ink-muted">실적 정보를 불러오는 중...</p>
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">실적 정보를 불러오지 못했습니다.</p>
       ) : !data || data.years.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">실적 정보가 없습니다.</p>
+        <p className="text-sm text-ink-muted">실적 정보가 없습니다.</p>
       ) : (
         <>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="text-zinc-500 dark:text-zinc-400">
+                <tr className="text-ink-muted">
                   <th className="pb-2 pr-4 font-normal" />
                   {data.years.map((y) => (
-                    <th key={y.year} className="pb-2 pr-4 text-right font-normal">
+                    <th key={y.year} className="pb-2 pr-4 text-right font-normal tabular-nums">
                       {y.year}
                     </th>
                   ))}
@@ -117,10 +117,10 @@ export default function StockPerformance({ code }: { code: string }) {
               </thead>
               <tbody>
                 {METRIC_ROWS.map((row) => (
-                  <tr key={row.key} className="border-t border-black/[.08] dark:border-white/[.145]">
-                    <td className="py-2 pr-4 text-zinc-500 dark:text-zinc-400">{row.label}</td>
+                  <tr key={row.key} className="border-t border-border">
+                    <td className="py-2 pr-4 text-ink-muted">{row.label}</td>
                     {data.years.map((y) => (
-                      <td key={y.year} className={`py-2 pr-4 text-right ${amountColorClass(y[row.key])}`}>
+                      <td key={y.year} className={`py-2 pr-4 text-right tabular-nums ${amountColorClass(y[row.key])}`}>
                         {formatPct(y[row.key])}
                       </td>
                     ))}
@@ -130,7 +130,7 @@ export default function StockPerformance({ code }: { code: string }) {
             </table>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 border-t border-black/[.08] pt-4 sm:grid-cols-3 dark:border-white/[.145]">
+          <div className="mt-4 grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-3">
             {CHART_METRICS.map((metric) => (
               <GrowthBarRow
                 key={metric.key}

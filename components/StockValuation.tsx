@@ -2,6 +2,8 @@
 
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { formatPrice } from "@/lib/market";
+import { formatPercent, formatMarketCap, formatShares as formatSharesShared } from "@/lib/formatNumber";
 
 interface DividendYearRow {
   year: number;
@@ -44,32 +46,30 @@ function formatRatio(value: number | null, digits = 2): string {
   return value === null ? "-" : value.toFixed(digits);
 }
 
+// ROE/배당수익률/EPS성장률은 방향성을 강조할 값이 아니라 그냥 비율이라, 등락률과
+// 달리 양수에도 "+"를 붙이지 않는다(lib/formatNumber.ts formatPercent의 sign:false).
 function formatPct(value: number | null): string {
-  return value === null ? "-" : `${value.toFixed(2)}%`;
+  return value === null ? "-" : formatPercent(value, { sign: false });
 }
 
-/** 시가총액은 KIS가 억원 단위로 내려준다. 삼성전자 같은 대형주는 억원 그대로
- * 표시하면 자릿수가 너무 커서(1,556만억원 등) 조 단위로 환산해 보여준다. */
 function formatMarketCapEok(eok: number | null): string {
-  if (eok === null) return "-";
-  const jo = eok / 10_000;
-  return `${jo.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}조원`;
+  return eok === null ? "-" : formatMarketCap(eok);
 }
 
 function formatShares(value: number | null): string {
-  return value === null ? "-" : `${value.toLocaleString("ko-KR")}주`;
+  return value === null ? "-" : formatSharesShared(value, "KR");
 }
 
 function formatWon(value: number | null): string {
-  return value === null ? "-" : `${value.toLocaleString("ko-KR")}원`;
+  return value === null ? "-" : `${formatPrice(value, "KR")}원`;
 }
 
 function StatBlock({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-black/[.08] p-3 dark:border-white/[.145]">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
+    <div className="rounded-lg border border-border p-3">
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className="mt-1 tabular-nums text-lg font-semibold text-ink">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-ink-muted">{hint}</p>}
     </div>
   );
 }
@@ -81,12 +81,13 @@ const FAIR_VALUE_METHOD_LABEL: Record<FairValueResult["method"], string> = {
 };
 
 // 국내 증시 관례상 상승/저평가를 붉은색, 하락/고평가를 파란색 계열로 표시하는 이
-// 앱의 기존 톤(예: 배당 지급 배지, 등락률 표시)을 그대로 따른다.
+// 앱의 기존 톤(예: 배당 지급 배지, 등락률 표시)을 그대로 따른다 — rise/fall
+// 디자인 토큰의 soft 배경 변형(rise-soft/fall-soft)을 쓴다.
 const FAIR_VALUE_VERDICT_STYLE: Record<FairValueVerdict, string> = {
-  UNDERVALUED: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
-  FAIR: "bg-black/[.04] text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400",
-  OVERVALUED: "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  UNKNOWN: "bg-black/[.04] text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400",
+  UNDERVALUED: "bg-rise-soft text-rise",
+  FAIR: "bg-black/[.04] text-ink-muted dark:bg-white/[.08]",
+  OVERVALUED: "bg-fall-soft text-fall",
+  UNKNOWN: "bg-black/[.04] text-ink-muted dark:bg-white/[.08]",
 };
 
 const FAIR_VALUE_VERDICT_LABEL: Record<FairValueVerdict, string> = {
@@ -104,20 +105,17 @@ function FairValueCard({ result, highlighted }: { result: FairValueResult; highl
   return (
     <div
       className={`rounded-lg border p-3 ${
-        highlighted
-          ? "border-red-300 dark:border-red-800"
-          : "border-black/[.08] dark:border-white/[.145]"
+        highlighted ? "border-red-300 dark:border-red-800" : "border-border"
       }`}
     >
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{FAIR_VALUE_METHOD_LABEL[result.method]}</p>
+      <p className="text-xs text-ink-muted">{FAIR_VALUE_METHOD_LABEL[result.method]}</p>
       {result.fairPrice === null ? (
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{result.reason}</p>
+        <p className="mt-2 text-sm text-ink-muted">{result.reason}</p>
       ) : (
         <>
-          <p className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{formatWon(result.fairPrice)}</p>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            현재가 대비 {result.gapPercent !== null && result.gapPercent > 0 ? "+" : ""}
-            {formatPct(result.gapPercent)}
+          <p className="mt-1 tabular-nums text-lg font-semibold text-ink">{formatWon(result.fairPrice)}</p>
+          <p className="mt-0.5 tabular-nums text-xs text-ink-muted">
+            현재가 대비 {result.gapPercent === null ? "-" : formatPercent(result.gapPercent)}
           </p>
           <span
             className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${FAIR_VALUE_VERDICT_STYLE[result.verdict]}`}
@@ -125,7 +123,7 @@ function FairValueCard({ result, highlighted }: { result: FairValueResult; highl
             {FAIR_VALUE_VERDICT_LABEL[result.verdict]}
           </span>
           {result.assumptions && (
-            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="mt-2 tabular-nums text-xs text-ink-muted">
               WACC {result.assumptions.wacc.toFixed(1)}% · 영구성장률 {result.assumptions.terminalGrowth.toFixed(1)}%
               · FCF성장률 {result.assumptions.fcfGrowthRate.toFixed(1)}%
             </p>
@@ -143,15 +141,15 @@ export default function StockValuation({ code }: { code: string }) {
   const { data, error, isLoading } = useSWR<ValuationResponse>(`/api/stock/${code}/valuation`, authJsonFetcher);
 
   return (
-    <div className="mt-4 w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-      <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">가치평가지표</p>
+    <div className="mt-4 w-full rounded-card border border-border bg-surface p-4">
+      <p className="mb-3 text-sm font-medium text-ink">가치평가지표</p>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">가치평가지표를 불러오는 중...</p>
+        <p className="text-sm text-ink-muted">가치평가지표를 불러오는 중...</p>
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">가치평가지표를 불러오지 못했습니다.</p>
       ) : !data ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">가치평가지표 데이터가 없습니다.</p>
+        <p className="text-sm text-ink-muted">가치평가지표 데이터가 없습니다.</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -175,13 +173,13 @@ export default function StockValuation({ code }: { code: string }) {
           </div>
 
           {data.dividends.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">배당 이력이 없습니다.</p>
+            <p className="mt-4 text-sm text-ink-muted">배당 이력이 없습니다.</p>
           ) : (
-            <div className="mt-4 overflow-x-auto border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-              <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">최근 5개년 배당 이력</p>
+            <div className="mt-4 overflow-x-auto border-t border-border pt-4">
+              <p className="mb-2 text-xs font-medium text-ink-muted">최근 5개년 배당 이력</p>
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="text-zinc-500 dark:text-zinc-400">
+                  <tr className="text-ink-muted">
                     <th className="pb-2 pr-4 font-normal">연도</th>
                     <th className="pb-2 pr-4 font-normal">지급 여부</th>
                     <th className="pb-2 pr-4 text-right font-normal">배당수익률</th>
@@ -191,20 +189,18 @@ export default function StockValuation({ code }: { code: string }) {
                   {data.dividends.map((d) => {
                     const paid = d.cashDividendPerShareCommon !== null && d.cashDividendPerShareCommon > 0;
                     return (
-                      <tr key={d.year} className="border-t border-black/[.08] dark:border-white/[.145]">
-                        <td className="py-2 pr-4 text-black dark:text-zinc-50">{d.year}</td>
+                      <tr key={d.year} className="border-t border-border">
+                        <td className="py-2 pr-4 tabular-nums text-ink">{d.year}</td>
                         <td className="py-2 pr-4">
                           <span
                             className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              paid
-                                ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
-                                : "bg-black/[.04] text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400"
+                              paid ? "bg-rise-soft text-rise" : "bg-black/[.04] text-ink-muted dark:bg-white/[.08]"
                             }`}
                           >
                             {paid ? "지급" : "미지급"}
                           </span>
                         </td>
-                        <td className="py-2 pr-4 text-right text-black dark:text-zinc-50">
+                        <td className="py-2 pr-4 text-right tabular-nums text-ink">
                           {formatPct(d.dividendYieldPct)}
                         </td>
                       </tr>
@@ -227,12 +223,12 @@ export default function StockValuation({ code }: { code: string }) {
             const showSummary = knownVerdicts.length >= 2 && maxAgreement >= 2 && majorityVerdict !== undefined;
 
             return (
-              <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-                <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="mb-2 text-xs font-medium text-ink-muted">
                   적정주가(RIM / 상대가치 / DCF)
                 </p>
                 {showSummary && (
-                  <span className="mb-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                  <span className="mb-2 inline-flex items-center rounded-full bg-rise-soft px-2.5 py-1 text-xs font-medium text-rise">
                     {results.length}개 방법 중 {maxAgreement}개 일치: {FAIR_VALUE_VERDICT_LABEL[majorityVerdict]}
                   </span>
                 )}

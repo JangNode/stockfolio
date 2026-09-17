@@ -368,7 +368,7 @@ export default function StockChart({ code, market }: { code: string; market: Mar
   }, [rawBars, period, isIntraday]);
 
   return (
-    <div className="w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+    <div className="w-full rounded-card border border-border bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1">
           {availablePeriods.map((p) => (
@@ -378,7 +378,7 @@ export default function StockChart({ code, market }: { code: string; market: Mar
               className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
                 period === p
                   ? "bg-foreground text-background"
-                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                  : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
               }`}
             >
               {PERIOD_LABELS[p]}
@@ -386,7 +386,7 @@ export default function StockChart({ code, market }: { code: string; market: Mar
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
           {MA_PERIODS.map((ma) => (
             <span key={ma} className="flex items-center gap-1">
               <span
@@ -403,42 +403,42 @@ export default function StockChart({ code, market }: { code: string; market: Mar
         <div ref={containerRef} className="h-80 w-full" />
 
         {isLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 text-sm text-zinc-500 dark:bg-zinc-950/80 dark:text-zinc-400">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/80 text-sm text-ink-muted">
             차트를 불러오는 중...
           </div>
         )}
 
         {error && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 text-sm text-blue-600 dark:bg-zinc-950/80 dark:text-blue-400">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/80 text-sm text-blue-600 dark:text-blue-400">
             {error instanceof Error ? error.message : "차트 데이터를 불러오지 못했습니다."}
           </div>
         )}
 
         {tooltip && (
-          <div className="pointer-events-none absolute top-2 left-2 z-10 rounded-lg border border-black/[.08] bg-white/95 px-3 py-2 text-xs shadow-sm dark:border-white/[.145] dark:bg-zinc-900/95">
-            <p className="mb-1 font-medium text-black dark:text-zinc-50">
+          <div className="pointer-events-none absolute top-2 left-2 z-10 rounded-lg border border-border bg-surface/95 px-3 py-2 text-xs shadow-sm">
+            <p className="mb-1 font-medium text-ink">
               {tooltip.label}
             </p>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-ink-muted">
               <span>
-                시가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.open, market)}</span>
+                시가 <span className="tabular-nums text-ink">{formatPrice(tooltip.open, market)}</span>
               </span>
               <span>
-                고가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.high, market)}</span>
+                고가 <span className="tabular-nums text-ink">{formatPrice(tooltip.high, market)}</span>
               </span>
               <span>
-                저가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.low, market)}</span>
+                저가 <span className="tabular-nums text-ink">{formatPrice(tooltip.low, market)}</span>
               </span>
               <span>
-                종가 <span className="text-black dark:text-zinc-50">{formatPrice(tooltip.close, market)}</span>
+                종가 <span className="tabular-nums text-ink">{formatPrice(tooltip.close, market)}</span>
               </span>
               <span className="col-span-2">
-                거래량 <span className="text-black dark:text-zinc-50">{formatNumber(tooltip.volume, market)}</span>
+                거래량 <span className="tabular-nums text-ink">{formatNumber(tooltip.volume, market)}</span>
               </span>
               {MA_PERIODS.map(
                 (ma) =>
                   tooltip.ma[ma] !== undefined && (
-                    <span key={ma} style={{ color: THEME.light.ma[ma] }}>
+                    <span key={ma} className="tabular-nums" style={{ color: THEME.light.ma[ma] }}>
                       {ma} {formatPrice(tooltip.ma[ma]!, market)}
                     </span>
                   )

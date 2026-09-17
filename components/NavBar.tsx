@@ -37,8 +37,8 @@ export default function NavBar() {
             href={link.href}
             className={`whitespace-nowrap ${
               (link.activePaths as readonly string[]).includes(pathname)
-                ? "font-medium text-black dark:text-zinc-50"
-                : "text-zinc-500 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                ? "font-medium text-ink"
+                : "text-ink-muted transition-colors hover:text-ink"
             }`}
           >
             {link.label}
@@ -55,7 +55,7 @@ export default function NavBar() {
               className={`h-7 rounded-full px-3 text-xs font-medium transition-colors ${
                 market === m
                   ? "bg-foreground text-background"
-                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                  : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
               }`}
             >
               {MARKET_LABELS[m]}

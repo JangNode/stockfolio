@@ -28,27 +28,27 @@ export default function AppHeader() {
   };
 
   return (
-    <header className="flex flex-col gap-3 border-b border-black/[.08] px-4 py-3 sm:px-6 sm:py-4 dark:border-white/[.145]">
+    <header className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="whitespace-nowrap text-lg font-semibold text-black dark:text-zinc-50">
+        <h1 className="whitespace-nowrap text-lg font-semibold text-ink">
           Stockfolio
         </h1>
 
         {user && (
           <div className="flex min-w-0 items-center gap-3">
-            <span className="hidden min-w-0 truncate text-sm text-zinc-500 sm:inline dark:text-zinc-400">
+            <span className="hidden min-w-0 truncate text-sm text-ink-muted sm:inline">
               {user.email}
             </span>
             <Link
               href="/settings"
-              className="flex h-9 shrink-0 items-center rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              className="flex h-9 shrink-0 items-center rounded-full border border-border px-4 text-sm font-medium text-ink transition-colors hover:bg-black/[.04] dark:hover:bg-[#1a1a1a]"
             >
               설정
             </Link>
             <button
               onClick={handleSignOut}
               disabled={signingOut}
-              className="h-9 shrink-0 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
+              className="h-9 shrink-0 rounded-full border border-border px-4 text-sm font-medium text-ink transition-colors hover:bg-black/[.04] disabled:opacity-50 dark:hover:bg-[#1a1a1a]"
             >
               로그아웃
             </button>

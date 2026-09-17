@@ -140,6 +140,21 @@ export function isUsEasternDst(date: Date): boolean {
   return date >= dstStart && date < dstEnd;
 }
 
+/**
+ * 미 동부시간(ET) 달력 날짜(YYYY-MM-DD) + 시:분을, 그 날짜의 서머타임 여부에 따라
+ * 정확한 UTC 시각(ISO)으로 변환한다. FOMC 성명 발표(14:00 ET 고정)처럼 "이 날짜의
+ * 동부시간 몇 시"가 정해진 일정을 KST로 환산해 보여줄 때 쓴다 — isUsEasternDst와
+ * 같은 이유로 전환 시각(새벽 2시) 정밀도까지는 따지지 않는다(회의 일정은 항상
+ * 평일이라 전환일 자체와 겹칠 일이 없다).
+ */
+export function etDateTimeToUtcIso(dateKey: string, hour: number, minute: number): string {
+  const dateOnly = new Date(`${dateKey}T00:00:00Z`);
+  const offsetHours = isUsEasternDst(dateOnly) ? 4 : 5; // EDT=UTC-4, EST=UTC-5
+  const utc = new Date(`${dateKey}T00:00:00Z`);
+  utc.setUTCHours(hour + offsetHours, minute, 0, 0);
+  return utc.toISOString();
+}
+
 // 미국 정규장 마감(동부시간 16:00) 1시간 전인 동부시간 15:00에 맞춘 cron 표현식.
 // 서머타임(EDT, UTC-4)이면 UTC 19시, 표준시(EST, UTC-5)면 UTC 20시.
 export const DST_TRIGGER_CRON = "0 19 * * 1-5";

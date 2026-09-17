@@ -6,6 +6,9 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { authJsonFetcher } from "@/lib/authFetch";
 import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
 import MarketBriefingSection from "@/components/MarketBriefingSection";
+import { etDateTimeToUtcIso } from "@/lib/usMarketCalendar";
+import { toKstDateString, formatKstTime } from "@/lib/formatKst";
+import { FOMC_ANNOUNCEMENT_ET_HOUR, FOMC_ANNOUNCEMENT_ET_MINUTE } from "@/lib/rateConfig";
 
 interface UsRatePoint {
   effectiveDate: string;
@@ -79,6 +82,27 @@ function formatNewsDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * FOMC 회의 결과 발표(14:00 ET 고정, lib/rateConfig.ts)를 ET/KST 두 시각으로
+ * 함께 보여줄 문자열을 만든다. 14:00 ET는 서머타임 여부와 무관하게 항상 다음날
+ * 새벽(EDT면 03:00, EST면 04:00) KST가 돼, 날짜 자체가 하루 밀린다 — 괄호로
+ * 뭉개지 않고 두 줄로 분리해서 보여주기 위해 et/kst를 따로 반환한다.
+ */
+function formatFomcSchedule(dateKey: string): { et: string; kst: string } {
+  const [, month, day] = dateKey.split("-");
+  const hh = String(FOMC_ANNOUNCEMENT_ET_HOUR).padStart(2, "0");
+  const mm = String(FOMC_ANNOUNCEMENT_ET_MINUTE).padStart(2, "0");
+  const et = `${Number(month)}/${Number(day)} ${hh}:${mm} ET`;
+
+  const announcementUtcIso = etDateTimeToUtcIso(dateKey, FOMC_ANNOUNCEMENT_ET_HOUR, FOMC_ANNOUNCEMENT_ET_MINUTE);
+  // ko-KR 로케일의 기본 구두점("10. 29.")이 아니라 ET 쪽과 같은 "M/D" 표기로
+  // 통일하기 위해 toKstDateString(YYYY-MM-DD)을 직접 잘라 쓴다.
+  const [, kstMonth, kstDay] = toKstDateString(announcementUtcIso).split("-");
+  const kstTime = formatKstTime(announcementUtcIso, { hour: "2-digit", minute: "2-digit" });
+
+  return { et, kst: `${Number(kstMonth)}/${Number(kstDay)} ${kstTime} KST` };
 }
 
 /** 변경점(회의가 있었던 날)만 담긴 시계열을, 지정한 기간 창 안에서 계단식으로 그릴 수
@@ -300,15 +324,27 @@ export default function MarketIndicators() {
               <p className="text-sm text-zinc-500 dark:text-zinc-400">예정된 일정이 없습니다.</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {data.upcoming.map((m) => (
-                  <li
-                    key={`${m.market}-${m.date}`}
-                    className="flex items-center justify-between rounded-lg border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145]"
-                  >
-                    <span className="text-black dark:text-zinc-50">{m.date}</span>
-                    <span className="text-zinc-500 dark:text-zinc-400">{MARKET_LABELS[m.market]}</span>
-                  </li>
-                ))}
+                {data.upcoming.map((m) => {
+                  const schedule = m.market === "US" ? formatFomcSchedule(m.date) : null;
+                  return (
+                    <li
+                      key={`${m.market}-${m.date}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145]"
+                    >
+                      {schedule ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-black dark:text-zinc-50">{schedule.et}</span>
+                          <span className="inline-flex w-fit items-center rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-ink-muted dark:bg-white/[.08]">
+                            {schedule.kst}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-black dark:text-zinc-50">{m.date}</span>
+                      )}
+                      <span className="text-zinc-500 dark:text-zinc-400">{MARKET_LABELS[m.market]}</span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

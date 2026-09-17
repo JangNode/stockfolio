@@ -20,3 +20,15 @@ export const ECOS_KR_BASE_RATE_START_DATE = "19990101"; // ECOS 날짜 형식(YY
 // FOMC/금통위 발표 감지 재시도 오프셋(분). scripts/check-rate-announcement.ts가
 // 이 간격만큼 sleep하며 최대 이 횟수만큼 확인한다.
 export const RATE_CHECK_BACKOFF_OFFSETS_MIN = [0, 5, 15, 30, 60, 120] as const;
+
+// FOMC 성명 발표 시각(미 동부시간 고정). supabase/migrations의 발표 감지 pg_cron
+// 잡(EDT/EST 두 스케줄을 매 회의마다 등록)이 이미 이 시각을 UTC로 환산해 쓰고
+// 있다 — "다가오는 일정" 화면에서 같은 값을 재사용해 ET/KST를 함께 보여준다.
+export const FOMC_ANNOUNCEMENT_ET_HOUR = 14;
+export const FOMC_ANNOUNCEMENT_ET_MINUTE = 0;
+
+// 금통위 결과 발표 시각(한국시간 고정). 같은 pg_cron 잡의 UTC 00:00 = KST 09:00
+// 환산에서 확인된 값이다. 국내 일정이라 KST 라벨은 안 붙이지만, 화면에 시각을
+// 같이 보여줄 때 이 상수를 쓴다.
+export const MPC_ANNOUNCEMENT_KST_HOUR = 9;
+export const MPC_ANNOUNCEMENT_KST_MINUTE = 0;

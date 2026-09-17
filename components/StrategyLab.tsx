@@ -7,6 +7,7 @@ import { authFetch, authJsonFetcher } from "@/lib/authFetch";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
+import { formatPercent } from "@/lib/formatNumber";
 import { CUSTOM_BACKTEST_PERIOD_MONTHS, FUNDAMENTAL_CONDITION_COMPARATORS } from "@/lib/customBacktestRequest";
 import type { BacktestTrade, CustomCompositeParams, CustomFundamentalConditions, FundamentalConditionComparator } from "@/lib/backtest";
 
@@ -134,22 +135,22 @@ function describeRuleParams(params: CustomCompositeParams): string {
 }
 
 function statColorClass(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (value > 0) return "text-rise";
+  if (value < 0) return "text-fall";
+  return "text-flat";
 }
 
 const selectClassName =
-  "h-10 rounded-lg border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+  "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 const numberInputClassName =
-  "h-9 w-20 rounded-lg border border-black/[.08] bg-transparent px-2 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+  "h-9 w-20 rounded-lg border border-border bg-transparent px-2 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
 function MatchedStockTrades({ trades, market }: { trades: BacktestTrade[]; market: Market }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="text-zinc-500 dark:text-zinc-400">
+          <tr className="text-ink-muted">
             <th className="pb-2 pr-4 font-normal">매수일</th>
             <th className="pb-2 pr-4 font-normal">매수가</th>
             <th className="pb-2 pr-4 font-normal">매도일</th>
@@ -159,17 +160,17 @@ function MatchedStockTrades({ trades, market }: { trades: BacktestTrade[]; marke
         </thead>
         <tbody>
           {trades.map((trade, i) => (
-            <tr key={i} className="border-t border-black/[.08] dark:border-white/[.145]">
-              <td className="py-2 pr-4 text-black dark:text-zinc-50">{trade.buyDate}</td>
-              <td className="py-2 pr-4 text-black dark:text-zinc-50">{formatPrice(trade.buyPrice, market)}</td>
-              <td className="py-2 pr-4 text-black dark:text-zinc-50">
+            <tr key={i} className="border-t border-border">
+              <td className="py-2 pr-4 tabular-nums text-ink">{trade.buyDate}</td>
+              <td className="py-2 pr-4 tabular-nums text-ink">{formatPrice(trade.buyPrice, market)}</td>
+              <td className="py-2 pr-4 tabular-nums text-ink">
                 {trade.sellDate}
                 {trade.isForcedLiquidation && (
-                  <span className="ml-1 text-xs text-zinc-500 dark:text-zinc-400">(미청산)</span>
+                  <span className="ml-1 text-xs text-ink-muted">(미청산)</span>
                 )}
               </td>
-              <td className="py-2 pr-4 text-black dark:text-zinc-50">{formatPrice(trade.sellPrice, market)}</td>
-              <td className={`py-2 ${statColorClass(trade.returnPct)}`}>{(trade.returnPct * 100).toFixed(2)}%</td>
+              <td className="py-2 pr-4 tabular-nums text-ink">{formatPrice(trade.sellPrice, market)}</td>
+              <td className={`py-2 tabular-nums ${statColorClass(trade.returnPct)}`}>{formatPercent(trade.returnPct * 100)}</td>
             </tr>
           ))}
         </tbody>
@@ -195,7 +196,7 @@ function RunResultPanel({
 
   if (run.status === "pending" || run.status === "running") {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="text-sm text-ink-muted">
         {STATUS_LABELS[run.status]}... 전체 종목 풀을 조회해 백테스트하는 데 시간이 걸릴 수 있습니다(수십 분 이상).
       </p>
     );
@@ -211,7 +212,7 @@ function RunResultPanel({
 
   if (!result || result.matchedStocks.length === 0) {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">조건에 해당하는 종목이 없습니다.</p>
+      <p className="text-sm text-ink-muted">조건에 해당하는 종목이 없습니다.</p>
     );
   }
 
@@ -222,43 +223,43 @@ function RunResultPanel({
 
   return (
     <>
-      <dl className="grid grid-cols-2 gap-3 border-b border-black/[.08] pb-4 text-sm sm:grid-cols-5 dark:border-white/[.145]">
+      <dl className="grid grid-cols-2 gap-3 border-b border-border pb-4 text-sm sm:grid-cols-5">
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">전체 수익률</dt>
-          <dd className={`mt-1 text-lg font-semibold ${statColorClass(run.total_return_pct ?? 0)}`}>
-            {(run.total_return_pct ?? 0).toFixed(2)}%
+          <dt className="text-ink-muted">전체 수익률</dt>
+          <dd className={`mt-1 tabular-nums text-lg font-semibold ${statColorClass(run.total_return_pct ?? 0)}`}>
+            {formatPercent(run.total_return_pct ?? 0)}
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">승률</dt>
-          <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">
-            {((run.win_rate ?? 0) * 100).toFixed(1)}%
+          <dt className="text-ink-muted">승률</dt>
+          <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">
+            {formatPercent((run.win_rate ?? 0) * 100, { sign: false })}
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">MDD</dt>
-          <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">
+          <dt className="text-ink-muted">MDD</dt>
+          <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">
             -{(run.mdd_pct ?? 0).toFixed(2)}%
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">매칭 종목</dt>
-          <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{run.matched_stock_count ?? 0}개</dd>
+          <dt className="text-ink-muted">매칭 종목</dt>
+          <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">{run.matched_stock_count ?? 0}개</dd>
         </div>
         <div>
-          <dt className="text-zinc-500 dark:text-zinc-400">총 거래</dt>
-          <dd className="mt-1 text-lg font-semibold text-black dark:text-zinc-50">{run.trade_count ?? 0}건</dd>
+          <dt className="text-ink-muted">총 거래</dt>
+          <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">{run.trade_count ?? 0}건</dd>
         </div>
       </dl>
 
       {forcedLiquidationCount > 0 && (
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mt-3 text-xs text-ink-muted">
           총 거래 {run.trade_count ?? 0}건 중 {forcedLiquidationCount}건은 기간 끝까지 매도 신호가 없어
           마지막 종가로 강제 청산 처리한 미실현 거래입니다(종목별 내역의 &ldquo;미청산&rdquo; 표시).
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-black/[.08] py-4 dark:border-white/[.145]">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border py-4">
         {run.adopted_at ? (
           <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
             AI 모의투자(커스텀)로 채택됨
@@ -278,7 +279,7 @@ function RunResultPanel({
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="text-zinc-500 dark:text-zinc-400">
+            <tr className="text-ink-muted">
               <th className="pb-2 pr-4 font-normal">종목</th>
               <th className="pb-2 pr-4 font-normal">수익률</th>
               <th className="pb-2 pr-4 font-normal">거래 횟수</th>
@@ -291,16 +292,16 @@ function RunResultPanel({
                 <tr
                   key={stock.stockCode}
                   onClick={() => setExpandedCode(expandedCode === stock.stockCode ? null : stock.stockCode)}
-                  className="cursor-pointer border-t border-black/[.08] hover:bg-black/[.02] dark:border-white/[.145] dark:hover:bg-white/[.04]"
+                  className="cursor-pointer border-t border-border hover:bg-black/[.02] dark:hover:bg-white/[.04]"
                 >
-                  <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                  <td className="py-2 pr-4 text-ink">
                     {stock.stockName} ({stock.stockCode})
                   </td>
-                  <td className={`py-2 pr-4 ${statColorClass(stock.totalReturnPct)}`}>
-                    {stock.totalReturnPct.toFixed(2)}%
+                  <td className={`py-2 pr-4 tabular-nums ${statColorClass(stock.totalReturnPct)}`}>
+                    {formatPercent(stock.totalReturnPct)}
                   </td>
-                  <td className="py-2 pr-4 text-black dark:text-zinc-50">{stock.tradeCount}건</td>
-                  <td className="py-2 text-black dark:text-zinc-50">{(stock.winRate * 100).toFixed(1)}%</td>
+                  <td className="py-2 pr-4 tabular-nums text-ink">{stock.tradeCount}건</td>
+                  <td className="py-2 tabular-nums text-ink">{formatPercent(stock.winRate * 100, { sign: false })}</td>
                 </tr>
                 {expandedCode === stock.stockCode && (
                   <tr key={`${stock.stockCode}-detail`}>
@@ -443,19 +444,19 @@ export default function StrategyLab({}: { user: User }) {
     <div className="w-full max-w-4xl">
       <SubTabs tabs={LAB_PAPER_TRADING_TABS} />
 
-      <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="mb-6 rounded-card border border-border bg-surface p-4">
+        <p className="mb-4 text-sm text-ink-muted">
           조건을 직접 구성해 {MARKET_LABELS[market]} 전체 종목 풀을 대상으로 백테스트합니다. 조건은 모두
           동시에(AND) 만족해야 매칭됩니다.
         </p>
 
         <div className="mb-4 flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-sm text-black dark:text-zinc-50">
+          <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" checked={maCrossEnabled} onChange={(e) => setMaCrossEnabled(e.target.checked)} />
             이동평균 골든크로스(단기 이평선이 장기 이평선 위)
           </label>
           {maCrossEnabled && (
-            <div className="ml-6 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <div className="ml-6 flex items-center gap-2 text-sm text-ink-muted">
               단기
               <input
                 type="number"
@@ -476,12 +477,12 @@ export default function StrategyLab({}: { user: User }) {
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-sm text-black dark:text-zinc-50">
+          <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" checked={rsiEnabled} onChange={(e) => setRsiEnabled(e.target.checked)} />
             RSI
           </label>
           {rsiEnabled && (
-            <div className="ml-6 flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <div className="ml-6 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
               <input
                 type="number"
                 min={2}
@@ -509,12 +510,12 @@ export default function StrategyLab({}: { user: User }) {
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-sm text-black dark:text-zinc-50">
+          <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" checked={volumeEnabled} onChange={(e) => setVolumeEnabled(e.target.checked)} />
             거래량 급증
           </label>
           {volumeEnabled && (
-            <div className="ml-6 flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <div className="ml-6 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
               당일 거래량이 최근
               <input
                 type="number"
@@ -537,11 +538,11 @@ export default function StrategyLab({}: { user: User }) {
           )}
         </div>
 
-        <div className="mb-4 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
-          <p className="mb-2 text-sm font-medium text-black dark:text-zinc-50">
+        <div className="mb-4 border-t border-border pt-3">
+          <p className="mb-2 text-sm font-medium text-ink">
             펀더멘털
             {market === "US" && (
-              <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+              <span className="ml-2 text-xs font-normal text-ink-muted">
                 (DART 재무 데이터는 국내 상장사만 다뤄 국내(KR) 시장에서만 사용할 수 있습니다)
               </span>
             )}
@@ -551,7 +552,7 @@ export default function StrategyLab({}: { user: User }) {
               const field = fundamentalFields[key];
               return (
                 <div key={key}>
-                  <label className="flex items-center gap-2 text-sm text-black dark:text-zinc-50">
+                  <label className="flex items-center gap-2 text-sm text-ink">
                     <input
                       type="checkbox"
                       checked={field.enabled}
@@ -561,7 +562,7 @@ export default function StrategyLab({}: { user: User }) {
                     {FUNDAMENTAL_FIELD_LABELS[key]}
                   </label>
                   {field.enabled && market === "KR" && (
-                    <div className="ml-6 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    <div className="ml-6 flex items-center gap-2 text-sm text-ink-muted">
                       <select
                         value={field.comparator}
                         onChange={(e) =>
@@ -590,9 +591,9 @@ export default function StrategyLab({}: { user: User }) {
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-end gap-3 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+        <div className="mb-4 flex flex-wrap items-end gap-3 border-t border-border pt-4">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500 dark:text-zinc-400">손절 비율(%)</label>
+            <label className="text-xs text-ink-muted">손절 비율(%)</label>
             <input
               type="number"
               min={1}
@@ -603,7 +604,7 @@ export default function StrategyLab({}: { user: User }) {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500 dark:text-zinc-400">익절 비율(%)</label>
+            <label className="text-xs text-ink-muted">익절 비율(%)</label>
             <input
               type="number"
               min={1}
@@ -614,7 +615,7 @@ export default function StrategyLab({}: { user: User }) {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-zinc-500 dark:text-zinc-400">기간</label>
+            <label className="text-xs text-ink-muted">기간</label>
             <select
               value={periodMonths}
               onChange={(e) =>
@@ -642,9 +643,9 @@ export default function StrategyLab({}: { user: User }) {
       </div>
 
       {viewRunId && (
-        <div className="mb-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="mb-6 rounded-card border border-border bg-surface p-4">
           <div className="mb-4 flex items-center gap-2">
-            <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">백테스트 결과</p>
+            <p className="text-sm font-medium text-ink-muted">백테스트 결과</p>
             {viewData && (
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[viewData.run.status]}`}>
                 {STATUS_LABELS[viewData.run.status]}
@@ -652,7 +653,7 @@ export default function StrategyLab({}: { user: User }) {
             )}
           </div>
           {viewLoading && !viewData ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+            <p className="text-sm text-ink-muted">불러오는 중...</p>
           ) : viewData ? (
             <RunResultPanel
               run={viewData.run}
@@ -665,12 +666,12 @@ export default function StrategyLab({}: { user: User }) {
         </div>
       )}
 
-      <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="mb-3 text-sm font-medium text-zinc-600 dark:text-zinc-400">지난 요청</p>
+      <div className="rounded-card border border-border bg-surface p-4">
+        <p className="mb-3 text-sm font-medium text-ink-muted">지난 요청</p>
         {!runsData ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+          <p className="text-sm text-ink-muted">불러오는 중...</p>
         ) : runsData.runs.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">아직 요청한 백테스트가 없습니다.</p>
+          <p className="text-sm text-ink-muted">아직 요청한 백테스트가 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {runsData.runs.map((run) => (
@@ -680,10 +681,10 @@ export default function StrategyLab({}: { user: User }) {
                   className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
                     viewRunId === run.id
                       ? "border-black/30 dark:border-white/30"
-                      : "border-black/[.08] hover:bg-black/[.02] dark:border-white/[.145] dark:hover:bg-white/[.04]"
+                      : "border-border hover:bg-black/[.02] dark:hover:bg-white/[.04]"
                   }`}
                 >
-                  <span className="text-black dark:text-zinc-50">
+                  <span className="text-ink">
                     {MARKET_LABELS[run.market]} · {describeRuleParams(run.rule_params)} · {PERIOD_LABELS[run.period_months as (typeof CUSTOM_BACKTEST_PERIOD_MONTHS)[number]] ?? `${run.period_months}개월`}
                   </span>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[run.status]}`}>

@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { IBM_Plex_Sans_KR } from "next/font/google";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { todayKstDateString } from "@/lib/formatKst";
 
 // 이 컴포넌트에만 스코프된 폰트 — 전역 폰트(app/layout.tsx의 Geist)는 그대로 둔다.
 const ibmPlexSansKr = IBM_Plex_Sans_KR({
@@ -356,11 +357,6 @@ function StockMoversSection({ stockMovers }: { stockMovers: Record<string, unkno
       ))}
     </div>
   );
-}
-
-/** 오늘(KST) 날짜 문자열(YYYY-MM-DD)을 만든다. */
-function todayKstDateString(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
 function computeDaysAgo(dateKst: string): number | null {

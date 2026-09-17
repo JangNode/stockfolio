@@ -7,7 +7,7 @@ import { authJsonFetcher } from "@/lib/authFetch";
 import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
 import MarketBriefingSection from "@/components/MarketBriefingSection";
 import { etDateTimeToUtcIso } from "@/lib/usMarketCalendar";
-import { toKstDateString, formatKstTime } from "@/lib/formatKst";
+import { toKstDateString, formatKstTime, formatKstDateTime } from "@/lib/formatKst";
 import { FOMC_ANNOUNCEMENT_ET_HOUR, FOMC_ANNOUNCEMENT_ET_MINUTE } from "@/lib/rateConfig";
 
 interface UsRatePoint {
@@ -73,9 +73,7 @@ function formatShortDate(date: string): string {
 }
 
 function formatNewsDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul",
+  return formatKstDateTime(iso, {
     year: "2-digit",
     month: "2-digit",
     day: "2-digit",

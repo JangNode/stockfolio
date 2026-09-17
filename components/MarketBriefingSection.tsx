@@ -81,7 +81,7 @@ function hasEstimateFlag(obj: Record<string, unknown>): boolean {
 
 function EstimateBadge() {
   return (
-    <span className="ml-1.5 shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+    <span className="ml-1.5 shrink-0 rounded-full bg-est-soft px-1.5 py-0.5 text-[10px] font-medium text-est">
       추정
     </span>
   );
@@ -98,9 +98,9 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
     return (
       <div className="flex flex-col gap-1">
         {label && (
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{humanizeKey(label)}</p>
+          <p className="text-xs font-medium text-ink-muted">{humanizeKey(label)}</p>
         )}
-        <ul className="flex list-disc flex-col gap-1 pl-4 text-sm text-black dark:text-zinc-50">
+        <ul className="flex list-disc flex-col gap-1 pl-4 text-sm text-ink">
           {value.map((item, i) => (
             <li key={i}>
               {isPrimitive(item) ? String(item) : <JsonEntry value={item} />}
@@ -124,8 +124,8 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
       const innerLabel = k === "value" ? "" : `${humanizeKey(k)}: `;
       return (
         <p className="flex flex-wrap items-baseline gap-1 text-sm">
-          {label && <span className="text-zinc-500 dark:text-zinc-400">{humanizeKey(label)}:</span>}
-          <span className="tabular-nums text-black dark:text-zinc-50">
+          {label && <span className="text-ink-muted">{humanizeKey(label)}:</span>}
+          <span className="tabular-nums text-ink">
             {innerLabel}
             {String(v)}
           </span>
@@ -137,7 +137,7 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
     return (
       <div className="flex flex-col gap-1.5">
         {(label || estimated) && (
-          <p className="flex items-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <p className="flex items-center text-xs font-medium text-ink-muted">
             {label && humanizeKey(label)}
             {estimated && <EstimateBadge />}
           </p>
@@ -153,8 +153,8 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
 
   return (
     <p className="flex flex-wrap items-baseline gap-1 text-sm">
-      {label && <span className="text-zinc-500 dark:text-zinc-400">{humanizeKey(label)}:</span>}
-      <span className="tabular-nums text-black dark:text-zinc-50">{String(value)}</span>
+      {label && <span className="text-ink-muted">{humanizeKey(label)}:</span>}
+      <span className="tabular-nums text-ink">{String(value)}</span>
     </p>
   );
 }
@@ -162,9 +162,9 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
 // 국내 시세 관례: 상승=빨강, 하락=파랑(components/ThemeRankings.tsx의
 // changeRateColorClass와 동일 — 해외 지수도 이 앱 전체 관례를 그대로 따른다).
 function changeColorClass(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (value > 0) return "text-rise";
+  if (value < 0) return "text-fall";
+  return "text-flat";
 }
 
 function formatPct(value: number): string {
@@ -280,10 +280,10 @@ function QuickStatStrip({ stats }: { stats: QuickStat[] }) {
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className="flex w-[104px] shrink-0 flex-col gap-1 rounded-xl border border-black/[.08] bg-zinc-50 px-3 py-2.5 dark:border-white/[.145] dark:bg-zinc-900"
+            className="flex w-[104px] shrink-0 flex-col gap-1 rounded-card border border-border bg-surface-sunken px-3 py-2.5"
           >
-            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{stat.label}</span>
-            <span className="tabular-nums text-sm font-semibold text-black dark:text-zinc-50">{stat.value}</span>
+            <span className="text-[11px] text-ink-muted">{stat.label}</span>
+            <span className="tabular-nums text-sm font-semibold text-ink">{stat.value}</span>
             {stat.changeText && (
               <span className={`tabular-nums text-xs font-medium ${changeColorClass(stat.changeSign)}`}>
                 {stat.changeText}
@@ -316,12 +316,12 @@ function StockMoversList({ items }: { items: unknown[] }) {
         return (
           <li key={i} className="flex flex-col gap-0.5 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-              <span className="flex items-center font-medium text-black dark:text-zinc-50">
+              <span className="flex items-center font-medium text-ink">
                 {name}
                 {estimated && <EstimateBadge />}
               </span>
               <span className="flex items-baseline gap-2">
-                {price !== null && <span className="tabular-nums text-zinc-500 dark:text-zinc-400">{price}</span>}
+                {price !== null && <span className="tabular-nums text-ink-muted">{price}</span>}
                 {changePct !== null && (
                   <span className={`tabular-nums font-medium ${changeColorClass(changePct)}`}>
                     {formatPct(changePct)}
@@ -329,7 +329,7 @@ function StockMoversList({ items }: { items: unknown[] }) {
                 )}
               </span>
             </div>
-            {reason && <p className="text-xs text-zinc-500 dark:text-zinc-400">{reason}</p>}
+            {reason && <p className="text-xs text-ink-muted">{reason}</p>}
           </li>
         );
       })}
@@ -351,7 +351,7 @@ function StockMoversSection({ stockMovers }: { stockMovers: Record<string, unkno
     <div className="flex flex-col gap-3">
       {groups.map((g) => (
         <div key={g.key} className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{g.label}</p>
+          <p className="text-xs font-medium text-ink-muted">{g.label}</p>
           <StockMoversList items={g.items} />
         </div>
       ))}
@@ -366,7 +366,7 @@ function computeDaysAgo(dateKst: string): number | null {
 }
 
 const CARD_CLASS =
-  "w-full max-w-full overflow-x-hidden rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950";
+  "w-full max-w-full overflow-x-hidden rounded-card border border-border bg-surface p-4";
 
 export default function MarketBriefingSection() {
   const { data, error, isLoading } = useSWR<MarketBriefingResponse>(
@@ -377,7 +377,7 @@ export default function MarketBriefingSection() {
   if (isLoading) {
     return (
       <div className={`${ibmPlexSansKr.className} mb-6 ${CARD_CLASS}`}>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+        <p className="text-sm text-ink-muted">불러오는 중...</p>
       </div>
     );
   }
@@ -393,8 +393,8 @@ export default function MarketBriefingSection() {
   if (data.dateKst === null || data.rawJson === null) {
     return (
       <div className={`${ibmPlexSansKr.className} mb-6 ${CARD_CLASS}`}>
-        <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">증시근황</p>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">오늘 브리핑 미등록</p>
+        <p className="mb-3 text-sm font-medium text-ink">증시근황</p>
+        <p className="text-sm text-ink-muted">오늘 브리핑 미등록</p>
       </div>
     );
   }
@@ -437,9 +437,9 @@ export default function MarketBriefingSection() {
   return (
     <div className={`${ibmPlexSansKr.className} mb-6 ${CARD_CLASS}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-black dark:text-zinc-50">증시근황</p>
+        <p className="text-sm font-medium text-ink">증시근황</p>
         {(referenceSession || timezoneBasis) && (
-          <p className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">
+          <p className="truncate text-[11px] text-ink-faint">
             {referenceSession}
             {referenceSession && timezoneBasis && " · "}
             {timezoneBasis}
@@ -448,7 +448,7 @@ export default function MarketBriefingSection() {
       </div>
 
       {daysAgo !== null && daysAgo > 0 && (
-        <p className="mb-3 rounded-lg bg-amber-100 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+        <p className="mb-3 rounded-lg bg-est-soft px-3 py-2 text-xs font-medium text-est">
           {daysAgo}일 전 브리핑입니다.
         </p>
       )}
@@ -483,7 +483,7 @@ export default function MarketBriefingSection() {
       )}
 
       {summary && summary.length > 0 && (
-        <ul className="mb-4 flex list-disc flex-col gap-1.5 pl-4 text-sm text-black dark:text-zinc-50">
+        <ul className="mb-4 flex list-disc flex-col gap-1.5 pl-4 text-sm text-ink">
           {summary.map((item, i) => (
             <li key={i}>{isPrimitive(item) ? String(item) : <JsonEntry value={item} />}</li>
           ))}
@@ -492,8 +492,8 @@ export default function MarketBriefingSection() {
 
       <div className="flex flex-col gap-2">
         {REMAINING_SECTION_KEYS.filter((key) => root[key] !== undefined).map((key) => (
-          <details key={key} className="rounded-lg border border-black/[.08] p-3 dark:border-white/[.145]">
-            <summary className="cursor-pointer text-sm font-medium text-black dark:text-zinc-50">
+          <details key={key} className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium text-ink">
               {SECTION_LABELS[key] ?? humanizeKey(key)}
             </summary>
             <div className="mt-2">
@@ -508,7 +508,7 @@ export default function MarketBriefingSection() {
       </div>
 
       {(footerLine || artifactUrl) && (
-        <p className="mt-4 text-[10px] text-zinc-400 dark:text-zinc-600">
+        <p className="mt-4 text-[10px] text-ink-faint">
           {footerLine}
           {artifactUrl && (
             <>
@@ -522,7 +522,7 @@ export default function MarketBriefingSection() {
       )}
 
       {disclaimer && (
-        <div className="mt-4 rounded-lg border border-black/[.08] bg-zinc-50 px-3 py-2 text-[11px] leading-relaxed text-zinc-500 dark:border-white/[.145] dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="mt-4 rounded-lg border border-border bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
           {disclaimer}
         </div>
       )}

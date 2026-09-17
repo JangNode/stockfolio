@@ -7,7 +7,8 @@ import { authJsonFetcher } from "@/lib/authFetch";
 import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
-import { formatPrice, type Market } from "@/lib/market";
+import { formatPrice, formatNumber, type Market } from "@/lib/market";
+import { formatPercent } from "@/lib/formatNumber";
 import { PAPER_STYLE_LABEL, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 import {
   toKstDateString as toKstDate,
@@ -154,13 +155,13 @@ function groupByDate(trades: TradeRow[]): [string, TradeRow[]][] {
 }
 
 function returnColorClass(pct: number): string {
-  if (pct > 0) return "text-red-600 dark:text-red-400";
-  if (pct < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (pct > 0) return "text-rise";
+  if (pct < 0) return "text-fall";
+  return "text-flat";
 }
 
 function signedPct(pct: number): string {
-  return `${pct > 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  return formatPercent(pct);
 }
 
 function usePortfolios() {
@@ -284,7 +285,7 @@ function computePeriodReturnPct(
 /** 의존성 없는 간단한 인라인 SVG 라인 스파크라인. */
 function Sparkline({ values, className }: { values: number[]; className?: string }) {
   if (values.length < 2) {
-    return <div className={`flex h-16 items-center text-xs text-zinc-400 ${className ?? ""}`}>데이터 부족</div>;
+    return <div className={`flex h-16 items-center text-xs text-ink-faint ${className ?? ""}`}>데이터 부족</div>;
   }
 
   const width = 300;
@@ -316,20 +317,20 @@ function Sparkline({ values, className }: { values: number[]; className?: string
 function TodayBadge({ todayTradeCount, ranToday }: { todayTradeCount: number; ranToday: boolean }) {
   if (todayTradeCount > 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+      <span className="inline-flex items-center rounded-full bg-rise-soft px-2 py-0.5 text-xs font-medium text-rise">
         오늘 {todayTradeCount}건 체결
       </span>
     );
   }
   if (ranToday) {
     return (
-      <span className="inline-flex items-center rounded-full bg-black/[.04] px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
+      <span className="inline-flex items-center rounded-full bg-black/[.04] px-2 py-0.5 text-xs font-medium text-ink-muted dark:bg-white/[.08]">
         오늘 조건 미충족으로 매매 없음
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+    <span className="inline-flex items-center rounded-full bg-est-soft px-2 py-0.5 text-xs font-medium text-est">
       ⚠ 오늘 배치 미실행
     </span>
   );
@@ -366,20 +367,20 @@ function OverviewScreen({
         return (
           <div
             key={style}
-            className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
+            className="rounded-card border border-border bg-surface p-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium text-black dark:text-zinc-50">{STYLE_LABEL[style]}</p>
+              <p className="text-sm font-medium text-ink">{STYLE_LABEL[style]}</p>
               <TodayBadge todayTradeCount={todayTradeCount} ranToday={ranToday} />
             </div>
 
             {!portfolio || !latest ? (
-              <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+              <p className="mt-4 text-sm text-ink-muted">
                 아직 실행된 배치가 없습니다.
               </p>
             ) : (
               <>
-                <p className="mt-2 text-2xl font-semibold text-black dark:text-zinc-50">
+                <p className="mt-2 tabular-nums text-2xl font-semibold text-ink">
                   {formatPrice(latest.equity, market)}
                 </p>
                 <div className="mt-1 flex gap-4 text-sm">
@@ -390,7 +391,7 @@ function OverviewScreen({
                     일간 {signedPct(latest.daily_return_pct)}
                   </span>
                 </div>
-                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="mt-2 text-xs text-ink-muted">
                   현금 {formatPrice(latest.cash, market)} · 보유 {holdingCount}종목
                 </p>
                 <Sparkline
@@ -410,20 +411,20 @@ function ConditionsSummary({ strategy }: { strategy: StrategyRow }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div>
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">진입조건</p>
-        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-black dark:bg-white/[.06] dark:text-zinc-50">
+        <p className="text-xs font-medium text-ink-muted">진입조건</p>
+        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-ink dark:bg-white/[.06]">
           {JSON.stringify(strategy.entry_conditions, null, 2)}
         </pre>
       </div>
       <div>
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">청산조건</p>
-        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-black dark:bg-white/[.06] dark:text-zinc-50">
+        <p className="text-xs font-medium text-ink-muted">청산조건</p>
+        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-ink dark:bg-white/[.06]">
           {JSON.stringify(strategy.exit_conditions, null, 2)}
         </pre>
       </div>
       <div>
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">종목선정기준</p>
-        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-black dark:bg-white/[.06] dark:text-zinc-50">
+        <p className="text-xs font-medium text-ink-muted">종목선정기준</p>
+        <pre className="mt-1 overflow-x-auto rounded-lg bg-black/[.03] p-2 text-xs text-ink dark:bg-white/[.06]">
           {JSON.stringify(strategy.stock_selection_criteria, null, 2)}
         </pre>
       </div>
@@ -441,7 +442,7 @@ function StyleToggle({ value, onChange }: { value: PaperStyle; onChange: (style:
           className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
             value === style
               ? "bg-foreground text-background"
-              : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+              : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
           }`}
         >
           {STYLE_LABEL[style]}
@@ -473,40 +474,40 @@ function DetailScreen({
       <StyleToggle value={style} onChange={setStyle} />
 
       {!active ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">아직 생성된 전략이 없습니다.</p>
+        <p className="text-sm text-ink-muted">아직 생성된 전략이 없습니다.</p>
       ) : (
-        <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-          <p className="font-medium text-black dark:text-zinc-50">
-            {active.label} <span className="text-xs text-zinc-400 dark:text-zinc-500">v{active.version}</span>
+        <div className="rounded-card border border-border bg-surface p-4">
+          <p className="font-medium text-ink">
+            {active.label} <span className="text-xs text-ink-faint">v{active.version}</span>
           </p>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{formatDate(active.created_at)} 생성</p>
-          <p className="mt-3 text-sm text-black dark:text-zinc-50">{active.rationale}</p>
+          <p className="mt-1 text-xs text-ink-muted">{formatDate(active.created_at)} 생성</p>
+          <p className="mt-3 text-sm text-ink">{active.rationale}</p>
 
           <button
             onClick={() => setShowConditions((v) => !v)}
-            className="mt-3 text-xs font-medium text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+            className="mt-3 text-xs font-medium text-ink-muted hover:text-ink"
           >
             {showConditions ? "접기 ▲" : "조건 상세보기 ▼"}
           </button>
 
           {showConditions && (
-            <div className="mt-4 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
+            <div className="mt-4 border-t border-border pt-4">
               <ConditionsSummary strategy={active} />
             </div>
           )}
         </div>
       )}
 
-      <div className="mt-4 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-        <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">보유 종목 ({holdings.length})</p>
+      <div className="mt-4 rounded-card border border-border bg-surface p-4">
+        <p className="mb-3 text-sm font-medium text-ink">보유 종목 ({holdings.length})</p>
 
         {holdings.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">보유 중인 종목이 없습니다.</p>
+          <p className="text-sm text-ink-muted">보유 중인 종목이 없습니다.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="text-zinc-500 dark:text-zinc-400">
+                <tr className="text-ink-muted">
                   <th className="pb-2 pr-4 font-normal">종목명</th>
                   <th className="pb-2 pr-4 font-normal">점수</th>
                   <th className="pb-2 pr-4 font-normal">수량</th>
@@ -521,23 +522,23 @@ function DetailScreen({
                   const currentPrice = h.currentPrice ?? h.avg_price;
                   const pnlPct = ((currentPrice - h.avg_price) / h.avg_price) * 100;
                   return (
-                    <tr key={h.id} className="border-t border-black/[.08] dark:border-white/[.145]">
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                    <tr key={h.id} className="border-t border-border">
+                      <td className="py-2 pr-4 text-ink">
                         {h.stock_name}{" "}
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500">{h.stock_code}</span>
+                        <span className="text-xs text-ink-faint">{h.stock_code}</span>
                       </td>
                       <td className="py-2 pr-4">
                         <ScoreValue score={h.score} />
                       </td>
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">{h.quantity.toLocaleString("ko-KR")}</td>
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                      <td className="py-2 pr-4 tabular-nums text-ink">{formatNumber(h.quantity, market)}</td>
+                      <td className="py-2 pr-4 tabular-nums text-ink">
                         {formatPrice(h.avg_price, market)}
                       </td>
-                      <td className="py-2 pr-4 text-black dark:text-zinc-50">
+                      <td className="py-2 pr-4 tabular-nums text-ink">
                         {formatPrice(currentPrice, market)}
                       </td>
                       <td className={`py-2 pr-4 font-medium ${returnColorClass(pnlPct)}`}>{signedPct(pnlPct)}</td>
-                      <td className="py-2 text-zinc-500 dark:text-zinc-400">{formatDate(h.opened_at)}</td>
+                      <td className="py-2 tabular-nums text-ink-muted">{formatDate(h.opened_at)}</td>
                     </tr>
                   );
                 })}
@@ -558,12 +559,12 @@ function DateGroupHeader({ label, highlight = false }: { label: string; highligh
     <div className="mb-2 flex items-center gap-2">
       <span
         className={`text-xs font-semibold ${
-          highlight ? "text-black dark:text-zinc-50" : "text-zinc-500 dark:text-zinc-400"
+          highlight ? "text-ink" : "text-ink-muted"
         }`}
       >
         {label}
       </span>
-      <span className="h-px flex-1 bg-black/[.08] dark:bg-white/[.145]" />
+      <span className="h-px flex-1 bg-border" />
     </div>
   );
 }
@@ -580,24 +581,24 @@ function TradeItem({
   market: Market;
 }) {
   return (
-    <li className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+    <li className="rounded-card border border-border bg-surface p-4">
       <div className="flex items-start gap-3">
-        <span className="w-12 shrink-0 pt-0.5 text-sm font-semibold tabular-nums text-black dark:text-zinc-50">
+        <span className="w-12 shrink-0 pt-0.5 text-sm font-semibold tabular-nums text-ink">
           {formatTime(trade.traded_at)}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <div className="flex items-center gap-2">
               {style && (
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                <span className="text-xs font-medium text-ink-muted">
                   [{STYLE_LABEL[style]}]
                 </span>
               )}
-              <span className="font-medium text-black dark:text-zinc-50">
-                <span className={trade.side === "buy" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"}>
+              <span className="font-medium text-ink">
+                <span className={trade.side === "buy" ? "text-rise" : "text-fall"}>
                   {trade.side === "buy" ? "매수" : "매도"}
                 </span>{" "}
-                {trade.stock_name}({trade.stock_code}) {trade.quantity.toLocaleString("ko-KR")}주 @
+                {trade.stock_name}({trade.stock_code}) {formatNumber(trade.quantity, market)}주 @
                 {formatPrice(trade.price, market)}
               </span>
             </div>
@@ -608,7 +609,7 @@ function TradeItem({
               </span>
             )}
           </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">└ 판단 근거: {trade.rationale}</p>
+          <p className="mt-1 text-xs text-ink-muted">└ 판단 근거: {trade.rationale}</p>
         </div>
       </div>
     </li>
@@ -649,7 +650,7 @@ function TradesScreen({
             className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
               filter === f
                 ? "bg-foreground text-background"
-                : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
             }`}
           >
             {f === "all" ? "전체" : STYLE_LABEL[f]}
@@ -666,7 +667,7 @@ function TradesScreen({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm text-ink-muted">
             {ranToday ? "조건 미충족으로 매매 없음" : "⚠ 오늘 배치가 아직 실행되지 않았습니다"}
           </p>
         )}
@@ -713,7 +714,7 @@ function HistoryScreen({
       <StyleToggle value={style} onChange={setStyle} />
 
       {versions.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">전략 이력이 없습니다.</p>
+        <p className="text-sm text-ink-muted">전략 이력이 없습니다.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {versions.map((v) => (
@@ -743,11 +744,11 @@ function HistoryItem({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <li className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+    <li className="rounded-card border border-border bg-surface p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-black dark:text-zinc-50">
+        <p className="font-medium text-ink">
           v{strategy.version} {strategy.label}{" "}
-          <span className="text-xs font-normal text-zinc-400 dark:text-zinc-500">
+          <span className="text-xs font-normal text-ink-faint">
             {formatDate(strategy.created_at)} ~ {strategy.retired_at ? formatDate(strategy.retired_at) : "진행 중"}
           </span>
         </p>
@@ -760,14 +761,14 @@ function HistoryItem({
 
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="mt-2 text-xs font-medium text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        className="mt-2 text-xs font-medium text-ink-muted hover:text-ink"
       >
         {expanded ? "접기 ▲" : "상세보기 ▼"}
       </button>
 
       {expanded && (
-        <div className="mt-3 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
-          <p className="text-sm text-black dark:text-zinc-50">{strategy.rationale}</p>
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="text-sm text-ink">{strategy.rationale}</p>
           <div className="mt-3">
             <ConditionsSummary strategy={strategy} />
           </div>
@@ -818,7 +819,7 @@ export default function PaperTrading() {
             className={`h-9 rounded-full px-4 text-sm font-medium transition-colors ${
               subScreen === s.value
                 ? "bg-foreground text-background"
-                : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
             }`}
           >
             {s.label}
@@ -827,11 +828,11 @@ export default function PaperTrading() {
       </div>
 
       {portfoliosLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">불러오는 중...</p>
+        <p className="text-sm text-ink-muted">불러오는 중...</p>
       ) : portfoliosError ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">데이터를 불러오지 못했습니다.</p>
       ) : portfolios.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-sm text-ink-muted">
           가상 계좌가 아직 준비되지 않았습니다. 마이그레이션이 적용됐는지 확인해주세요.
         </p>
       ) : (

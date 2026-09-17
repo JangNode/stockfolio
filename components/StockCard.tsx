@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { formatNumber, formatPrice, type Market } from "@/lib/market";
 import { ibmPlexSansKr } from "@/lib/fonts";
+import { formatAsOfLabel } from "@/lib/formatKst";
 
 interface StockPrice {
   stockCode: string;
@@ -15,6 +16,10 @@ interface StockPrice {
   highPrice: number;
   lowPrice: number;
   volume: number;
+  /** 이 시세가 실제로 반영하는 거래일(YYYY-MM-DD). 해외 종목만 채워진다(국내는
+   * KIS inquire-price 응답에 이 필드가 없음 — lib/kis.ts의 IndexQuote 주석과
+   * 같은 이유). components/MarketSummary.tsx의 해외지수 배지와 동일한 패턴. */
+  asOfDate?: string;
 }
 
 const STOCK_NAMES: Record<string, string> = {
@@ -131,6 +136,11 @@ export default function StockCard({ code, name: nameProp, market, onRemove }: St
         {formatPrice(price.change, market)}
         {market === "KR" ? "원" : ""} ({sign}
         {price.changeRate.toFixed(2)}%)
+        {price.asOfDate && (
+          <span className="ml-2 text-xs font-normal text-ink-faint">
+            {formatAsOfLabel(price.asOfDate)}
+          </span>
+        )}
       </p>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm">

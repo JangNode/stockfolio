@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
-import { todayKstDateString } from "@/lib/formatKst";
+import { formatAsOfLabel } from "@/lib/formatKst";
 
 interface IndexQuote {
   category: "국내" | "해외";
@@ -13,16 +13,6 @@ interface IndexQuote {
   /** 이 시세가 실제로 반영하는 거래일(YYYY-MM-DD). 해외지수만 채워진다(국내는
    * KIS 응답에 이 필드가 없음) — lib/kis.ts의 IndexQuote 주석 참고. */
   asOfDate?: string;
-}
-
-/** "9/16 기준"처럼 짧게 보여준다. 오늘(KST)과 같으면 "오늘 기준" — 해외지수는
- * 미 정규장 개장 전이면 전 거래일 종가가 그대로 현재가로 잡혀 있어(예: 한국
- * 저녁 시간대), 이 날짜가 오늘인지 아닌지가 "장중이라 실시간인지, 전일 마감을
- * 보고 있는지"를 구분하는 유일한 단서다. */
-function formatAsOfLabel(asOfDate: string): string {
-  if (asOfDate === todayKstDateString()) return "오늘 기준";
-  const [, month, day] = asOfDate.split("-");
-  return `${Number(month)}/${Number(day)} 기준`;
 }
 
 interface MarketSummaryData {

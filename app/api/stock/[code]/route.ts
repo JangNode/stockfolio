@@ -40,6 +40,7 @@ export async function GET(
         highPrice: today.high,
         lowPrice: today.low,
         volume: today.volume,
+        asOfDate: today.date,
       });
     }
 

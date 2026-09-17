@@ -35,3 +35,13 @@ export function formatKstTime(iso: string, options: Intl.DateTimeFormatOptions =
 export function formatKstDateTime(iso: string, options: Intl.DateTimeFormatOptions = {}): string {
   return new Date(iso).toLocaleString("ko-KR", { ...options, timeZone: KST_TIME_ZONE });
 }
+
+/** "9/16 기준"처럼 짧게 보여준다. 오늘(KST)과 같으면 "오늘 기준" — 해외 시세는
+ * 정규장 개장 전이면 전 거래일 종가가 그대로 현재가로 잡혀 있어(예: 한국 저녁
+ * 시간대), 이 날짜가 오늘인지 아닌지가 "실시간인지, 전일 마감을 보고 있는지"를
+ * 구분하는 유일한 단서다(components/MarketSummary.tsx, components/StockCard.tsx). */
+export function formatAsOfLabel(asOfDate: string): string {
+  if (asOfDate === todayKstDateString()) return "오늘 기준";
+  const [, month, day] = asOfDate.split("-");
+  return `${Number(month)}/${Number(day)} 기준`;
+}

@@ -26,9 +26,21 @@
 import { google } from "googleapis";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { upsertMarketBriefing, deleteOldMarketBriefings } from "@/lib/marketBriefingStorage";
+import { todayKstDateString } from "@/lib/formatKst";
 
 const DATE_KST_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** report_date와 이 배치 실행 시점(KST 기준 오늘)의 날짜 차이(일). report_date는
+ * "이 브리핑이 다루는 미국 거래일"을 가리켜, 미국 정규장 마감이 KST로는 다음날
+ * 새벽~아침이라 정상적으로도 배치 실행일보다 하루(-1일) 이른 게 보통이다(실측
+ * 확인, 2026-09-17). 그 이상 벌어지면 report_date가 잘못 찍혔을 가능성을 의심할
+ * 신호라 경고만 남긴다 — DART 백필 이상 감지(scripts/backfill-stock-annual-fundamentals.ts)와
+ * 같은 패턴으로 저장을 막지는 않고 로그로만 추적 가능하게 한다. */
+function daysFromToday(dateKst: string): number {
+  return Math.round((Date.parse(todayKstDateString()) - Date.parse(dateKst)) / ONE_DAY_MS);
+}
 
 function getServiceAccountCredentials(): Record<string, unknown> {
   const encoded = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -118,6 +130,13 @@ async function main(): Promise<void> {
     );
     process.exit(1);
     return;
+  }
+
+  const daysDiff = daysFromToday(dateKst);
+  if (Math.abs(daysDiff) > 1) {
+    console.warn(
+      `report_date(${dateKst})가 배치 실행 시점(KST 기준 오늘=${todayKstDateString()})과 ${daysDiff}일 차이납니다 — 정상 범위(±1일)를 벗어났습니다. Cowork 쪽 날짜 생성 로직을 확인해보세요. 저장은 정상 진행합니다.`,
+    );
   }
 
   const { data: existing, error: selectError } = await supabaseAdmin

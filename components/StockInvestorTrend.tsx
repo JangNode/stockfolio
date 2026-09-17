@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { formatNumber } from "@/lib/market";
 
 interface InvestorTrendDay {
   date: string; // YYYY-MM-DD
@@ -20,6 +21,7 @@ interface InvestorTrendResponse {
 // 적용한다(기존 실적 정보 카드의 증감률 색상 관례와 동일). 파랑/보라는 화면에서
 // 구분이 잘 안 된다는 피드백을 받아 색상 대비를 더 크게(파랑/주황/초록) 벌리고,
 // 선이 겹쳐도 구분되도록 선 종류(실선/파선/일점쇄선)를 색과 별도로 함께 준다.
+// (recharts에 넘기는 색이라 CSS 토큰이 아니라 리터럴 값을 그대로 쓴다.)
 const SERIES = [
   { key: "foreignNetBuy" as const, label: "외국인", color: "#2563eb", dash: undefined },
   { key: "institutionNetBuy" as const, label: "기관", color: "#ea580c", dash: "6 3" },
@@ -31,23 +33,19 @@ function formatShortDate(date: string): string {
   return `${month}/${day}`;
 }
 
-function formatQty(value: number): string {
-  return value.toLocaleString("ko-KR");
-}
-
 function amountColorClass(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (value > 0) return "text-rise";
+  if (value < 0) return "text-fall";
+  return "text-ink";
 }
 
 function SummaryBlock({ label, total }: { label: string; total: number }) {
   return (
-    <div className="rounded-lg border border-black/[.08] p-3 dark:border-white/[.145]">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{label} 누적 순매수</p>
-      <p className={`mt-1 text-lg font-semibold ${amountColorClass(total)}`}>
+    <div className="rounded-lg border border-border p-3">
+      <p className="text-xs text-ink-muted">{label} 누적 순매수</p>
+      <p className={`mt-1 tabular-nums text-lg font-semibold ${amountColorClass(total)}`}>
         {total > 0 ? "+" : ""}
-        {formatQty(total)}주
+        {formatNumber(total, "KR")}주
       </p>
     </div>
   );
@@ -64,15 +62,15 @@ export default function StockInvestorTrend({ code }: { code: string }) {
   );
 
   return (
-    <div className="mt-4 w-full rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-      <p className="mb-3 text-sm font-medium text-black dark:text-zinc-50">투자자 동향 (최근 1개월)</p>
+    <div className="mt-4 w-full rounded-card border border-border bg-surface p-4">
+      <p className="mb-3 text-sm font-medium text-ink">투자자 동향 (최근 1개월)</p>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">투자자 동향을 불러오는 중...</p>
+        <p className="text-sm text-ink-muted">투자자 동향을 불러오는 중...</p>
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">투자자 동향을 불러오지 못했습니다.</p>
       ) : !data || data.days.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">투자자 동향 데이터가 없습니다.</p>
+        <p className="text-sm text-ink-muted">투자자 동향 데이터가 없습니다.</p>
       ) : (
         <>
           <div className="h-64 w-full">
@@ -92,7 +90,7 @@ export default function StockInvestorTrend({ code }: { code: string }) {
                   width={48}
                 />
                 <Tooltip
-                  formatter={(value, name) => [`${formatQty(Number(value))}주`, name]}
+                  formatter={(value, name) => [`${formatNumber(Number(value), "KR")}주`, name]}
                   contentStyle={{ fontSize: 12 }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -113,7 +111,7 @@ export default function StockInvestorTrend({ code }: { code: string }) {
             </ResponsiveContainer>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-black/[.08] pt-4 sm:grid-cols-3 dark:border-white/[.145]">
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-border pt-4 sm:grid-cols-3">
             {SERIES.map((s) => (
               <SummaryBlock
                 key={s.key}

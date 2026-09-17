@@ -7,6 +7,7 @@ import { todayKstDateString as todayKstIsoDate } from "@/lib/formatKst";
 import type { ThemeCode } from "@/lib/themeConfig";
 import { THEME_CODES, THEME_CONSTITUENTS_RETENTION_YEARS } from "@/lib/themeConfig";
 import type { ThemePeriod } from "@/lib/themeReturns";
+import { formatPercent } from "@/lib/formatNumber";
 
 interface ThemeRankingItem {
   themeCode: ThemeCode;
@@ -55,13 +56,13 @@ const TOP_MOVERS_LIMIT = 10;
 
 // 국내 시세 관례: 상승=빨강, 하락=파랑(components/Screening.tsx의 returnColor와 동일).
 function changeRateColorClass(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-blue-600 dark:text-blue-400";
-  return "text-black dark:text-zinc-50";
+  if (value > 0) return "text-rise";
+  if (value < 0) return "text-fall";
+  return "text-flat";
 }
 
 function formatChangeRate(value: number): string {
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  return formatPercent(value);
 }
 
 // 로딩 전/후 헤더가 흔들리지 않도록, 서버 응답(asOfDate)을 기다리지 않고 선택된
@@ -178,17 +179,17 @@ export default function ThemeRankings() {
   );
 
   const inputClassName =
-    "h-8 rounded-full border border-black/[.08] bg-transparent px-3 text-sm text-black outline-none focus:border-black/30 dark:border-white/[.145] dark:text-zinc-50 dark:focus:border-white/30";
+    "h-8 rounded-full border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
   const { gainers, losers } = detail ? splitTopMovers(detail.constituents) : { gainers: [], losers: [] };
 
   return (
     <div className="w-full max-w-3xl">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-sm text-ink-muted">
           {formatPeriodLabel(period, dateValue, monthValue, yearValue)}
         </p>
-        <div className="flex gap-1 rounded-full border border-black/[.08] p-0.5 dark:border-white/[.145]">
+        <div className="flex gap-1 rounded-full border border-border p-0.5">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -196,7 +197,7 @@ export default function ThemeRankings() {
               className={`h-8 rounded-full px-3 text-sm font-medium transition-colors ${
                 period === opt.value
                   ? "bg-foreground text-background"
-                  : "text-zinc-600 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.08]"
+                  : "text-ink-muted hover:bg-black/[.04] dark:hover:bg-white/[.08]"
               }`}
             >
               {opt.label}
@@ -237,11 +238,11 @@ export default function ThemeRankings() {
         )}
       </div>
 
-      <div className="rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+      <div className="rounded-card border border-border bg-surface p-4">
         {isLoading ? (
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="text-zinc-500 dark:text-zinc-400">
+              <tr className="text-ink-muted">
                 <th className="pb-2 pr-2 font-normal">#</th>
                 <th className="pb-2 pr-4 font-normal">테마</th>
                 <th className="pb-2 pr-4 font-normal">등락률</th>
@@ -250,7 +251,7 @@ export default function ThemeRankings() {
             </thead>
             <tbody>
               {Array.from({ length: SKELETON_ROW_COUNT }).map((_, index) => (
-                <tr key={index} className="border-t border-black/[.08] dark:border-white/[.145]">
+                <tr key={index} className="border-t border-border">
                   <td className="py-2 pr-2">
                     <SkeletonBar className="w-3" />
                   </td>
@@ -270,13 +271,13 @@ export default function ThemeRankings() {
         ) : error || !data ? (
           <p className="text-sm text-blue-600 dark:text-blue-400">테마 등락률을 불러오지 못했습니다.</p>
         ) : data.insufficientData ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm text-ink-muted">
             {data.message ?? "해당 기간 데이터가 없습니다."}
           </p>
         ) : (
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="text-zinc-500 dark:text-zinc-400">
+              <tr className="text-ink-muted">
                 <th className="pb-2 pr-2 font-normal">#</th>
                 <th className="pb-2 pr-4 font-normal">테마</th>
                 <th className="pb-2 pr-4 font-normal">등락률</th>
@@ -288,20 +289,20 @@ export default function ThemeRankings() {
                 <tr
                   key={theme.themeCode}
                   onClick={() => setSelectedTheme(theme.themeCode)}
-                  className="cursor-pointer border-t border-black/[.08] hover:bg-black/[.02] dark:border-white/[.145] dark:hover:bg-white/[.04]"
+                  className="cursor-pointer border-t border-border hover:bg-black/[.02] dark:hover:bg-white/[.04]"
                 >
-                  <td className="py-2 pr-2 text-zinc-400 dark:text-zinc-500">{index + 1}</td>
-                  <td className="py-2 pr-4 text-black dark:text-zinc-50">{theme.label}</td>
+                  <td className="py-2 pr-2 tabular-nums text-ink-faint">{index + 1}</td>
+                  <td className="py-2 pr-4 text-ink">{theme.label}</td>
                   <td className="py-2 pr-4 font-medium">
                     {theme.insufficientData || theme.changeRatePct === null ? (
-                      <span className="text-zinc-400 dark:text-zinc-500">데이터 없음</span>
+                      <span className="text-ink-faint">데이터 없음</span>
                     ) : (
-                      <span className={changeRateColorClass(theme.changeRatePct)}>
+                      <span className={`tabular-nums ${changeRateColorClass(theme.changeRatePct)}`}>
                         {formatChangeRate(theme.changeRatePct)}
                       </span>
                     )}
                   </td>
-                  <td className="py-2 text-zinc-500 dark:text-zinc-400">{theme.constituentCount}개</td>
+                  <td className="py-2 tabular-nums text-ink-muted">{theme.constituentCount}개</td>
                 </tr>
               ))}
             </tbody>
@@ -310,14 +311,14 @@ export default function ThemeRankings() {
       </div>
 
       {selectedTheme && (
-        <div className="mt-6 rounded-xl border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="mt-6 rounded-card border border-border bg-surface p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-black dark:text-zinc-50">
+            <p className="text-sm font-medium text-ink">
               {detail?.label ?? ""} 구성종목
             </p>
             <button
               onClick={() => setSelectedTheme(null)}
-              className="text-xs text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+              className="text-xs text-ink-muted hover:text-ink"
             >
               닫기
             </button>
@@ -328,7 +329,7 @@ export default function ThemeRankings() {
               {Array.from({ length: CONSTITUENT_SKELETON_ROW_COUNT }).map((_, index) => (
                 <li key={index} className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2">
-                    <span className="w-4 text-xs text-zinc-400 dark:text-zinc-500">{index + 1}</span>
+                    <span className="w-4 tabular-nums text-xs text-ink-faint">{index + 1}</span>
                     <SkeletonBar className="w-24" />
                   </span>
                   <SkeletonBar className="w-12" />
@@ -338,23 +339,23 @@ export default function ThemeRankings() {
           ) : detailError || !detail ? (
             <p className="text-sm text-blue-600 dark:text-blue-400">구성종목을 불러오지 못했습니다.</p>
           ) : detail.insufficientData || detail.constituents.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="text-sm text-ink-muted">
               {detail.message ?? "해당 기간 표시할 구성종목이 없습니다."}
             </p>
           ) : (
             <div className="flex flex-col gap-5">
               <div>
-                <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">상승 TOP</p>
+                <p className="mb-2 text-xs font-medium text-ink-muted">상승 TOP</p>
                 <ul className="flex flex-col gap-2 text-sm">
                   {gainers.map((c, index) => (
                     <li key={c.code} className="flex items-center justify-between gap-2">
                       <span className="flex items-center gap-2">
-                        <span className="w-4 text-xs text-zinc-400 dark:text-zinc-500">{index + 1}</span>
-                        <span className="text-black dark:text-zinc-50">
-                          {c.name} <span className="text-xs text-zinc-400 dark:text-zinc-500">{c.code}</span>
+                        <span className="w-4 tabular-nums text-xs text-ink-faint">{index + 1}</span>
+                        <span className="text-ink">
+                          {c.name} <span className="text-xs text-ink-faint">{c.code}</span>
                         </span>
                       </span>
-                      <span className={`font-medium ${changeRateColorClass(c.changeRatePct)}`}>
+                      <span className={`tabular-nums font-medium ${changeRateColorClass(c.changeRatePct)}`}>
                         {formatChangeRate(c.changeRatePct)}
                       </span>
                     </li>
@@ -364,17 +365,17 @@ export default function ThemeRankings() {
 
               {losers.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">하락 TOP</p>
+                  <p className="mb-2 text-xs font-medium text-ink-muted">하락 TOP</p>
                   <ul className="flex flex-col gap-2 text-sm">
                     {losers.map((c, index) => (
                       <li key={c.code} className="flex items-center justify-between gap-2">
                         <span className="flex items-center gap-2">
-                          <span className="w-4 text-xs text-zinc-400 dark:text-zinc-500">{index + 1}</span>
-                          <span className="text-black dark:text-zinc-50">
-                            {c.name} <span className="text-xs text-zinc-400 dark:text-zinc-500">{c.code}</span>
+                          <span className="w-4 tabular-nums text-xs text-ink-faint">{index + 1}</span>
+                          <span className="text-ink">
+                            {c.name} <span className="text-xs text-ink-faint">{c.code}</span>
                           </span>
                         </span>
-                        <span className={`font-medium ${changeRateColorClass(c.changeRatePct)}`}>
+                        <span className={`tabular-nums font-medium ${changeRateColorClass(c.changeRatePct)}`}>
                           {formatChangeRate(c.changeRatePct)}
                         </span>
                       </li>

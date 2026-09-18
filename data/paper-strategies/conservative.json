@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "9/16에 dh_value_dividend 전략이 완전히 제거됐습니다(#311) — 상장폐지 종목이 스크리닝 유니버스에서 구조적으로 100% 배제되는 데다, 백테스트의 미청산 포지션 강제청산 버그(#309)에도 가장 크게 노출돼 신뢰할 수 없다고 판단된 결과입니다. 같은 세션이 안정형 source_rule_types에서 dh_value_dividend를 선제적으로 제거해뒀고(zod 검증 실패 방지), 남은 ma_cross/minervini_trend_template만으로 후보 풀이 충분한지 재판단이 필요하다는 메모를 남겼습니다. 이 세션에서 screening_results를 직접 조회할 수는 없지만, ma_cross/minervini_trend_template는 전 종목 대상 순수 가격·추세 기반 스크린이라 dh_value_dividend(시총 2조원 이상+PER/PBR/배당연수 조건, 오늘 실측 40건에 불과했던 좁은 유니버스)보다 훨씬 넓은 후보군을 만들어내는 전략입니다. 두 전략만으로도 후보 풀(30개)·보유 종목 수(14개)를 채우기에 충분할 것으로 판단해 현재 설정을 그대로 유지하되, 이후 배치의 실제 매칭 결과가 부족하다는 근거가 나오면 후보 풀·보유 종목 수 조정을 검토하겠습니다.",
-  "generated_at": "2026-09-17T05:12:26Z",
+  "rationale": "지난 재생성(9/17, #318) 이후 커밋 이력을 확인한 결과, 변경은 날짜/시각 표기 정리와 디자인 토큰 적용(#319~338) 등 UI/포맷 작업뿐이었고, 안정형이 참조하는 ma_cross/minervini_trend_template의 매칭 로직이나 스코어링에는 영향이 없었습니다. dh_value_dividend 제거(9/16, #311) 이후 ma_cross/minervini_trend_template만으로 후보 풀이 충분한지는 이 세션에서 screening_results를 직접 조회할 수 없어 계속 확인할 방법이 없지만, 아직 부족하다는 반대 근거도 나오지 않아 지난 판단(두 전략만으로 후보 풀 30개·14종목을 채우기에 충분)을 그대로 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
+  "generated_at": "2026-09-18T05:12:11Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

@@ -1,7 +1,10 @@
 ---
 name: tester
-description: 실데이터 검증 담당. 이 프로젝트엔 자동화 테스트 스위트가 없어,
-  디스포저블 verify 스크립트 + GitHub Actions로 실데이터를 확인한다.
+description: reviewer의 코드 검증을 통과한 뒤, 외부 API·사이트 연동이나 배치처럼
+  실데이터로 동작을 확인해야 할 때 이 에이전트를 써라. 이 프로젝트엔 자동화
+  테스트 스위트가 없어 디스포저블 verify/diagnose 스크립트 + 임시 GitHub
+  Actions 워크플로로 실제 응답·DB 상태를 확인한다. UI만 바뀌거나 검증할
+  실데이터가 없는 작업에는 쓰지 않는다.
 tools: Read, Write, Bash, Grep, Glob
 ---
 

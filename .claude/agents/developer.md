@@ -1,7 +1,9 @@
 ---
 name: developer
-description: 실제 코드 구현 담당. planner가 만든 계획(또는 팀장이 직접 정리한
-  계획)을 받아 구현한다.
+description: planner의 계획(또는 팀장이 직접 정리한 계획)이 이미 나온 상태에서
+  실제 코드를 작성·수정할 때 이 에이전트를 써라 — 새 파일 생성, 여러 파일에
+  걸친 구현, 마이그레이션 파일 작성 등 실제 구현이 필요한 단계에 쓴다. 계획을
+  새로 세우거나(→ planner) 결과물을 검증하는 일(→ reviewer)에는 쓰지 않는다.
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 

@@ -1,7 +1,10 @@
 ---
 name: reviewer
-description: 구현된 코드 검증/리팩토링 담당. 기존 패턴과의 일관성, 불필요한
-  복잡도, RULES.md 위반 여부를 확인한다.
+description: developer가 코드를 작성·수정한 뒤, 그 결과물을 병합 전에 검증할 때
+  이 에이전트를 써라. 기존 패턴과의 일관성, 과잉 설계 여부, RULES.md 위반
+  여부(point-in-time 누수·매직넘버·DB 용량·마이그레이션 수정 금지 등),
+  리팩토링 필요 여부를 확인하고 tsc/lint를 직접 돌려 통과를 확인한다. 코드를
+  새로 작성하는 일이나 실데이터 검증(→ tester)에는 쓰지 않는다.
 tools: Read, Grep, Glob, Bash
 ---
 

@@ -5,8 +5,9 @@
 # stockFolio
 
 개인용 국내/미국 주식 투자 보조 웹앱. 관심종목 추적, 전략 기반 스크리닝,
-백테스트, AI 모의투자, 시장 지표(FOMC/금통위 기준금리·회의 일정·관련 뉴스)를
-제공한다.
+백테스트, AI 모의투자, 테마별 등락 순위(`ThemeRankings.tsx`), 시장
+지표(FOMC/금통위 기준금리·회의 일정·관련 뉴스, Cowork가 매일 생성하는
+"증시근황" 브리핑(`MarketBriefingSection.tsx`))를 제공한다.
 
 ## 기술 스택
 
@@ -17,6 +18,10 @@
   `tsx --conditions=react-server`로 돌림
 - 외부 데이터 소스: KIS(국내 시세), DART(국내 재무제표), FRED/ECOS(기준금리),
   federalreserve.gov/bok.or.kr RSS(통화정책 뉴스·회의 일정)
+- Google Drive API(서비스 계정 인증): Cowork가 매일 만드는 "증시근황"
+  브리핑을 수집하는 파이프라인(`scripts/sync-market-briefing-drive.ts`) —
+  실시간 시세·공시가 아니라 외부 AI 에이전트가 매일 생성하는 참고용
+  콘텐츠라, 위 시세·재무·금리 데이터 소스들과는 성격이 다르다.
 - 클라이언트 데이터 fetch: SWR, 차트: recharts
 - 배포: Vercel(PR마다 프리뷰 배포가 CI 역할을 겸함)
 

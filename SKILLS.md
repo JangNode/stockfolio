@@ -2,6 +2,32 @@
 
 이 프로젝트에서 반복되는 작업 패턴과, 그 과정에서 쌓인 실전 노하우.
 
+## 새 화면/컴포넌트 추가 시 체크리스트 (디자인 토큰)
+
+색상·radius는 `app/globals.css`의 `@theme inline` 토큰을 쓴다.
+
+| 용도 | 클래스 |
+| --- | --- |
+| 기본 텍스트 | `text-ink` |
+| 보조 텍스트 | `text-ink-muted` |
+| 더 약한 텍스트(placeholder 등) | `text-ink-faint` |
+| 카드/화면 배경 | `bg-surface` |
+| 한 단계 낮춘(sunken) 배경 | `bg-surface-sunken` |
+| 구분선 | `border-border` / `bg-border`(hairline용) |
+| 상승(빨강 계열) | `text-rise` / `bg-rise-soft` |
+| 하락(파랑 계열) | `text-fall` / `bg-fall-soft` |
+| 변동 없음 | `text-flat`(`--ink`와 같은 값) |
+| 추정치·주의 표시 | `text-est` / `bg-est-soft` |
+| 카드 radius | `rounded-card` |
+
+표시용 폰트가 필요하면 `lib/fonts.ts`의 `ibmPlexSansKr`(IBM Plex Sans KR)을
+import해서 필요한 요소에 `ibmPlexSansKr.className`을 적용한다(전역
+폰트인 Geist는 그대로 두고, 화면별로 필요한 곳에만 쓴다).
+
+**새 화면/컴포넌트를 만들 때는 이 토큰들을 먼저 확인하고 재사용할 것 —
+색상 하드코딩 금지.** (차트 라이브러리에 문자열 색상을 직접 넘겨야 하는
+경우처럼 토큰으로 표현할 수 없는 예외는 있을 수 있다.)
+
 ## 새 전략 추가
 
 1. point-in-time 데이터만 쓰는지 확인한다(미래 데이터 누수 금지 —

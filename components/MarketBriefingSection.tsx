@@ -1,5 +1,6 @@
 "use client";
 
+import { Component, type ReactNode } from "react";
 import useSWR from "swr";
 import { IBM_Plex_Sans_KR } from "next/font/google";
 import { authJsonFetcher } from "@/lib/authFetch";
@@ -368,7 +369,7 @@ function computeDaysAgo(dateKst: string): number | null {
 const CARD_CLASS =
   "w-full max-w-full overflow-x-hidden rounded-card border border-border bg-surface p-4";
 
-export default function MarketBriefingSection() {
+function MarketBriefingContent() {
   const { data, error, isLoading } = useSWR<MarketBriefingResponse>(
     "/api/market-indicators/market-briefing",
     authJsonFetcher
@@ -527,5 +528,48 @@ export default function MarketBriefingSection() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * MarketBriefingContent 내부엔 이미 타입 가드(asRecord/asArray/isPrimitive 등)가
+ * 촘촘히 있어 대부분의 스키마 이상은 그 항목만 조용히 빠지는 식으로 처리되지만,
+ * Cowork 출력 스키마가 날마다 흔들리는 게 실측 확인된 만큼(2026-09-18) 가드를
+ * 뚫는 예외가 하나라도 생기면 이 카드가 아니라 화면 전체가 깨질 수 있다 — 그
+ * 최후 방어선으로 에러 경계를 둔다. React 에러 경계는 클래스 컴포넌트로만
+ * 만들 수 있다(getDerivedStateFromError/componentDidCatch가 훅으로 대체되지 않음).
+ */
+class MarketBriefingErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("증시근황 렌더링 중 예상치 못한 오류:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className={`${ibmPlexSansKr.className} mb-6 ${CARD_CLASS}`}>
+          <p className="mb-3 text-sm font-medium text-ink">증시근황</p>
+          <p className="text-sm text-blue-600 dark:text-blue-400">일부 정보를 표시할 수 없습니다.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function MarketBriefingSection() {
+  return (
+    <MarketBriefingErrorBoundary>
+      <MarketBriefingContent />
+    </MarketBriefingErrorBoundary>
   );
 }

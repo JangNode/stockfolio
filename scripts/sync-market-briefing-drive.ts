@@ -58,13 +58,17 @@ interface ShapeIssue {
 }
 
 /**
- * report_date 검증을 통과한 뒤, 핵심 필드(summary/indices)가 기대한 타입인지 확인한다.
- * Cowork 쪽 출력 스키마가 날마다 흔들리는 게 실측 확인됐다(영어 미번역·스키마
- * 변경·손상 파일, 2026-09-18) — 화면 렌더러(MarketBriefingSection.tsx)엔 이미
- * 타입 가드가 있어 이 검증 없이도 대부분 조용히 그 항목만 빠지지만, 저장 전에
+ * report_date 검증을 통과한 뒤, 핵심 필드(summary/indices/macro_issues/stock_movers)가
+ * 기대한 타입인지 확인한다. Cowork 쪽 출력 스키마가 날마다 흔들리는 게 실측 확인됐다
+ * (영어 미번역·스키마 변경·손상 파일, 2026-09-18) — 화면 렌더러(MarketBriefingSection.tsx)엔
+ * 이미 타입 가드가 있어 이 검증 없이도 대부분 조용히 그 항목만 빠지지만, 저장 전에
  * 명백히 깨진 데이터를 걸러 로그로 추적 가능하게 하는 게 이 함수의 목적이다.
  * Cowork 스키마가 아직 진화 중이라 모든 필드를 optional로 취급한다 — 필드 자체가
  * 없는 건 정상이고, "있는데 타입이 틀린" 경우만 문제로 본다.
+ *
+ * 실제 구조(2026-09-20 원본 파일로 확인): indices.{us,europe,asia}는 지수명을 키로
+ * 갖는 객체(배열 아님), stock_movers.{us_daily,us_weekly,korea}는 배열이고 각 항목의
+ * ticker/change_pct는 null이 정상 케이스라 여기서 타입을 강제하지 않는다.
  */
 function validateBriefingShape(parsed: Record<string, unknown>): ShapeIssue[] {
   const issues: ShapeIssue[] = [];
@@ -78,16 +82,56 @@ function validateBriefingShape(parsed: Record<string, unknown>): ShapeIssue[] {
     if (!isPlainObject(indices)) {
       issues.push({ field: "indices", reason: `객체가 아님(실제 타입: ${describeType(indices)})` });
     } else {
-      for (const key of ["us", "asia"] as const) {
-        const group = indices[key];
+      for (const region of ["us", "europe", "asia"] as const) {
+        const group = indices[region];
         if (group === undefined) continue;
-        if (!Array.isArray(group)) {
-          issues.push({ field: `indices.${key}`, reason: `배열이 아님(실제 타입: ${describeType(group)})` });
+        if (!isPlainObject(group)) {
+          issues.push({ field: `indices.${region}`, reason: `객체가 아님(실제 타입: ${describeType(group)})` });
           continue;
         }
-        group.forEach((item, i) => {
+        for (const [indexKey, indexValue] of Object.entries(group)) {
+          if (!isPlainObject(indexValue)) {
+            issues.push({
+              field: `indices.${region}.${indexKey}`,
+              reason: `객체가 아님(실제 타입: ${describeType(indexValue)})`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const macroIssues = parsed.macro_issues;
+  if (macroIssues !== undefined) {
+    if (!Array.isArray(macroIssues)) {
+      issues.push({ field: "macro_issues", reason: `배열이 아님(실제 타입: ${describeType(macroIssues)})` });
+    } else {
+      macroIssues.forEach((item, i) => {
+        if (!isPlainObject(item)) {
+          issues.push({ field: `macro_issues[${i}]`, reason: `객체가 아님(실제 타입: ${describeType(item)})` });
+        }
+      });
+    }
+  }
+
+  const stockMovers = parsed.stock_movers;
+  if (stockMovers !== undefined) {
+    if (!isPlainObject(stockMovers)) {
+      issues.push({ field: "stock_movers", reason: `객체가 아님(실제 타입: ${describeType(stockMovers)})` });
+    } else {
+      for (const group of ["us_daily", "us_weekly", "korea"] as const) {
+        const items = stockMovers[group];
+        if (items === undefined) continue;
+        if (!Array.isArray(items)) {
+          issues.push({ field: `stock_movers.${group}`, reason: `배열이 아님(실제 타입: ${describeType(items)})` });
+          continue;
+        }
+        items.forEach((item, i) => {
           if (!isPlainObject(item)) {
-            issues.push({ field: `indices.${key}[${i}]`, reason: `객체가 아님(실제 타입: ${describeType(item)})` });
+            issues.push({
+              field: `stock_movers.${group}[${i}]`,
+              reason: `객체가 아님(실제 타입: ${describeType(item)})`,
+            });
           }
         });
       }

@@ -22,7 +22,7 @@ interface ScreeningResultRow {
   current_price: number;
   return_pct: number;
   score: number | null;
-  status: "active" | "stopped" | "profited";
+  status: "active" | "stopped" | "profited" | "price_unavailable";
   matched_at: string;
   closed_at: string | null;
 }
@@ -30,7 +30,7 @@ interface ScreeningResultRow {
 // reversal_breakout(v1)/reversal_breakout_v2 비교 대시보드 조회용 최소 필드.
 interface ReversalBreakoutComparisonRow {
   strategy_id: string;
-  status: "active" | "stopped" | "profited";
+  status: "active" | "stopped" | "profited" | "price_unavailable";
   return_pct: number;
   matched_at: string;
 }
@@ -60,6 +60,9 @@ const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; classN
   active: { label: "추적 중", className: "text-ink-muted" },
   stopped: { label: "손절", className: "text-fall" },
   profited: { label: "익절", className: "text-rise" },
+  // 시세 조회가 연속 실패해 가격이 멈춘 상태(2026-09-20 추가) — 손절/익절과 확실히
+  // 구분되도록 est 토큰을 쓴다. "종료됨" 탭이 아니라 "추적 중" 탭에 계속 남는다.
+  price_unavailable: { label: "가격 확인 불가", className: "text-est" },
 };
 
 function formatDateTime(iso: string): string {
@@ -206,7 +209,13 @@ export default function Screening({ user }: { user: User }) {
         .order("score", { ascending: false, nullsFirst: false })
         .order("matched_at", { ascending: false });
 
-      query = tab === "active" ? query.eq("status", "active") : query.in("status", ["stopped", "profited"]);
+      // price_unavailable(시세 조회 연속 실패)은 원 신호가 종료된 게 아니라 아직
+      // 확인 중인 상태라 "추적 중" 탭에 남긴다 — 안 그러면 이 상태가 된 종목이 두
+      // 탭 어디에도 안 보이고 사라진다(2026-09-20 확인).
+      query =
+        tab === "active"
+          ? query.in("status", ["active", "price_unavailable"])
+          : query.in("status", ["stopped", "profited"]);
 
       const { data, error } = await query;
       if (error) throw error;

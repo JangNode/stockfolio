@@ -280,7 +280,7 @@ async function loadUnderlyingStatuses(
 ): Promise<Map<string, UnderlyingScreeningStatus>> {
   const map = new Map<string, UnderlyingScreeningStatus>();
   for (const c of activeCandidates) {
-    map.set(c.screeningResultId, { status: "active", currentPrice: c.currentPrice });
+    map.set(c.screeningResultId, { status: "active", currentPrice: c.currentPrice, priceFetchFailureCount: 0 });
   }
 
   const missingIds = Array.from(
@@ -294,12 +294,16 @@ async function loadUnderlyingStatuses(
 
   const { data, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, status, current_price")
+    .select("id, status, current_price, price_fetch_failure_count")
     .in("id", missingIds);
   if (error) throw new Error(`청산 대상 원본 스크리닝 조회 실패: ${error.message}`);
 
   for (const row of data ?? []) {
-    map.set(row.id, { status: row.status, currentPrice: row.current_price });
+    map.set(row.id, {
+      status: row.status,
+      currentPrice: row.current_price,
+      priceFetchFailureCount: row.price_fetch_failure_count,
+    });
   }
   return map;
 }

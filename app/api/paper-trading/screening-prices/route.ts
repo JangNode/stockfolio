@@ -6,6 +6,8 @@ interface ScreeningPriceRow {
   id: string;
   current_price: number;
   score: number | null;
+  status: "active" | "stopped" | "profited" | "price_unavailable";
+  price_fetch_failure_count: number;
 }
 
 /**
@@ -33,7 +35,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, current_price, score")
+    .select("id, current_price, score, status, price_fetch_failure_count")
     .in("id", ids);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 502 });

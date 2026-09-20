@@ -41,11 +41,6 @@ const STOCK_MOVER_GROUPS = [
   { key: "korea", label: "국내" },
 ] as const;
 
-// Cowork 출력이 실제로는 이 플래그를 붙이지 않는 경우가 많지만, 과거 설계 흔적이
-// 남아있어도 해가 없으므로 그대로 둔다 — 값이 있으면 배지가 붙고 없으면 아무 일도
-// 일어나지 않는다.
-const ESTIMATE_FLAG_KEYS = ["is_estimate", "is_estimate_pt", "reason_confirmed"] as const;
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -74,20 +69,6 @@ function humanizeKey(key: string): string {
     .join(" ");
 }
 
-/** 값 하나가 { value, is_estimate: true }처럼 신뢰도 플래그를 형제 키로 갖고
- * 있으면 값 옆에 "추정" 배지를 붙인다. */
-function hasEstimateFlag(obj: Record<string, unknown>): boolean {
-  return obj.is_estimate === true || obj.is_estimate_pt === true || obj.reason_confirmed === false;
-}
-
-function EstimateBadge() {
-  return (
-    <span className="ml-1.5 shrink-0 rounded-full bg-est-soft px-1.5 py-0.5 text-[10px] font-medium text-est">
-      추정
-    </span>
-  );
-}
-
 /** 실제 브리핑 JSON의 세부 구조를 미리 알 수 없으므로, object/array를 재귀적으로
  * 순회하며 key를 사람이 읽을 라벨로 바꿔 보여주는 범용 렌더러. plain text로만
  * 렌더링하며 raw HTML은 절대 주입하지 않는다. */
@@ -114,10 +95,7 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
 
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
-    const estimated = hasEstimateFlag(obj);
-    const entries = Object.entries(obj).filter(
-      ([k]) => !(ESTIMATE_FLAG_KEYS as readonly string[]).includes(k)
-    );
+    const entries = Object.entries(obj);
     if (entries.length === 0) return null;
 
     if (entries.length === 1 && isPrimitive(entries[0][1])) {
@@ -130,19 +108,13 @@ function JsonEntry({ label, value }: { label?: string; value: unknown }) {
             {innerLabel}
             {String(v)}
           </span>
-          {estimated && <EstimateBadge />}
         </p>
       );
     }
 
     return (
       <div className="flex flex-col gap-1.5">
-        {(label || estimated) && (
-          <p className="flex items-center text-xs font-medium text-ink-muted">
-            {label && humanizeKey(label)}
-            {estimated && <EstimateBadge />}
-          </p>
-        )}
+        {label && <p className="text-xs font-medium text-ink-muted">{humanizeKey(label)}</p>}
         <div className="flex flex-col gap-1.5 pl-3">
           {entries.map(([k, v]) => (
             <JsonEntry key={k} label={k} value={v} />
@@ -172,26 +144,10 @@ function formatPct(value: number): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-/** usdkrw_change처럼 퍼센트인지 단순 증감인지 스키마상 보장이 없는 값을 부호만
- * 붙여 표시한다("%"를 임의로 붙이지 않는다). */
-function formatSigned(value: number): string {
-  const formatted = Math.abs(value).toLocaleString("ko-KR", { maximumFractionDigits: 2 });
-  return `${value > 0 ? "+" : value < 0 ? "-" : ""}${formatted}`;
-}
-
 function formatNum(value: unknown): string | null {
   const n = asFiniteNumber(value);
   if (n === null) return null;
   return n.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
-}
-
-function findByName(items: unknown[] | null, needle: string): Record<string, unknown> | null {
-  if (!items) return null;
-  for (const item of items) {
-    const rec = asRecord(item);
-    if (rec && typeof rec.name === "string" && rec.name.includes(needle)) return rec;
-  }
-  return null;
 }
 
 interface QuickStat {
@@ -201,15 +157,15 @@ interface QuickStat {
   changeSign: number; // 색상 판단용 부호(양수/음수/0)
 }
 
-/** 상단 가로 스크롤 카드 스트립용 핵심 지수 5종을 골라낸다. 이름 표기가 항상
- * 같다는 보장이 없어 includes로 유연하게 찾고, 못 찾은 항목은 조용히 뺀다. */
+/** 상단 가로 스크롤 카드 스트립용 핵심 지수 5종을 골라낸다. indices.us/asia는
+ * 지수명을 키로 갖는 객체이고(배열 아님), 못 찾은 항목은 조용히 뺀다. */
 function buildQuickStats(root: Record<string, unknown>): QuickStat[] {
   const stats: QuickStat[] = [];
   const indices = asRecord(root.indices);
-  const asiaItems = indices ? asArray(indices.asia) : null;
-  const usItems = indices ? asArray(indices.us) : null;
+  const us = indices ? asRecord(indices.us) : null;
+  const asia = indices ? asRecord(indices.asia) : null;
 
-  const kospi = findByName(asiaItems, "코스피");
+  const kospi = asia ? asRecord(asia.kospi) : null;
   const kospiValue = kospi ? formatNum(kospi.close) : null;
   if (kospi && kospiValue !== null) {
     const changePct = asFiniteNumber(kospi.change_pct);
@@ -221,7 +177,7 @@ function buildQuickStats(root: Record<string, unknown>): QuickStat[] {
     });
   }
 
-  const sp500 = findByName(usItems, "S&P");
+  const sp500 = us ? asRecord(us.sp500) : null;
   const sp500Value = sp500 ? formatNum(sp500.close) : null;
   if (sp500 && sp500Value !== null) {
     const changePct = asFiniteNumber(sp500.change_pct);
@@ -233,7 +189,7 @@ function buildQuickStats(root: Record<string, unknown>): QuickStat[] {
     });
   }
 
-  const nasdaq = findByName(usItems, "나스닥");
+  const nasdaq = us ? asRecord(us.nasdaq) : null;
   const nasdaqValue = nasdaq ? formatNum(nasdaq.close) : null;
   if (nasdaq && nasdaqValue !== null) {
     const changePct = asFiniteNumber(nasdaq.change_pct);
@@ -246,7 +202,7 @@ function buildQuickStats(root: Record<string, unknown>): QuickStat[] {
   }
 
   const vix = asRecord(asRecord(root.sentiment)?.vix);
-  const vixValue = vix ? formatNum(vix.close) : null;
+  const vixValue = vix ? formatNum(vix.value) : null;
   if (vix && vixValue !== null) {
     const changePct = asFiniteNumber(vix.change_pct);
     stats.push({
@@ -257,15 +213,16 @@ function buildQuickStats(root: Record<string, unknown>): QuickStat[] {
     });
   }
 
-  const bonds = asRecord(root.bonds_fx_commodities);
-  const usdkrwValue = bonds ? formatNum(bonds.usdkrw) : null;
-  if (bonds && usdkrwValue !== null) {
-    const change = asFiniteNumber(bonds.usdkrw_change);
+  const usdKrw = asRecord(asRecord(root.bonds_fx_commodities)?.fx)?.usd_krw;
+  const usdKrwRecord = asRecord(usdKrw);
+  const usdKrwValue = usdKrwRecord ? formatNum(usdKrwRecord.value) : null;
+  if (usdKrwRecord && usdKrwValue !== null) {
+    const changePct = asFiniteNumber(usdKrwRecord.change_pct);
     stats.push({
       label: "원/달러",
-      value: usdkrwValue,
-      changeText: change !== null ? formatSigned(change) : null,
-      changeSign: change ?? 0,
+      value: usdKrwValue,
+      changeText: changePct !== null ? formatPct(changePct) : null,
+      changeSign: changePct ?? 0,
     });
   }
 
@@ -297,7 +254,9 @@ function QuickStatStrip({ stats }: { stats: QuickStat[] }) {
   );
 }
 
-/** stock_movers.us_daily/us_weekly/korea 배열 하나를 이름-등락률-사유로 나열한다. */
+/** stock_movers.us_daily/us_weekly/korea 배열 하나를 이름-등락률-사유로 나열한다.
+ * ticker/change_pct는 null이 정상 케이스다 — ticker가 없으면 이름만, change_pct가
+ * 없으면 등락률 배지 없이 사유만 보여준다. */
 function StockMoversList({ items }: { items: unknown[] }) {
   const rows = items
     .map((item) => asRecord(item))
@@ -309,26 +268,22 @@ function StockMoversList({ items }: { items: unknown[] }) {
     <ul className="flex flex-col gap-2">
       {rows.map((rec, i) => {
         const name = rec.name as string;
-        const price = formatNum(rec.price);
+        const ticker = typeof rec.ticker === "string" ? rec.ticker : null;
         const changePct = asFiniteNumber(rec.change_pct);
         const reason = typeof rec.reason === "string" ? rec.reason : null;
-        const estimated = hasEstimateFlag(rec);
 
         return (
           <li key={i} className="flex flex-col gap-0.5 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-              <span className="flex items-center font-medium text-ink">
+              <span className="flex items-baseline gap-2 font-medium text-ink">
                 {name}
-                {estimated && <EstimateBadge />}
+                {ticker && <span className="text-xs font-normal text-ink-muted">{ticker}</span>}
               </span>
-              <span className="flex items-baseline gap-2">
-                {price !== null && <span className="tabular-nums text-ink-muted">{price}</span>}
-                {changePct !== null && (
-                  <span className={`tabular-nums font-medium ${changeColorClass(changePct)}`}>
-                    {formatPct(changePct)}
-                  </span>
-                )}
-              </span>
+              {changePct !== null && (
+                <span className={`tabular-nums font-medium ${changeColorClass(changePct)}`}>
+                  {formatPct(changePct)}
+                </span>
+              )}
             </div>
             {reason && <p className="text-xs text-ink-muted">{reason}</p>}
           </li>
@@ -412,7 +367,6 @@ function MarketBriefingContent() {
   const daysAgo = computeDaysAgo(data.dateKst);
 
   const referenceSession = typeof root.reference_session === "string" ? root.reference_session : null;
-  const timezoneBasis = typeof root.timezone_basis === "string" ? root.timezone_basis : null;
 
   const quickStats = buildQuickStats(root);
   const summary = asArray(root.summary);
@@ -420,31 +374,24 @@ function MarketBriefingContent() {
   const conclusion = asRecord(root.conclusion);
   const stance = conclusion && typeof conclusion.stance === "string" ? conclusion.stance : null;
   const rationale = conclusion && typeof conclusion.rationale === "string" ? conclusion.rationale : null;
-  const sectorGuidance = conclusion ? asRecord(conclusion.sector_guidance) : null;
-  const domesticGuidance =
-    sectorGuidance && typeof sectorGuidance.domestic === "string" ? sectorGuidance.domestic : null;
-  const overseasGuidance =
-    sectorGuidance && typeof sectorGuidance.overseas === "string" ? sectorGuidance.overseas : null;
+  const domesticDirection =
+    conclusion && typeof conclusion.domestic_direction === "string" ? conclusion.domestic_direction : null;
+  const overseasDirection =
+    conclusion && typeof conclusion.overseas_direction === "string" ? conclusion.overseas_direction : null;
   const disclaimer = conclusion && typeof conclusion.disclaimer === "string" ? conclusion.disclaimer : null;
-  const hasStanceContent = Boolean(stance || rationale || domesticGuidance || overseasGuidance);
+  const hasStanceContent = Boolean(stance || rationale || domesticDirection || overseasDirection);
 
   const stockMovers = asRecord(root.stock_movers);
 
   const generatedAt = typeof root.generated_at === "string" ? root.generated_at : null;
-  const generatedBy = typeof root.generated_by === "string" ? root.generated_by : null;
   const artifactUrl = typeof root.artifact_url === "string" ? root.artifact_url : null;
-  const footerLine = [generatedBy, generatedAt].filter((v): v is string => Boolean(v)).join(" · ");
 
   return (
     <div className={`${ibmPlexSansKr.className} mb-6 ${CARD_CLASS}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-ink">증시근황</p>
-        {(referenceSession || timezoneBasis) && (
-          <p className="truncate text-[11px] text-ink-faint">
-            {referenceSession}
-            {referenceSession && timezoneBasis && " · "}
-            {timezoneBasis}
-          </p>
+        {referenceSession && (
+          <p className="truncate text-[11px] text-ink-faint">{referenceSession}</p>
         )}
       </div>
 
@@ -466,16 +413,16 @@ function MarketBriefingContent() {
           {rationale && (
             <p className="mt-2 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{rationale}</p>
           )}
-          {(domesticGuidance || overseasGuidance) && (
+          {(domesticDirection || overseasDirection) && (
             <div className="mt-3 grid grid-cols-1 gap-1.5 text-xs text-zinc-700 dark:text-zinc-300 sm:grid-cols-2">
-              {domesticGuidance && (
+              {domesticDirection && (
                 <p>
-                  <span className="font-medium">국내</span> {domesticGuidance}
+                  <span className="font-medium">국내</span> {domesticDirection}
                 </p>
               )}
-              {overseasGuidance && (
+              {overseasDirection && (
                 <p>
-                  <span className="font-medium">해외</span> {overseasGuidance}
+                  <span className="font-medium">해외</span> {overseasDirection}
                 </p>
               )}
             </div>
@@ -508,12 +455,12 @@ function MarketBriefingContent() {
         ))}
       </div>
 
-      {(footerLine || artifactUrl) && (
+      {(generatedAt || artifactUrl) && (
         <p className="mt-4 text-[10px] text-ink-faint">
-          {footerLine}
+          {generatedAt}
           {artifactUrl && (
             <>
-              {footerLine && " · "}
+              {generatedAt && " · "}
               <a href={artifactUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
                 원본
               </a>

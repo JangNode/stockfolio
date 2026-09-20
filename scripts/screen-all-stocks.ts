@@ -33,6 +33,7 @@ import {
   REVERSAL_MIN_INVERSE_RATIO,
   REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO,
 } from "@/lib/reversalBreakoutConfig";
+import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import {
   loadFundamentalsSeries,
@@ -312,13 +313,23 @@ interface ActiveRow {
   entry_price: number;
   stop_loss_price: number;
   take_profit_price: number;
+  price_fetch_failure_count: number;
 }
 
-/** status=active인 기존 추적 종목의 현재가를 갱신하고, 손절/익절 조건에 걸리면 종료 처리한다. */
+/**
+ * status=active인 기존 추적 종목의 현재가를 갱신하고, 손절/익절 조건에 걸리면 종료
+ * 처리한다. 시세 조회가 실패하는 종목(거래정지/상장폐지 등)은 조용히 건너뛰지 않고
+ * price_fetch_failure_count를 누적한다 — 그냥 건너뛰면 status가 영원히 active로
+ * 남아 실제로는 확인 안 되는 가격을 계속 들고 있는 "유령 보유"가 된다(2026-09-20
+ * 확인). PRICE_FETCH_FAILURE_THRESHOLD(연속 실패)에 도달하면 'price_unavailable'로
+ * 전환해, AI 모의투자 강제청산 로직(lib/paperTrading.ts evaluateExit)이 이 상태에서
+ * 멈춘 가격으로 "정상 매도"처럼 처리하지 않도록 신호를 준다.
+ */
 async function updateActiveTracking(): Promise<{
   updated: number;
   stopped: number;
   profited: number;
+  priceUnavailable: number;
 }> {
   console.log("=== 1단계: 기존 추적 종목 갱신 ===");
 
@@ -327,7 +338,7 @@ async function updateActiveTracking(): Promise<{
   // 실패하므로 반드시 국내 행만 골라야 한다.
   const { data: activeRows, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, stock_code, entry_price, stop_loss_price, take_profit_price")
+    .select("id, stock_code, entry_price, stop_loss_price, take_profit_price, price_fetch_failure_count")
     .eq("status", "active")
     .eq("market", "KR");
 
@@ -335,7 +346,7 @@ async function updateActiveTracking(): Promise<{
 
   if (!activeRows || activeRows.length === 0) {
     console.log("추적 중인 종목이 없습니다.");
-    return { updated: 0, stopped: 0, profited: 0 };
+    return { updated: 0, stopped: 0, profited: 0, priceUnavailable: 0 };
   }
 
   // 같은 종목이 여러 전략에서 동시에 active일 수 있으니 종목코드별로 현재가를 한 번만 조회한다.
@@ -370,10 +381,36 @@ async function updateActiveTracking(): Promise<{
   let updated = 0;
   let stopped = 0;
   let profited = 0;
+  let priceUnavailable = 0;
+  const now = new Date().toISOString();
 
   for (const row of activeRows as ActiveRow[]) {
     const currentPrice = priceByCode.get(row.stock_code);
-    if (currentPrice === undefined) continue;
+
+    if (currentPrice === undefined) {
+      const nextFailureCount = row.price_fetch_failure_count + 1;
+      const update: Record<string, unknown> = { price_fetch_failure_count: nextFailureCount };
+
+      if (nextFailureCount >= PRICE_FETCH_FAILURE_THRESHOLD) {
+        update.status = "price_unavailable";
+      }
+
+      const { error: updateError } = await supabaseAdmin
+        .from("screening_results")
+        .update(update)
+        .eq("id", row.id);
+
+      if (updateError) {
+        console.error(`    ${row.stock_code} 실패 카운터 갱신 실패: ${updateError.message}`);
+        continue;
+      }
+
+      if (nextFailureCount >= PRICE_FETCH_FAILURE_THRESHOLD) {
+        priceUnavailable++;
+        console.log(`    ⚠ 가격 확인 불가 전환: ${row.stock_code} (연속 ${nextFailureCount}회 조회 실패)`);
+      }
+      continue;
+    }
 
     const returnPct = ((currentPrice - row.entry_price) / row.entry_price) * 100;
     const status = evaluateTrackingStatus(
@@ -385,10 +422,12 @@ async function updateActiveTracking(): Promise<{
     const update: Record<string, unknown> = {
       current_price: currentPrice,
       return_pct: returnPct,
+      price_fetch_failure_count: 0,
+      last_price_fetch_success_at: now,
     };
     if (status !== "active") {
       update.status = status;
-      update.closed_at = new Date().toISOString();
+      update.closed_at = now;
     }
 
     const { error: updateError } = await supabaseAdmin
@@ -411,8 +450,10 @@ async function updateActiveTracking(): Promise<{
     }
   }
 
-  console.log(`갱신 완료: ${updated}건 (손절 ${stopped}건, 익절 ${profited}건)`);
-  return { updated, stopped, profited };
+  console.log(
+    `갱신 완료: ${updated}건 (손절 ${stopped}건, 익절 ${profited}건), 가격 확인 불가 전환 ${priceUnavailable}건`
+  );
+  return { updated, stopped, profited, priceUnavailable };
 }
 
 interface StockPriceEntry {

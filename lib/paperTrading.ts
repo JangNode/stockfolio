@@ -42,9 +42,13 @@ function formatMoney(value: number, market: Market): string {
 
 // 포지션이 매달린 screening_results 원본 행의 현재 상태. 이 값으로 청산가/청산
 // 사유를 판단하므로 별도 시세 조회 없이 배치가 이미 갱신해둔 값을 그대로 쓴다.
+// price_unavailable은 거래정지/상장폐지 등으로 시세 조회가 연속 실패해 붙는 상태
+// (scripts/screen-all-stocks.ts updateActiveTracking 참고) — currentPrice는 마지막
+// 확인된 값에서 멈춰 있다.
 export interface UnderlyingScreeningStatus {
-  status: "active" | "stopped" | "profited";
+  status: "active" | "stopped" | "profited" | "price_unavailable";
   currentPrice: number;
+  priceFetchFailureCount: number;
 }
 
 export interface BuyDecision {
@@ -153,6 +157,14 @@ export function evaluateExit(
 
   const { exit_conditions: exit } = conditions;
   const label = STYLE_LABEL[style];
+
+  // 시세 조회가 계속 실패해 가격이 멈춰 있는 상태다 — 이 멈춘 가격으로 손절/익절/
+  // 최대 보유기간 청산을 실행하면 실제로는 확인 안 되는 성과를 "정상 매도"처럼
+  // 기록하게 된다(2026-09-20 확인). 가격이 다시 확인될 때까지 모든 강제청산을
+  // 보류한다 — 화면에는 이 상태를 별도로 노출한다.
+  if (underlying.status === "price_unavailable") {
+    return null;
+  }
 
   if (underlying.status !== "active") {
     const resultLabel = underlying.status === "stopped" ? "손절" : "익절";

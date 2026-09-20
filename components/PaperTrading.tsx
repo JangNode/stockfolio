@@ -91,6 +91,8 @@ interface PositionRow {
   screening_result_id: string | null;
   currentPrice: number | null;
   score: number | null;
+  priceStatus: "ok" | "unavailable" | "no_reference";
+  priceFetchFailureCount: number;
 }
 
 interface TradeRow {
@@ -212,6 +214,8 @@ function usePositions() {
 
     const priceById = new Map<string, number>();
     const scoreById = new Map<string, number | null>();
+    const statusById = new Map<string, string>();
+    const failureCountById = new Map<string, number>();
     if (screeningIds.length > 0) {
       // screening_results는 "그 행의 전략이 로그인한 사용자 소유일 때만" 읽을 수
       // 있는 RLS 정책이라(스크리닝 화면 전용) 여기서 클라이언트가 직접 조회하면 안
@@ -219,19 +223,38 @@ function usePositions() {
       // 시딩됨)도 참조하므로 다른 계정 소유 행은 못 읽어 현재가가 항상 매수가로
       // 대체 표시된다. 서버 admin 권한으로 대신 조회하는 API 라우트를 거친다.
       const { prices } = await authJsonFetcher<{
-        prices: { id: string; current_price: number; score: number | null }[];
+        prices: {
+          id: string;
+          current_price: number;
+          score: number | null;
+          status: string;
+          price_fetch_failure_count: number;
+        }[];
       }>(`/api/paper-trading/screening-prices?ids=${screeningIds.join(",")}`);
       for (const row of prices) {
         priceById.set(row.id, row.current_price);
         scoreById.set(row.id, row.score);
+        statusById.set(row.id, row.status);
+        failureCountById.set(row.id, row.price_fetch_failure_count);
       }
     }
 
-    return (positions ?? []).map((p) => ({
-      ...p,
-      currentPrice: p.screening_result_id ? (priceById.get(p.screening_result_id) ?? null) : null,
-      score: p.screening_result_id ? (scoreById.get(p.screening_result_id) ?? null) : null,
-    })) as PositionRow[];
+    return (positions ?? []).map((p) => {
+      const priceStatus: PositionRow["priceStatus"] = !p.screening_result_id
+        ? "no_reference"
+        : statusById.get(p.screening_result_id) === "price_unavailable"
+          ? "unavailable"
+          : "ok";
+      return {
+        ...p,
+        currentPrice: p.screening_result_id ? (priceById.get(p.screening_result_id) ?? null) : null,
+        score: p.screening_result_id ? (scoreById.get(p.screening_result_id) ?? null) : null,
+        priceStatus,
+        priceFetchFailureCount: p.screening_result_id
+          ? (failureCountById.get(p.screening_result_id) ?? 0)
+          : 0,
+      };
+    }) as PositionRow[];
   });
 }
 
@@ -314,6 +337,30 @@ function Sparkline({ values, className }: { values: number[]; className?: string
 }
 
 /** 오늘 이 포트폴리오의 매매 상태를 배치 미실행/조건 미충족/체결 3단계로 구분해 보여준다. */
+/** 시세 조회가 연속 실패해 가격이 멈춘 종목(또는 원 스크리닝 신호를 아예 찾을 수
+ * 없는 엣지케이스)을 손절/익절 배지와 확실히 구분되는 색(est 토큰)으로 표시한다 —
+ * 강제청산이 보류돼 있고 화면의 현재가/평가손익이 실시간이 아니라는 걸 알린다. */
+function PriceStatusBadge({
+  priceStatus,
+  priceFetchFailureCount,
+}: {
+  priceStatus: PositionRow["priceStatus"];
+  priceFetchFailureCount: number;
+}) {
+  if (priceStatus === "ok") return null;
+
+  const label =
+    priceStatus === "unavailable"
+      ? `⚠ 가격 정지 · ${priceFetchFailureCount}일째 미확인`
+      : "⚠ 가격 확인 불가(원 신호 없음)";
+
+  return (
+    <span className="ml-2 inline-flex items-center rounded-full bg-est-soft px-2 py-0.5 text-xs font-medium text-est">
+      {label}
+    </span>
+  );
+}
+
 function TodayBadge({ todayTradeCount, ranToday }: { todayTradeCount: number; ranToday: boolean }) {
   if (todayTradeCount > 0) {
     return (
@@ -526,6 +573,10 @@ function DetailScreen({
                       <td className="py-2 pr-4 text-ink">
                         {h.stock_name}{" "}
                         <span className="text-xs text-ink-faint">{h.stock_code}</span>
+                        <PriceStatusBadge
+                          priceStatus={h.priceStatus}
+                          priceFetchFailureCount={h.priceFetchFailureCount}
+                        />
                       </td>
                       <td className="py-2 pr-4">
                         <ScoreValue score={h.score} />

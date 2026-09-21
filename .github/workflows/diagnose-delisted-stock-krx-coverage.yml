@@ -1,4 +1,4 @@
-name: [진단, 1회성] 상장폐지 종목 KRX 시세 커버리지 확인
+name: 상장폐지 종목 KRX 시세 커버리지 확인 (진단, 1회성)
 
 # 생존편향 백필 0단계 — 순수 조회 진단(DB 쓰기 없음). 확인 끝나면 이 워크플로와
 # scripts/diagnose-delisted-stock-krx-coverage.ts를 정리 PR로 제거한다.

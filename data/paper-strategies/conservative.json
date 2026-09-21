@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(9/17, #318) 이후 커밋 이력을 확인한 결과, 변경은 날짜/시각 표기 정리와 디자인 토큰 적용(#319~338) 등 UI/포맷 작업뿐이었고, 안정형이 참조하는 ma_cross/minervini_trend_template의 매칭 로직이나 스코어링에는 영향이 없었습니다. dh_value_dividend 제거(9/16, #311) 이후 ma_cross/minervini_trend_template만으로 후보 풀이 충분한지는 이 세션에서 screening_results를 직접 조회할 수 없어 계속 확인할 방법이 없지만, 아직 부족하다는 반대 근거도 나오지 않아 지난 판단(두 전략만으로 후보 풀 30개·14종목을 채우기에 충분)을 그대로 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
-  "generated_at": "2026-09-18T05:12:11Z",
+  "rationale": "지난 재생성(9/18, #339) 이후 dh_value_dividend 폐기 사유였던 두 가지 문제에 대한 실질적 개선이 있었습니다: (1) AI 모의투자의 거래정지/상장폐지 종목 '유령 보유' 버그 수정(#344, 시세 조회 실패를 조용히 넘기지 않고 임계값 도달 시 price_unavailable로 전환해 강제청산을 보류), (2) 시세 백필의 생존편향 문제 개선(#345~351, 상장폐지 종목을 백필 예외 목록에 추가). 다만 dh_value_dividend는 코드 자체가 완전히 삭제됐고(lib/dhStrategyConfig.ts 삭제, SOURCE_RULE_TYPES enum에서도 제거) 스키마가 이 값을 더 이상 허용하지 않아, 데이터 품질이 개선됐다고 해서 제가 source_rule_types에 되돌릴 수 있는 상황이 아닙니다(재도입은 별도 기능 복원 작업이 필요한 개발팀의 판단 사안). ma_cross/minervini_trend_template만으로 후보 풀이 충분한지는 이 세션에서 screening_results를 직접 조회할 수 없어 계속 확인할 방법이 없지만, 부족하다는 반대 근거도 나오지 않아 지난 판단을 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
+  "generated_at": "2026-09-21T05:11:53Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

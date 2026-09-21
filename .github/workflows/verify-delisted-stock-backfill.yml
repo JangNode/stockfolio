@@ -1,0 +1,30 @@
+name: 상장폐지 종목 백필 결과 검증 (검증, 1회성)
+
+# 생존편향 백필 3단계 실행 후 사전 확인용. 순수 조회 검증(쓰기 없음). 확인
+# 끝나면 이 워크플로와 scripts/verify-delisted-stock-backfill.ts를 정리
+# PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify delisted stock backfill
+        run: npm run verify:delisted-stock-backfill
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

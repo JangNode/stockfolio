@@ -8,7 +8,7 @@
  * "No space left on device"로 중단됨).
  *
  * 시가총액이 STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/stockDataConfig.ts, 5천억원)
- * 미만인 행은, 아래 둘 중 하나에 해당하지 않는 한 저장하지 않는다 — 후보종목 기준
+ * 미만인 행은, 아래 셋 중 하나에 해당하지 않는 한 저장하지 않는다 — 후보종목 기준
  * (1조원)보다 낮게 잡아 여유를 두면서도, 저장량을 크게 줄인다.
  *   1) 오늘 기준 KIS 종목마스터에서 테마(lib/themeConfig.ts) 플래그가 하나라도 있는 종목
  *      (테마/업종별 등락률 순위 기능, lib/stockMaster.ts의 getThemeFlaggedStockCodes 참고)
@@ -17,6 +17,17 @@
  *      백필 대상에서 아예 빠져, 15년 백테스트가 대형주 위주로 왜곡되는 문제를 부분
  *      보완한다. 과거 마스터/매칭 이력이 없어 오늘 기준을 전체 구간에 근사 적용한다 —
  *      테마 플래그와 같은 한계다.)
+ *   3) 상장폐지된 종목(2026-09-21 생존편향 백필 요청 — lib/delistedStockList.ts 참고).
+ *      2011~2026년 상장폐지 726개 중 617개(85%)가 시총 5천억 미만이라 원자료에
+ *      아예 없었고, reversal_breakout이 정확히 이 구간을 노리는 전략이라 영향이
+ *      컸다. KRX 응답은 상장폐지 종목도 과거 조회 시 실제로 포함한다는 걸 실측
+ *      확인했다(diagnose-delisted-stock-krx-coverage, PR #345~347, 정리 예정).
+ * 거래량(ACC_TRDVOL)이 0인 날은 거래정지 등으로 실제 거래가 없었던 날이라 저장하지
+ * 않는다 — KRX가 이런 날도 행 자체는 빼지 않고 마지막 체결가를 그대로 돌려주는데,
+ * 이걸 그대로 저장하면 실제로 몰랐던(정지 중) 가격을 아는 것처럼 왜곡된다
+ * (point-in-time 원칙, RULES.md 1번). 한진해운/STX조선해양/우경/신양오라컴 4종목의
+ * 거래정지 구간이 전부 거래량 0으로 응답에 남아있다는 걸 실측으로 확인했다
+ * (2026-09-21).
  * 주말(토/일)은 API 호출 없이 요일 계산만으로 건너뛴다. 평일 중 공휴일은 호출은 하되
  * 응답이 비어 있으면 그냥 건너뛴다.
  *
@@ -39,6 +50,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uploadYearPrices, yearPricesExist, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
 import { getThemeFlaggedStockCodes } from "@/lib/stockMaster";
+import { getDelistedStockCodes } from "@/lib/delistedStockList";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
@@ -189,6 +201,8 @@ async function backfillYear(
         const highPrice = Number(row.TDD_HGPRC);
         const lowPrice = Number(row.TDD_LWPRC);
         if (!Number.isFinite(openPrice) || !Number.isFinite(volume) || !Number.isFinite(highPrice) || !Number.isFinite(lowPrice)) continue;
+        // 거래정지 등으로 실제 거래가 없었던 날 — 파일 상단 주석 참고(point-in-time 원칙).
+        if (volume === 0) continue;
 
         yearRows.push({
           stockCode: row.ISU_CD,
@@ -232,13 +246,15 @@ async function main(): Promise<void> {
   const endDate = new Date();
   endDate.setUTCDate(endDate.getUTCDate() - 1);
 
-  const [themeFlaggedCodes, reversalBreakoutMatchedCodes] = await Promise.all([
+  const [themeFlaggedCodes, reversalBreakoutMatchedCodes, delistedCodes] = await Promise.all([
     getThemeFlaggedStockCodes(),
     getReversalBreakoutMatchedStockCodes(),
+    getDelistedStockCodes(),
   ]);
-  const exceptionCodes = new Set([...themeFlaggedCodes, ...reversalBreakoutMatchedCodes]);
+  const exceptionCodes = new Set([...themeFlaggedCodes, ...reversalBreakoutMatchedCodes, ...delistedCodes]);
   console.log(
     `오늘 기준 테마 소속 종목 ${themeFlaggedCodes.size}개 + reversal_breakout 매칭 이력 종목 ${reversalBreakoutMatchedCodes.size}개 ` +
+      `+ 상장폐지 종목 ${delistedCodes.size}개 ` +
       `= 저장 예외 대상 ${exceptionCodes.size}개(시가총액 하한 미달이어도 저장 대상에 포함)`
   );
   if (FORCE_REFETCH_ALL_YEARS) {

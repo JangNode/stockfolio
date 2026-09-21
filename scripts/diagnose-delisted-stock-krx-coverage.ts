@@ -24,6 +24,7 @@ interface KrxTradeRow {
   ISU_CD: string;
   ISU_NM: string;
   TDD_CLSPRC: string;
+  ACC_TRDVOL: string;
 }
 
 interface SampleStock {
@@ -129,7 +130,9 @@ async function probeDate(stock: SampleStock, dateKey: string): Promise<void> {
 
   const found = rows.find((r) => r.ISU_CD === stock.code);
   if (found) {
-    console.log(`    ${dateKey}: ✓ 포함됨 (종가 ${found.TDD_CLSPRC}, 이 날 전체 ${rows.length}건)`);
+    console.log(
+      `    ${dateKey}: ✓ 포함됨 (종가 ${found.TDD_CLSPRC}, 거래량 ${found.ACC_TRDVOL}, 이 날 전체 ${rows.length}건)`
+    );
   } else if (rows.length === 0) {
     console.log(`    ${dateKey}: ✕ 없음 — 이 날 전체 응답이 0건이라 공휴일일 가능성(휴장일이면 원래 없는 게 정상)`);
   } else {

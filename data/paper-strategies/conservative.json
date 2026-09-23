@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(9/21, #352) 이후 커밋 이력을 확인한 결과 새 커밋이 없었습니다. 어제 국내 스크리닝 배치가 마이그레이션 미적용(screening_results.price_fetch_failure_count 컬럼 부재)으로 한 차례 실패했으나 같은 날 마이그레이션 적용 후 정상 복구됐습니다 — 코드 로직 문제가 아니라 배포 순서 문제였고, ma_cross/minervini_trend_template 매칭 로직 자체에는 영향이 없습니다. dh_value_dividend는 여전히 코드가 삭제된 상태라 되돌릴 수 있는 사안이 아니며, ma_cross/minervini_trend_template만으로 후보 풀이 충분한지에 대한 반대 근거도 나오지 않아 지난 판단을 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
-  "generated_at": "2026-09-22T05:11:34Z",
+  "rationale": "지난 재생성(9/22, #353) 이후 커밋 이력을 확인한 결과 새 커밋이 없었습니다. ma_cross/minervini_trend_template 매칭 로직에 영향을 줄 변경이 없어 조건을 바꿀 이유가 없습니다. dh_value_dividend는 여전히 코드가 삭제된 상태라 되돌릴 수 있는 사안이 아니며, 두 전략만으로 후보 풀이 부족하다는 반대 근거도 나오지 않아 지난 판단을 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
+  "generated_at": "2026-09-23T05:11:05Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

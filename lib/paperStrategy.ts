@@ -11,7 +11,10 @@ import { PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 // 채운다 — data/paper-strategies/surge_stock.json 파일도 존재하지 않아
 // loadStrategyFile이 항상 null을 반환하고, scripts/paper-trade.ts의
 // determineStrategyForToday는 그때마다 기존 활성 전략(마이그레이션이 심어둔 고정
-// 조건)을 그대로 유지한다.
+// 조건)을 그대로 유지한다. 'experimental_blend'도 같은 패턴이다
+// (20260924080000_seed_experimental_blend_paper_style.sql) — 이 스타일 고유의
+// rule_type별 목표비중 게이팅은 이 JSON 스키마가 아니라 lib/experimentalBlendConfig.ts
+// 상수로 scripts/paper-trade.ts가 직접 처리한다.
 // PaperStyle 타입/스타일 목록은 lib/paperStyles.ts(서버·클라이언트 공용, server-only
 // 아님)가 유일한 출처다 — 여기서는 그대로 재노출만 한다.
 export type { PaperStyle };
@@ -33,6 +36,12 @@ const SOURCE_RULE_TYPES = [
   "peg_lynch",
   "reversal_breakout",
 ] as const;
+
+// lib/paperTrading.ts의 ScreeningCandidateRow.ruleType이 이 값과 정확히 일치하도록
+// 타입만 재노출한다(server-only가 아닌 순수 로직 파일에서도 안전하게 쓰도록 항상
+// `import type`으로만 가져올 것 — 그래야 이 파일의 "server-only" import가 그 파일까지
+// 전파되지 않는다).
+export type SourceRuleType = (typeof SOURCE_RULE_TYPES)[number];
 
 // 매일 정해진 시각(paper-strategy.yml, screening.yml보다 앞선 KST 14:10)에 별도
 // Claude Code 세션(Routine)이 이 스키마에 맞춰 data/paper-strategies/{style}.json을

@@ -1,0 +1,38 @@
+name: 전략별 일별 수익률 시계열 추출 (진단, 1회성)
+
+# 포트폴리오 MDD 분석용. 순수 조회+계산(쓰기 없음). 결과 CSV/JSON은 아티팩트로만
+# 남긴다. 확인 끝나면 이 워크플로와 scripts/diagnose-strategy-daily-returns.ts를
+# 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Extract strategy daily return series
+        run: npm run diagnose:strategy-daily-returns
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Upload result files
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-daily-returns
+          path: |
+            strategy-daily-returns.csv
+            strategy-daily-returns.json

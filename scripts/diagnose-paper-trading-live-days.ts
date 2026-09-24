@@ -40,9 +40,12 @@ async function main(): Promise<void> {
   }
 
   console.log("\n=== custom 스타일 채택(adopt) 여부 확인 ===");
+  // paper_strategies에는 market 컬럼이 없다 — 전략 조건은 퍼센트/개수 기반이라
+  // 시장에 무관하게 스타일당 하나만 두기 때문(20260820010000_add_us_market_to_paper_trading.sql
+  // 참고, market은 paper_portfolios/paper_positions/paper_trades에만 추가됨).
   const { data: customStrategies, error: customError } = await supabaseAdmin
     .from("paper_strategies")
-    .select("id, market, version, label, is_active, created_at")
+    .select("id, version, label, is_active, created_at")
     .eq("style", "custom")
     .order("created_at", { ascending: true });
   if (customError) throw new Error(`custom 전략 조회 실패: ${customError.message}`);
@@ -51,7 +54,7 @@ async function main(): Promise<void> {
     console.log("  custom 스타일 전략 행이 아예 없습니다 — 실험실에서 채택된 적 없음.");
   } else {
     for (const s of customStrategies) {
-      console.log(`  [${s.market}] v${s.version} "${s.label}" (활성: ${s.is_active}, 생성: ${s.created_at})`);
+      console.log(`  v${s.version} "${s.label}" (활성: ${s.is_active}, 생성: ${s.created_at})`);
     }
   }
 }

@@ -1,0 +1,32 @@
+name: 전략별 수익률 쏠림/분산효과 진단 (진단, 1회성)
+
+# 포트폴리오 MDD 분석용 — reversal_breakout(v1/v2)의 큰 누적수익률·MDD가 소수 종목
+# 쏠림인지, ma_cross/minervini의 0.811 상관과 reversal_breakout/peg_lynch의 0.04
+# 상관이 구조적인지 활성일 안 겹침 때문인지 확인한다. 순수 조회+계산(쓰기 없음).
+# 확인 끝나면 이 워크플로와 scripts/diagnose-strategy-return-concentration.ts를
+# 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose strategy return concentration
+        run: npm run diagnose:strategy-return-concentration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

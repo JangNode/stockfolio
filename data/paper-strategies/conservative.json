@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(9/22, #353) 이후 커밋 이력을 확인한 결과 새 커밋이 없었습니다. ma_cross/minervini_trend_template 매칭 로직에 영향을 줄 변경이 없어 조건을 바꿀 이유가 없습니다. dh_value_dividend는 여전히 코드가 삭제된 상태라 되돌릴 수 있는 사안이 아니며, 두 전략만으로 후보 풀이 부족하다는 반대 근거도 나오지 않아 지난 판단을 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
-  "generated_at": "2026-09-23T05:11:05Z",
+  "rationale": "지난 재생성(9/23, #354) 이후 커밋 이력을 확인한 결과 새 커밋이 없었습니다. ma_cross/minervini_trend_template 매칭 로직에 영향을 줄 변경이 없어 조건을 바꿀 이유가 없습니다. dh_value_dividend는 여전히 코드가 삭제된 상태라 되돌릴 수 있는 사안이 아니며, 두 전략만으로 후보 풀이 부족하다는 반대 근거도 나오지 않아 지난 판단을 유지합니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 바꿀 이유가 없습니다.",
+  "generated_at": "2026-09-24T05:11:26Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template"],
     "min_signal_return_pct": -2,

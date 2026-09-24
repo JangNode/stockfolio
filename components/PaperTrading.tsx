@@ -9,7 +9,8 @@ import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, formatNumber, type Market } from "@/lib/market";
 import { formatPercent } from "@/lib/formatNumber";
-import { PAPER_STYLE_LABEL, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
+import { PAPER_STYLE_LABEL, PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
+import { EXPERIMENTAL_BLEND_STYLE } from "@/lib/experimentalBlendConfig";
 import {
   toKstDateString as toKstDate,
   todayKstDateString as todayKstDate,
@@ -423,7 +424,9 @@ function OverviewScreen({
 
             {!portfolio || !latest ? (
               <p className="mt-4 text-sm text-ink-muted">
-                아직 실행된 배치가 없습니다.
+                {PAPER_STYLE_MARKETS[style].includes(market)
+                  ? "아직 실행된 배치가 없습니다."
+                  : "이 스타일은 국내(KR) 전용입니다."}
               </p>
             ) : (
               <>
@@ -520,6 +523,13 @@ function DetailScreen({
     <div>
       <StyleToggle value={style} onChange={setStyle} />
 
+      {!portfolio && (
+        <p className="mb-3 text-sm text-est">
+          ⚠ 이 스타일은 국내(KR) 전용이라 이 시장에는 계좌가 없습니다. 아래 전략 조건은 국내
+          계좌 기준입니다.
+        </p>
+      )}
+
       {!active ? (
         <p className="text-sm text-ink-muted">아직 생성된 전략이 없습니다.</p>
       ) : (
@@ -528,6 +538,11 @@ function DetailScreen({
             {active.label} <span className="text-xs text-ink-faint">v{active.version}</span>
           </p>
           <p className="mt-1 text-xs text-ink-muted">{formatDate(active.created_at)} 생성</p>
+          {style === EXPERIMENTAL_BLEND_STYLE && (
+            <p className="mt-1 text-xs text-est">
+              ⚠ 백테스트 기반 조합이며 라이브 검증 이력이 없습니다.
+            </p>
+          )}
           <p className="mt-3 text-sm text-ink">{active.rationale}</p>
 
           <button
@@ -763,6 +778,13 @@ function HistoryScreen({
   return (
     <div>
       <StyleToggle value={style} onChange={setStyle} />
+
+      {!portfolio && (
+        <p className="mb-3 text-sm text-est">
+          ⚠ 이 스타일은 국내(KR) 전용이라 이 시장에는 계좌가 없습니다. 기간 수익률은 표시되지
+          않습니다.
+        </p>
+      )}
 
       {versions.length === 0 ? (
         <p className="text-sm text-ink-muted">전략 이력이 없습니다.</p>

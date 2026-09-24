@@ -1,4 +1,4 @@
-import type { PaperStrategyConditions } from "@/lib/paperStrategy";
+import type { PaperStrategyConditions, SourceRuleType } from "@/lib/paperStrategy";
 import { PAPER_STYLE_LABEL, type PaperStyle } from "@/lib/paperStyles";
 import type { Market } from "@/lib/market";
 
@@ -15,7 +15,13 @@ export interface ScreeningCandidateRow {
   screeningResultId: string;
   stockCode: string;
   stockName: string;
-  ruleType: "ma_cross" | "minervini_trend_template" | "custom_composite";
+  // 원 스크리닝 전략(peg_lynch/reversal_breakout 포함)이 만들어내는 rule_type 전체와
+  // 일치해야 한다 — lib/paperStrategy.ts의 SourceRuleType(SOURCE_RULE_TYPES)이 유일한
+  // 출처다. 예전엔 ma_cross/minervini_trend_template/custom_composite 3종으로만 좁게
+  // 선언돼 있었는데, surge_stock(reversal_breakout)/실험조합형(peg_lynch,
+  // reversal_breakout)이 이미 실제로 이 필드에 나머지 2종을 채워 넣고 있어 타입만
+  // 부정확했다(2026-09-24 수정).
+  ruleType: SourceRuleType;
   returnPct: number;
   currentPrice: number;
   market: Market;
@@ -132,6 +138,31 @@ export function selectBuyCandidates(
   }
 
   return decisions;
+}
+
+/**
+ * "실험조합형" 스타일 전용 매수 게이팅("고정비중 게이팅", A안). 안정형/공격형처럼
+ * 후보 전체를 하나의 풀로 모아 단일 기준으로 매수하는 게 아니라, rule_type별
+ * 목표비중(targetWeights, 예: lib/experimentalBlendConfig.ts의
+ * EXPERIMENTAL_BLEND_TARGET_WEIGHTS)을 정해두고 그 rule_type의 현재 보유비중
+ * (heldValueByRuleType/totalEquity)이 목표 미달일 때만 그 rule_type의 후보를
+ * 매수 대상으로 남긴다. 목표비중이 정의되지 않은 rule_type의 후보는 통과시키지
+ * 않는다. 초과분을 파는 강제 리밸런싱은 하지 않는다 — 매수 시점 게이팅에만 쓴다.
+ */
+export function filterCandidatesByTargetWeight(
+  candidates: ScreeningCandidateRow[],
+  heldValueByRuleType: ReadonlyMap<string, number>,
+  totalEquity: number,
+  targetWeights: Readonly<Partial<Record<SourceRuleType, number>>>
+): ScreeningCandidateRow[] {
+  if (totalEquity <= 0) return candidates;
+
+  return candidates.filter((c) => {
+    const targetWeight = targetWeights[c.ruleType];
+    if (targetWeight === undefined) return false;
+    const heldValue = heldValueByRuleType.get(c.ruleType) ?? 0;
+    return heldValue / totalEquity < targetWeight;
+  });
 }
 
 export interface SellDecision {

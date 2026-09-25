@@ -335,71 +335,48 @@ export default function StrategyManager({ user }: { user: User }) {
           <h3 className="mb-3 text-sm font-medium text-ink">전략 성과 비교</h3>
 
           {strategyStats ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="text-ink-muted">
-                    <th className="pb-2 pr-4 font-normal"></th>
-                    {comparableStrategies.map(({ ruleType }) => {
-                      const stats = strategyStats.get(ruleType);
-                      const isLowSample =
-                        !stats || stats.closedCount < MIN_CLOSED_SAMPLES_FOR_RELIABLE_STATS;
-                      return (
-                        <th key={ruleType} className="pb-2 pr-4 font-normal">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span>{RULE_TYPE_LABELS[ruleType]}</span>
-                            {isLowSample && (
-                              <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
-                                표본 부족
-                              </span>
-                            )}
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody className="tabular-nums text-ink">
-                  <tr className="border-t border-border">
-                    <td className="py-2 pr-4 text-ink-muted">신호 수(전체/추적 중/종료)</td>
-                    {comparableStrategies.map(({ ruleType }) => {
-                      const stats = strategyStats.get(ruleType);
-                      return (
-                        <td key={ruleType} className="py-2 pr-4">
+            <div className="flex flex-wrap gap-4">
+              {comparableStrategies.map(({ ruleType }) => {
+                const stats = strategyStats.get(ruleType);
+                const isLowSample = !stats || stats.closedCount < MIN_CLOSED_SAMPLES_FOR_RELIABLE_STATS;
+                return (
+                  <div
+                    key={ruleType}
+                    className="w-full max-w-sm rounded-card border border-border bg-surface p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
+                      {isLowSample && (
+                        <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                          표본 부족
+                        </span>
+                      )}
+                    </div>
+                    <dl className="mt-3 space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">신호 수(전체/추적 중/종료)</dt>
+                        <dd className="tabular-nums text-ink">
                           {stats ? `${stats.total} / ${stats.activeCount} / ${stats.closedCount}` : "-"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr className="border-t border-border">
-                    <td className="py-2 pr-4 text-ink-muted">승률(종료 기준)</td>
-                    {comparableStrategies.map(({ ruleType }) => {
-                      const stats = strategyStats.get(ruleType);
-                      return (
-                        <td key={ruleType} className="py-2 pr-4">
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">승률(종료 기준)</dt>
+                        <dd className="tabular-nums text-ink">
                           {stats?.winRate == null ? "-" : formatPercent(stats.winRate * 100, { sign: false })}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr className="border-t border-border">
-                    <td className="py-2 pr-4 text-ink-muted">평균 수익률(종료 기준)</td>
-                    {comparableStrategies.map(({ ruleType }) => (
-                      <td key={ruleType} className="py-2 pr-4">
-                        {formatPct(strategyStats.get(ruleType)?.avgReturnPct ?? null)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-t border-border">
-                    <td className="py-2 pr-4 text-ink-muted">중앙값 수익률(종료 기준)</td>
-                    {comparableStrategies.map(({ ruleType }) => (
-                      <td key={ruleType} className="py-2 pr-4">
-                        {formatPct(strategyStats.get(ruleType)?.medianReturnPct ?? null)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">평균 수익률(종료 기준)</dt>
+                        <dd className="tabular-nums text-ink">{formatPct(stats?.avgReturnPct ?? null)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">중앙값 수익률(종료 기준)</dt>
+                        <dd className="tabular-nums text-ink">{formatPct(stats?.medianReturnPct ?? null)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-ink-muted">비교 데이터를 불러오는 중...</p>

@@ -148,15 +148,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  for (const r of toRestore) {
-    const { error } = await supabaseAdmin
-      .from("screening_results")
-      .update({ status: "active", closed_at: null })
-      .eq("id", r.id);
-    if (error) throw new Error(`복원 실패(id=${r.id}): ${error.message}`);
-  }
-  console.log(`복원 완료: ${toRestore.length}건`);
-
+  // 삭제를 먼저 해야 한다 — 복원 대상과 같은 (strategy_id, stock_code)의 재매칭
+  // 산물(status='active')이 아직 남아있으면, 복원 시 status='active'로 바꾸는
+  // update가 screening_results_active_unique_idx(활성 상태는 종목당 1개)와
+  // 충돌한다.
   if (toDelete.length > 0) {
     const { error } = await supabaseAdmin
       .from("screening_results")
@@ -165,6 +160,15 @@ async function main(): Promise<void> {
     if (error) throw new Error(`삭제 실패: ${error.message}`);
   }
   console.log(`삭제 완료: ${toDelete.length}건`);
+
+  for (const r of toRestore) {
+    const { error } = await supabaseAdmin
+      .from("screening_results")
+      .update({ status: "active", closed_at: null })
+      .eq("id", r.id);
+    if (error) throw new Error(`복원 실패(id=${r.id}): ${error.message}`);
+  }
+  console.log(`복원 완료: ${toRestore.length}건`);
 }
 
 main().catch((error) => {

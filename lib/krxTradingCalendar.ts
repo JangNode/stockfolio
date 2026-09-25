@@ -4,8 +4,8 @@ import { getDomesticHolidayCheck, type KrxHolidayCheckDay } from "@/lib/kis";
 
 /**
  * 한국거래소(KRX) 거래일 캘린더. KIS 국내휴장일조회(chk-holiday)가 한 번 호출에
- * baseDate부터 정확히 24일치만 주기 때문에(scripts/diagnose-kis-holiday-check.ts
- * 2026-09-25 실측 확인), 필요한 개월 수를 채울 때까지 이어서 호출해 모은다.
+ * baseDate부터 정확히 24일치만 주기 때문에(2026-09-25 실측 확인), 필요한 개월 수를
+ * 채울 때까지 이어서 호출해 모은다.
  * scripts/sync-krx-trading-calendar.ts가 연 1회 이 모듈로 전체 재수집 →
  * 검증 → 교체를 수행한다(FOMC/금통위 일정 동기화와 동일 패턴, lib/scheduleStorage.ts
  * 참고).

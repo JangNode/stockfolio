@@ -10,6 +10,13 @@
  *
  * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *   tsx --conditions=react-server scripts/diagnose-holiday-batch-price-impact.ts
+ *
+ * [2026-09-25 1차 실행 이후 보정] 최초 버전은 조회 범위 시작을
+ * 2026-09-24T14:00:00Z(KST 9/24 23:00)로 잡아 9/24 14:30 KST 배치(=05:30Z) 자체의
+ * 결과를 놓쳤다(9/25분만 잡혔음). 이번 버전은 9/24 배치 시작 전인 KST 9/24 00:00
+ * (=2026-09-23T15:00:00Z)부터 잡아 이틀치를 모두 포함한다. 또한 3번 쿼리에
+ * market='KR' 필터가 없어 미국 minervini_trend_template 매칭(예: IOT)까지 섞여
+ * 나왔던 것도 이번에 국내로 한정한다.
  */
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -55,21 +62,22 @@ async function main() {
     if (stratErr) console.error(stratErr);
     console.log("minervini_trend_template 전략들:", JSON.stringify(strategies, null, 2));
 
-    const stratIds = (strategies ?? []).map((s) => s.id);
-    if (stratIds.length > 0) {
+    const krStratIds = (strategies ?? []).filter((s) => s.market === "KR").map((s) => s.id);
+    if (krStratIds.length > 0) {
       const { data, error } = await supabaseAdmin
         .from("screening_results")
         .select(
           "id, strategy_id, stock_code, stock_name, signal_price, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, status, matched_at, closed_at, market"
         )
-        .in("strategy_id", stratIds)
-        .gte("matched_at", "2026-09-24T14:00:00Z") // KST 2026-09-24 23:00 이후 ~ 넉넉히
+        .in("strategy_id", krStratIds)
+        .gte("matched_at", "2026-09-23T15:00:00Z") // KST 2026-09-24 00:00 이후(9/24 배치 시작 전부터)
         .lte("matched_at", "2026-09-26T06:00:00Z")
         .order("matched_at", { ascending: true });
       if (error) console.error(error);
       else {
         newMatches = data ?? [];
         console.log(`건수: ${newMatches.length}`);
+        console.log("종목코드 목록:", newMatches.map((m) => `${m.stock_code}(matched_at=${m.matched_at})`).join(", "));
         console.log(JSON.stringify(newMatches, null, 2));
       }
     }
@@ -85,7 +93,7 @@ async function main() {
       )
       .eq("market", "KR")
       .eq("side", "sell")
-      .gte("traded_at", "2026-09-24T14:00:00Z")
+      .gte("traded_at", "2026-09-23T15:00:00Z")
       .lte("traded_at", "2026-09-26T06:00:00Z")
       .order("traded_at", { ascending: true });
     if (error) console.error(error);
@@ -160,12 +168,16 @@ async function main() {
       )
       .eq("status", "stopped")
       .eq("market", "KR")
-      .gte("closed_at", "2026-09-24T14:00:00Z")
+      .gte("closed_at", "2026-09-23T15:00:00Z")
       .lte("closed_at", "2026-09-26T06:00:00Z")
       .order("closed_at", { ascending: true });
     if (error) console.error(error);
     else {
       console.log(`건수: ${data?.length ?? 0}`);
+      console.log(
+        "종목코드 목록:",
+        (data ?? []).map((d) => `${d.stock_code}(matched_at=${d.matched_at}, closed_at=${d.closed_at})`).join(", ")
+      );
       console.log(JSON.stringify(data, null, 2));
     }
   }

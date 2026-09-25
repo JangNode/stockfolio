@@ -1,0 +1,30 @@
+name: AI 모의투자 라이브 성과 진단 (진단, 1회성)
+
+# 안정형/공격형/급등주/실험조합형 라이브 계좌의 실제 성과(누적수익률, 벤치마크 대비,
+# 손절/익절 비율, 쏠림 여부)를 확인한다. 순수 조회 진단(쓰기 없음). 확인 끝나면
+# 이 워크플로와 scripts/diagnose-paper-trading-performance.ts를 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose paper trading performance
+        run: npm run diagnose:paper-trading-performance
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -1,0 +1,39 @@
+name: KRX Trading Calendar Sync
+
+# 한국거래소(KRX) 거래일 캘린더를 연 1회 KIS 국내휴장일조회(chk-holiday)에서
+# 자동 수집해 DB에 반영한다(scripts/sync-krx-trading-calendar.ts). KIS가 한 번
+# 호출에 24일치만 주므로 연초에 갱신해도 그해 전체 + 다음 해 일부(15개월치)를
+# 커버한다. 국내 스크리닝/AI 모의투자 배치가 이 캘린더로 "오늘이 거래일인지"
+# 가드를 거는데, 이 동기화 자체는 연 1회 정적 데이터 갱신이라 몇 시간~며칠
+# 밀려도 무방하다 — sync-rate-schedules.yml과 같은 이유로 pg_cron 없이
+# GitHub Actions의 schedule 트리거를 그대로 쓴다.
+on:
+  schedule:
+    # 매년 1월 2일 한국시간(KST) 06:00 = UTC 1월 1일 21:00.
+    - cron: "0 21 1 1 *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync KRX trading calendar
+        run: npx tsx --conditions=react-server scripts/sync-krx-trading-calendar.ts
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

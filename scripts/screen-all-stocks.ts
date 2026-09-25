@@ -45,6 +45,7 @@ import {
 import { selectEpsCagrFiscalYears, computeEpsCagrFromResolvedShares, computePeg, type ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 import { THEME_CODES, THEME_LABELS, THEME_CONSTITUENTS_RETENTION_YEARS, type ThemeCode } from "@/lib/themeConfig";
+import { isKrxTradingDay } from "@/lib/krxTradingCalendar";
 
 // ===== 잡주 필터링 조건 (숫자/목록 조정은 여기서) =====
 // 종목명에 이 문자열이 포함되면 제외한다 (스팩).
@@ -1097,6 +1098,15 @@ async function alreadyRanToday(): Promise<boolean> {
 async function main(): Promise<void> {
   const startedAt = new Date();
   console.log(`스크리닝 배치 시작: ${startedAt.toISOString()}`);
+
+  // 다른 모든 로직보다 먼저 오늘이 KRX 거래일인지 확인한다(2026-09-24/25 추석
+  // 연휴에 이 가드가 없어 휴장일에도 정상 거래일처럼 손절/신규매칭이 발생한
+  // 사고 재발 방지). 휴장일이면 screening_runs에 아무 것도 기록하지 않고 그대로
+  // 종료한다 — "정상 실행"으로 기록되면 나중에 실행 통계가 헷갈린다.
+  if (!(await isKrxTradingDay(todayKstDate()))) {
+    console.log("오늘은 KRX 휴장일이라 국내 스크리닝을 건너뜁니다.");
+    return;
+  }
 
   const forceRescan = process.env.FORCE_RESCAN === "true";
   if (!forceRescan && (await alreadyRanToday())) {

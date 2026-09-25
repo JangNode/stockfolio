@@ -5,6 +5,7 @@ const KIS_BASE_URL =
   process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
 
 const TR_ID_INQUIRE_PRICE = "FHKST01010100";
+const TR_ID_CHK_HOLIDAY = "CTCA0903R";
 const TR_ID_INQUIRE_DAILY_CHART_PRICE = "FHKST03010100";
 const TR_ID_INQUIRE_TIME_CHART_PRICE = "FHKST03010200";
 const TR_ID_INQUIRE_INDEX_PRICE = "FHPUP02100000";
@@ -489,6 +490,25 @@ export async function getStockPrice(
     week52High: parsePositive(output.w52_hgpr),
     week52Low: parsePositive(output.w52_lwpr),
   };
+}
+
+/**
+ * [진단용] KIS 국내휴장일조회(chk-holiday) 원본 응답을 그대로 반환한다. 실제
+ * 필드명/구조를 scripts/diagnose-kis-holiday-check.ts로 먼저 확인한 뒤, 정식
+ * 파싱 함수(예: getDomesticHolidays)로 교체할 예정이다 — 지금은 output 배열을
+ * unknown으로만 넘긴다.
+ */
+export async function getDomesticHolidayCheckRaw(baseDate: string): Promise<unknown> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+
+  const url = new URL("/uapi/domestic-stock/v1/quotations/chk-holiday", KIS_BASE_URL);
+  url.searchParams.set("BASS_DT", baseDate);
+  url.searchParams.set("CTX_AREA_NK", "");
+  url.searchParams.set("CTX_AREA_FK", "");
+
+  const data = await kisFetch(url, TR_ID_CHK_HOLIDAY, accessToken, appKey, appSecret, "batch");
+  return data.output;
 }
 
 export type ChartPeriod = "D" | "W" | "M" | "Y";

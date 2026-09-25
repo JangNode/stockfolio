@@ -471,7 +471,9 @@ async function runPortfolio(
       candidates,
       heldValueByRuleType,
       equityBeforeBuys,
-      EXPERIMENTAL_BLEND_TARGET_WEIGHTS
+      EXPERIMENTAL_BLEND_TARGET_WEIGHTS,
+      conditions.entry_conditions.max_positions - remainingPositions.length,
+      conditions.stock_selection_criteria.prefer_higher_return_pct
     );
   }
 

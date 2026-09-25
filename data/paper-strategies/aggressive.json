@@ -1,7 +1,7 @@
 {
   "label": "모멘텀 집중 추종형",
-  "rationale": "지난 재생성(9/23, #354) 이후 커밋 이력을 확인한 결과 새 커밋이 없었습니다. peg_lynch 매칭 로직이나 스코어링에 영향을 줄 변경이 없어 조건을 바꿀 이유가 없습니다. source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
-  "generated_at": "2026-09-24T05:11:26Z",
+  "rationale": "지난 재생성(9/24, #355) 이후 포트폴리오 배분 설계용 심층 진단(#356~359)과 새 실험 스타일 '실험조합형'(experimental_blend, #360) 추가를 확인했습니다. 두 가지가 주목할 만합니다: (1) ma_cross와 minervini_trend_template이 구조적으로 거의 동일 신호로 확인됐습니다(11개 연도 전부 상관계수 0.58~0.93) — 개발팀이 이번 experimental_blend 배분 설계에서 ma_cross를 아예 뺀 이유입니다. 공격형도 두 전략을 함께 쓰고 있어 실제 분산 효과는 생각보다 작을 수 있지만, 완전 중복은 아니고(상관 1.0 아님) 제거를 단정할 만큼 강한 근거는 아니라고 판단해 오늘은 유지합니다. (2) minervini:peg_lynch:reversal_breakout을 54:36:10으로 섞은 조합이 CAGR 17.3%/MDD 29.6%로, 지난주 확인한 peg_lynch 단독 원시 MDD(98.86%)보다 훨씬 안정적이었습니다 — peg_lynch를 ma_cross/minervini와 함께 분산해 쓰는 공격형의 현재 접근이 방향적으로 타당하다는 뒷받침 근거입니다. 오늘은 두 관찰 모두 구조적 참고사항으로 기록하되 조건을 바꿀 만큼 직접적인 근거는 아니라고 판단해, source_rule_types 및 나머지 조건(5종목, 회당 30%, 손절 12%·익절 30%, 진입 -2%~37%, 후보 풀 10개)을 그대로 유지합니다.",
+  "generated_at": "2026-09-25T05:12:18Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "minervini_trend_template", "peg_lynch"],
     "min_signal_return_pct": -2,

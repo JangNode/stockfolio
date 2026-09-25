@@ -147,22 +147,79 @@ export function selectBuyCandidates(
  * EXPERIMENTAL_BLEND_TARGET_WEIGHTS)을 정해두고 그 rule_type의 현재 보유비중
  * (heldValueByRuleType/totalEquity)이 목표 미달일 때만 그 rule_type의 후보를
  * 매수 대상으로 남긴다. 목표비중이 정의되지 않은 rule_type의 후보는 통과시키지
- * 않는다. 초과분을 파는 강제 리밸런싱은 하지 않는다 — 매수 시점 게이팅에만 쓴다.
+ * 않는다.
+ *
+ * 미달인 rule_type이 하나뿐이면 그 rule_type의 후보를 전부 통과시킨다(슬롯 1개짜리
+ * 경우라 비례 배분이 의미 없음). 미달인 rule_type이 둘 이상이면 이분법으로 전부
+ * 통과시키지 않고, 이번 매수 판단에 쓸 수 있는 남은 슬롯(slotsAvailable)을 미달
+ * rule_type들의 목표비중에 비례해 정수 슬롯으로 나눈다(최대잔여법/Hamilton
+ * apportionment — 몫의 정수부를 먼저 배분하고, 남는 슬롯은 소수부가 큰 rule_type부터
+ * 하나씩 얹어 합이 정확히 slotsAvailable이 되게 한다). 각 rule_type은 배분받은
+ * 슬롯 수만큼만, 랭킹 기준(preferHigherReturnPct)으로 상위 후보만 통과시킨다 —
+ * 한 rule_type의 후보 수가 배분 슬롯보다 적어도 남는 슬롯을 다른 rule_type에
+ * 재배분하지 않는다. 초과분을 파는 강제 리밸런싱은 하지 않는다 — 매수 시점
+ * 게이팅에만 쓴다.
  */
 export function filterCandidatesByTargetWeight(
   candidates: ScreeningCandidateRow[],
   heldValueByRuleType: ReadonlyMap<string, number>,
   totalEquity: number,
-  targetWeights: Readonly<Partial<Record<SourceRuleType, number>>>
+  targetWeights: Readonly<Partial<Record<SourceRuleType, number>>>,
+  slotsAvailable: number,
+  preferHigherReturnPct: boolean
 ): ScreeningCandidateRow[] {
-  if (totalEquity <= 0) return candidates;
+  if (totalEquity <= 0 || slotsAvailable <= 0) return candidates;
 
-  return candidates.filter((c) => {
-    const targetWeight = targetWeights[c.ruleType];
-    if (targetWeight === undefined) return false;
-    const heldValue = heldValueByRuleType.get(c.ruleType) ?? 0;
-    return heldValue / totalEquity < targetWeight;
+  const underweightRuleTypes = (Object.entries(targetWeights) as [SourceRuleType, number][]).filter(
+    ([ruleType, targetWeight]) => (heldValueByRuleType.get(ruleType) ?? 0) / totalEquity < targetWeight
+  );
+
+  if (underweightRuleTypes.length === 0) return [];
+
+  if (underweightRuleTypes.length === 1) {
+    const [onlyUnderweightRuleType] = underweightRuleTypes[0];
+    return candidates.filter((c) => c.ruleType === onlyUnderweightRuleType);
+  }
+
+  // 미달 rule_type이 둘 이상: 목표비중을 미달 rule_type들 사이에서만 재정규화해
+  // slotsAvailable을 정수 슬롯으로 나눈다(최대잔여법). 예: 슬롯 5개, minervini(0.54)·
+  // peg_lynch(0.36)만 미달이면 0.54:0.36 → 60:40으로 재정규화해 3개/2개로 배분.
+  const totalUnderweightTargetWeight = underweightRuleTypes.reduce((sum, [, weight]) => sum + weight, 0);
+
+  const apportionedShares = underweightRuleTypes.map(([ruleType, targetWeight]) => {
+    const exactShare = (slotsAvailable * targetWeight) / totalUnderweightTargetWeight;
+    const flooredShare = Math.floor(exactShare);
+    return { ruleType, flooredShare, fractionalRemainder: exactShare - flooredShare };
   });
+
+  let unassignedSlots = slotsAvailable - apportionedShares.reduce((sum, s) => sum + s.flooredShare, 0);
+
+  const sharesByRemainderDesc = [...apportionedShares].sort(
+    (a, b) => b.fractionalRemainder - a.fractionalRemainder
+  );
+  for (const share of sharesByRemainderDesc) {
+    if (unassignedSlots <= 0) break;
+    share.flooredShare += 1;
+    unassignedSlots--;
+  }
+
+  const slotsByRuleType = new Map(apportionedShares.map((s) => [s.ruleType, s.flooredShare]));
+
+  const allowedScreeningResultIds = new Set<string>();
+  for (const [ruleType] of underweightRuleTypes) {
+    const slotsForRuleType = slotsByRuleType.get(ruleType) ?? 0;
+    if (slotsForRuleType <= 0) continue;
+
+    const rankedCandidatesForRuleType = candidates
+      .filter((c) => c.ruleType === ruleType)
+      .sort((a, b) => (preferHigherReturnPct ? b.returnPct - a.returnPct : a.returnPct - b.returnPct));
+
+    for (const c of rankedCandidatesForRuleType.slice(0, slotsForRuleType)) {
+      allowedScreeningResultIds.add(c.screeningResultId);
+    }
+  }
+
+  return candidates.filter((c) => allowedScreeningResultIds.has(c.screeningResultId));
 }
 
 export interface SellDecision {

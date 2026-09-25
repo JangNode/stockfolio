@@ -492,13 +492,30 @@ export async function getStockPrice(
   };
 }
 
+export interface KrxHolidayCheckDay {
+  date: string; // YYYY-MM-DD
+  isOpen: boolean;
+}
+
+interface ChkHolidayResponse extends KisResponse {
+  output: {
+    bass_dt: string; // YYYYMMDD
+    wday_dvsn_cd: string; // 요일코드(일=01~토=07)
+    bzdy_yn: string; // 영업일여부(Y/N)
+    tr_day_yn: string; // 거래일여부(결제 관점 — 개장 여부와 다름, 이 용도엔 안 씀)
+    opnd_yn: string; // 개장일여부(Y/N) — 배치 가드에 쓰는 필드
+    sttl_day_yn: string; // 결제일여부(Y/N)
+  }[];
+}
+
 /**
- * [진단용] KIS 국내휴장일조회(chk-holiday) 원본 응답을 그대로 반환한다. 실제
- * 필드명/구조를 scripts/diagnose-kis-holiday-check.ts로 먼저 확인한 뒤, 정식
- * 파싱 함수(예: getDomesticHolidays)로 교체할 예정이다 — 지금은 output 배열을
- * unknown으로만 넘긴다.
+ * KIS 국내휴장일조회(chk-holiday, tr_id CTCA0903R)로 baseDate(YYYYMMDD)부터
+ * 정확히 24일치 개장일 여부를 조회한다(2026-09-25 진단 스크립트로 실측 확인 —
+ * 과거 날짜는 안 주고 항상 baseDate 포함 미래 24일). opnd_yn이 실제 개장 여부다
+ * (tr_day_yn은 결제 관점이라 다르다 — 2026-09-24/25 추석 연휴 실측에서
+ * opnd_yn="N" 확인됨).
  */
-export async function getDomesticHolidayCheckRaw(baseDate: string): Promise<unknown> {
+export async function getDomesticHolidayCheck(baseDate: string): Promise<KrxHolidayCheckDay[]> {
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
 
@@ -507,8 +524,19 @@ export async function getDomesticHolidayCheckRaw(baseDate: string): Promise<unkn
   url.searchParams.set("CTX_AREA_NK", "");
   url.searchParams.set("CTX_AREA_FK", "");
 
-  const data = await kisFetch(url, TR_ID_CHK_HOLIDAY, accessToken, appKey, appSecret, "batch");
-  return data.output;
+  const data = (await kisFetch(
+    url,
+    TR_ID_CHK_HOLIDAY,
+    accessToken,
+    appKey,
+    appSecret,
+    "batch"
+  )) as ChkHolidayResponse;
+
+  return data.output.map((row) => ({
+    date: formatBsopDate(row.bass_dt),
+    isOpen: row.opnd_yn === "Y",
+  }));
 }
 
 export type ChartPeriod = "D" | "W" | "M" | "Y";

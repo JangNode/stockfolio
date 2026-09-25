@@ -35,6 +35,7 @@ import { PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/p
 import { EXPERIMENTAL_BLEND_STYLE, EXPERIMENTAL_BLEND_TARGET_WEIGHTS } from "@/lib/experimentalBlendConfig";
 import type { Market } from "@/lib/market";
 import { determineUsBatchSchedule } from "@/lib/usMarketCalendar";
+import { isKrxTradingDay } from "@/lib/krxTradingCalendar";
 import {
   computeEquity,
   evaluateExit,
@@ -629,6 +630,16 @@ async function main(): Promise<void> {
     if (!schedule.shouldRun) {
       return;
     }
+  }
+
+  // 미국은 lib/usMarketCalendar.ts가 이미 별도로 휴장일을 처리하므로(위 DST 가드),
+  // 국내 대상 실행일 때만 KRX 거래일 캘린더로 오늘이 휴장일인지 확인한다
+  // (2026-09-24/25 추석 연휴에 이 가드가 없어 휴장일에도 정상 거래일처럼
+  // 손절/신규매칭이 발생한 사고 재발 방지). 휴장일이면 paper_runs에 아무 것도
+  // 기록하지 않고 그대로 종료한다.
+  if (market === "KR" && !(await isKrxTradingDay(todayKstDate()))) {
+    console.log("오늘은 KRX 휴장일이라 국내 AI 모의투자 배치를 건너뜁니다.");
+    return;
   }
 
   if (await alreadyRanToday(market)) {

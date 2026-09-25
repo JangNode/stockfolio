@@ -7,12 +7,16 @@
  * 추정 — KRX 정산 데이터 0건으로 이미 확인됨), 그 전날(2026-09-23, 평일 거래일로
  * 추정), 그리고 참고용으로 한 달 전 날짜.
  *
+ * 실측 확인 완료 후 lib/kis.ts의 getDomesticHolidayCheckRaw는 정식 파싱 함수
+ * getDomesticHolidayCheck로 교체됐다 — 이 스크립트도 그 함수를 그대로 써서
+ * 계속 동작을 재확인할 수 있게 유지한다(정리는 별도 PR에서, SKILLS.md 참고).
+ *
  * 필요 환경변수: KIS_APP_KEY, KIS_APP_SECRET, NEXT_PUBLIC_SUPABASE_URL,
  *   SUPABASE_SERVICE_ROLE_KEY
  *   tsx --conditions=react-server scripts/diagnose-kis-holiday-check.ts
  */
 
-import { getDomesticHolidayCheckRaw } from "@/lib/kis";
+import { getDomesticHolidayCheck } from "@/lib/kis";
 
 const PROBE_DATES = ["20260925", "20260924", "20260923", "20260825"];
 
@@ -20,7 +24,7 @@ async function main(): Promise<void> {
   for (const baseDate of PROBE_DATES) {
     console.log(`\n=== BASS_DT=${baseDate} ===`);
     try {
-      const output = await getDomesticHolidayCheckRaw(baseDate);
+      const output = await getDomesticHolidayCheck(baseDate);
       console.log(JSON.stringify(output, null, 2));
     } catch (error) {
       console.error(`  조회 실패: ${error instanceof Error ? error.message : String(error)}`);

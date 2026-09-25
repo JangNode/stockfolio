@@ -1,0 +1,32 @@
+name: 9/24·9/25 휴장일 배치 가격 영향 확인 (진단, 1회성)
+
+# 2026-09-24/25 추석 연휴(KRX 실제 휴장)에 국내 스크리닝/AI 모의투자 배치가
+# 정상 거래일처럼 실행돼 발생한 매칭/손절이 실제 가격 변화 기반인지, 가격
+# 동결/오류 기반인지 DB 원본 행으로 확인한다. 순수 조회(쓰기 없음). 확인
+# 끝나면 이 워크플로와 scripts/diagnose-holiday-batch-price-impact.ts를
+# 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose holiday batch price impact
+        run: npm run diagnose:holiday-batch-price-impact
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

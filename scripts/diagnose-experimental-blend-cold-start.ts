@@ -9,7 +9,22 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { EXPERIMENTAL_BLEND_STYLE } from "@/lib/experimentalBlendConfig";
 
+async function printNextKrxTradingDay(): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("krx_trading_calendar")
+    .select("trade_date, is_open")
+    .gt("trade_date", "2026-09-25")
+    .eq("is_open", true)
+    .order("trade_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`거래일 캘린더 조회 실패: ${error.message}`);
+  console.log("다음 KRX 개장일(2026-09-25 이후):", JSON.stringify(data));
+}
+
 async function main(): Promise<void> {
+  await printNextKrxTradingDay();
+
   const { data: portfolio, error: portfolioError } = await supabaseAdmin
     .from("paper_portfolios")
     .select("*")

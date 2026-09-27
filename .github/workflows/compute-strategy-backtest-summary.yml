@@ -1,0 +1,35 @@
+name: Strategy Backtest Summary
+
+# "전략 관리" 탭의 "장기 백테스트(2016~오늘)" 섹션 캐시를 매주 한 번 재계산한다.
+# 몇 시간 밀려도 무방한 정적 재계산이라(다음 주 실행에서 자동으로 최신 데이터를
+# 다시 반영) GitHub Actions의 schedule 트리거를 그대로 쓴다(SKILLS.md 배치
+# 스케줄링 방식 선택 참고) — pg_cron을 거칠 필요가 없다.
+on:
+  schedule:
+    # 매주 월요일 한국시간(KST) 05:00 = UTC 일요일 20:00. 스크리닝/AI 모의투자
+    # 배치(.github/workflows/screening.yml 등)와 시간대가 겹치지 않게 잡았다.
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute strategy backtest summary
+        run: npm run batch:strategy-backtest-summary
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

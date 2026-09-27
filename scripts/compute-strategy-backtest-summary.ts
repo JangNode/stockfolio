@@ -11,7 +11,7 @@
  *
  * 계산 로직(날짜별 동일가중 평균/MDD/CAGR/상위종목 제외)은 이미 디스포저블 진단
  * 스크립트(diagnose-strategy-daily-returns.ts #356, diagnose-strategy-return-
- * concentration.ts #358, 둘 다 정리 PR로 제거될 예정)로 검증된 것을
+ * concentration.ts #358, 둘 다 정리 PR로 제거됨)로 검증된 것을
  * lib/strategyBacktestSummary.ts로 승격시켜 그대로 재사용한다.
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 쓰기 위해

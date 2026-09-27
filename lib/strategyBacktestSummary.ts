@@ -16,8 +16,8 @@ import type { BacktestTrade, DailyPrice } from "@/lib/backtest";
  *   정상이다 — 나중에 헷갈리지 않도록 이 차이를 항상 함께 언급한다.
  *
  * diagnose-strategy-daily-returns.ts(#356)/diagnose-strategy-return-concentration.ts
- * (#358, 둘 다 디스포저블 진단 스크립트 — 정리 PR로 제거될 예정)에서 검증된
- * 로직을 그대로 옮겨 lib 함수로 승격시켰다.
+ * (#358, 둘 다 디스포저블 진단 스크립트였고 정리 PR로 제거됨)에서 검증된 로직을
+ * 그대로 옮겨 lib 함수로 승격시켰다.
  */
 
 /** 날짜별 종목-수익률 항목. returnPct는 비율 그대로(0.01 = 1%, %가 아니다) — 곱셈

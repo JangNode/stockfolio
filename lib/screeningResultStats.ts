@@ -1,8 +1,8 @@
 /**
  * screening_results 행 목록에서 승률/평균·중앙값 수익률 등 요약 통계를 계산하는 순수
- * 함수. reversal_breakout(v1) vs reversal_breakout_v2 비교 대시보드(components/Screening.tsx)가
- * 쓴다 — status/return_pct는 lib/backtest.ts의 TrackingStatus와 scripts/screen-all-stocks.ts의
- * evaluateTrackingStatus가 만드는 값과 동일하다.
+ * 함수. "전략 관리" 탭(components/StrategyManager.tsx)의 급등주 v1 vs v2 비교 카드와
+ * 전략 성과 비교 섹션이 쓴다 — status/return_pct는 lib/backtest.ts의 TrackingStatus와
+ * scripts/screen-all-stocks.ts의 evaluateTrackingStatus가 만드는 값과 동일하다.
  */
 export interface ScreeningResultStatRow {
   status: "active" | "stopped" | "profited" | "price_unavailable";

@@ -14,6 +14,12 @@ import {
   type ScreeningResultStats,
 } from "@/lib/screeningResultStats";
 import { formatPercent } from "@/lib/formatNumber";
+import { authJsonFetcher } from "@/lib/authFetch";
+import {
+  STRATEGY_BACKTEST_WINDOW_START_YEAR,
+  STRATEGY_BACKTEST_TARGET_RULE_TYPES,
+  STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO,
+} from "@/lib/strategyBacktestSummaryConfig";
 
 export type StrategyRow = StrategyRule & {
   id: string;
@@ -75,6 +81,49 @@ function formatPct(value: number | null): string {
 // screening_results 조회 시 Supabase 기본 상한(1000행)에 걸리지 않도록 넉넉히 잡는
 // 상한. minervini_trend_template은 이미 1000건에 닿아 있어 기본값으로는 잘린다.
 const SCREENING_RESULTS_FETCH_LIMIT = 4999;
+
+// "장기 백테스트(2016~오늘)" 섹션 — scripts/compute-strategy-backtest-summary.ts가
+// 매주 재계산해 strategy_backtest_summary에 쌓아둔 캐시를 읽는다. 실계좌 스크리닝
+// 추적 기반의 위 "전략 성과 비교"와는 별개 지표라 섹션을 분리했다.
+type BacktestSummaryRuleType = (typeof STRATEGY_BACKTEST_TARGET_RULE_TYPES)[number];
+
+interface StrategyBacktestSummaryRow {
+  rule_type: BacktestSummaryRuleType;
+  market: Market;
+  period_start_date: string;
+  period_end_date: string;
+  computed_at: string;
+  universe_stock_count: number;
+  win_rate: number | null;
+  avg_return_pct: number | null;
+  median_return_pct: number | null;
+  mdd_pct: number | null;
+  cagr_pct: number | null;
+  total_trades: number;
+  closed_trades: number;
+  forced_liquidation_count: number;
+  forced_liquidation_ratio: number | null;
+  top5_exclude_return_pct: number | null;
+}
+
+interface StrategyBacktestSummaryResponse {
+  summaries: StrategyBacktestSummaryRow[];
+}
+
+function formatMdd(value: number | null): string {
+  return value === null ? "-" : `-${value.toFixed(2)}%`;
+}
+
+/** top5_exclude_return_pct(상위 5개 제외 후 연환산 수익률)가 cagr_pct(원래 연환산
+ * 수익률)와 부호가 다르거나 STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO 이상
+ * 차이나면 "소수 종목 의존"으로 판단한다. 둘 다 연환산(CAGR) 스케일이라 직접
+ * 비교할 수 있다 — top5_exclude_return_pct 자체가 배치에서 이미 그렇게 저장된다. */
+function isConcentrationWarning(cagrPct: number | null, top5ExcludeReturnPct: number | null): boolean {
+  if (cagrPct === null || top5ExcludeReturnPct === null || cagrPct === 0) return false;
+  const differentSign = Math.sign(cagrPct) !== Math.sign(top5ExcludeReturnPct);
+  const diffRatio = Math.abs(top5ExcludeReturnPct - cagrPct) / Math.abs(cagrPct);
+  return differentSign || diffRatio >= STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO;
+}
 
 const selectClassName =
   "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -239,6 +288,19 @@ export default function StrategyManager({ user }: { user: User }) {
     return stats;
   }, [strategyComparisonRows, comparableStrategies]);
 
+  const { data: backtestSummaryData } = useSWR<StrategyBacktestSummaryResponse>(
+    "/api/strategies/backtest-summary",
+    authJsonFetcher
+  );
+
+  const backtestSummaryByRuleType = useMemo(() => {
+    const map = new Map<BacktestSummaryRuleType, StrategyBacktestSummaryRow>();
+    for (const row of backtestSummaryData?.summaries ?? []) {
+      if (row.market === "KR") map.set(row.rule_type, row);
+    }
+    return map;
+  }, [backtestSummaryData]);
+
   return (
     <div className="w-full max-w-3xl">
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
@@ -383,6 +445,88 @@ export default function StrategyManager({ user }: { user: User }) {
           )}
         </div>
       )}
+
+      <div className="mb-6 rounded-card border border-border bg-surface p-4">
+        <h3 className="text-sm font-medium text-ink">
+          장기 백테스트({STRATEGY_BACKTEST_WINDOW_START_YEAR}~오늘)
+        </h3>
+        <p className="mt-1 mb-3 text-xs text-ink-muted">
+          실계좌 스크리닝 추적(위 전략 성과 비교)과 달리, {STRATEGY_BACKTEST_WINDOW_START_YEAR}년부터 오늘까지
+          전체 종목 풀을 대상으로 매주 한 번 재계산하는 결과입니다. 최근 장세에 좌우되지 않는 장기 성과를 보려면
+          이 섹션을 참고하세요.
+        </p>
+
+        {market === "US" ? (
+          <p className="text-sm text-ink-muted">국내(KR) 종목만 제공됩니다.</p>
+        ) : (
+          <div className="flex flex-wrap gap-4">
+            {STRATEGY_BACKTEST_TARGET_RULE_TYPES.map((ruleType) => {
+              const summary = backtestSummaryByRuleType.get(ruleType);
+              const concentrationWarning = summary
+                ? isConcentrationWarning(summary.cagr_pct, summary.top5_exclude_return_pct)
+                : false;
+
+              return (
+                <div key={ruleType} className="w-full max-w-sm rounded-card border border-border bg-surface p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
+                    {concentrationWarning && (
+                      <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                        소수 종목 의존
+                      </span>
+                    )}
+                  </div>
+
+                  {summary ? (
+                    <dl className="mt-3 space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">승률</dt>
+                        <dd className="tabular-nums text-ink">
+                          {summary.win_rate === null ? "-" : formatPercent(summary.win_rate * 100, { sign: false })}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">평균 수익률</dt>
+                        <dd className="tabular-nums text-ink">{formatPct(summary.avg_return_pct)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">중앙값 수익률</dt>
+                        <dd className="tabular-nums text-ink">{formatPct(summary.median_return_pct)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">MDD</dt>
+                        <dd className="tabular-nums text-ink">{formatMdd(summary.mdd_pct)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">CAGR(연환산)</dt>
+                        <dd className="tabular-nums text-ink">{formatPct(summary.cagr_pct)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">거래 건수(전체/종료/강제청산)</dt>
+                        <dd className="tabular-nums text-ink">
+                          {summary.total_trades} / {summary.closed_trades} / {summary.forced_liquidation_count}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">강제청산 비율</dt>
+                        <dd className="tabular-nums text-ink">
+                          {summary.forced_liquidation_ratio === null
+                            ? "-"
+                            : formatPercent(summary.forced_liquidation_ratio * 100, { sign: false })}
+                        </dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <p className="mt-3 text-xs text-ink-muted">
+                      아직 계산 전입니다(다음 주 배치 후 표시됩니다).
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {isLoading ? (
         <p className="text-sm text-ink-muted">전략을 불러오는 중...</p>

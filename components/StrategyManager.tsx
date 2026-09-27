@@ -19,6 +19,7 @@ import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
   STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO,
+  STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD,
 } from "@/lib/strategyBacktestSummaryConfig";
 
 export type StrategyRow = StrategyRule & {
@@ -123,6 +124,16 @@ function isConcentrationWarning(cagrPct: number | null, top5ExcludeReturnPct: nu
   const differentSign = Math.sign(cagrPct) !== Math.sign(top5ExcludeReturnPct);
   const diffRatio = Math.abs(top5ExcludeReturnPct - cagrPct) / Math.abs(cagrPct);
   return differentSign || diffRatio >= STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO;
+}
+
+/** forced_liquidation_ratio가 임계값 이상이면 true — 승률에 "정상 매도"와 "기간
+ * 종료로 강제 청산"이 많이 섞여 있어 다른 전략과 직접 비교하면 오해할 수 있다는
+ * 신호(peg_lynch처럼 max_holding_days가 없는 전략에서 특히 자주 발생). */
+function isHighForcedLiquidationRatio(forcedLiquidationRatio: number | null): boolean {
+  return (
+    forcedLiquidationRatio !== null &&
+    forcedLiquidationRatio >= STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD
+  );
 }
 
 const selectClassName =
@@ -465,6 +476,9 @@ export default function StrategyManager({ user }: { user: User }) {
               const concentrationWarning = summary
                 ? isConcentrationWarning(summary.cagr_pct, summary.top5_exclude_return_pct)
                 : false;
+              const highForcedLiquidation = summary
+                ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio)
+                : false;
 
               return (
                 <div key={ruleType} className="w-full max-w-sm rounded-card border border-border bg-surface p-4">
@@ -475,7 +489,19 @@ export default function StrategyManager({ user }: { user: User }) {
                         소수 종목 의존
                       </span>
                     )}
+                    {highForcedLiquidation && (
+                      <span className="rounded-full border border-border bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-ink-muted">
+                        강제청산 비중 높음
+                      </span>
+                    )}
                   </div>
+                  {highForcedLiquidation && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+                      승률에 정상 매도와 기간 종료로 강제 청산된 거래가 섞여 있습니다. 강제청산은 실제 매도 판단이
+                      아니라 백테스트 기간이 끝나 임의로 닫힌 거래라, 이 승률을 다른 전략과 직접 비교하면 오해할 수
+                      있습니다.
+                    </p>
+                  )}
 
                   {summary ? (
                     <dl className="mt-3 space-y-2 text-sm">
@@ -502,9 +528,9 @@ export default function StrategyManager({ user }: { user: User }) {
                         <dd className="tabular-nums text-ink">{formatPct(summary.cagr_pct)}</dd>
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <dt className="text-xs text-ink-muted">거래 건수(전체/종료/강제청산)</dt>
+                        <dt className="text-xs text-ink-muted">종료(정상매도 · 기간종료강제청산)</dt>
                         <dd className="tabular-nums text-ink">
-                          {summary.total_trades} / {summary.closed_trades} / {summary.forced_liquidation_count}
+                          {summary.total_trades}건 ({summary.closed_trades}건 · {summary.forced_liquidation_count}건)
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-3">

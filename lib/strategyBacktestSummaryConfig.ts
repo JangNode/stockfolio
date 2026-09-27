@@ -34,6 +34,13 @@ export const STRATEGY_BACKTEST_TOP_EXCLUDE_COUNT = 5;
 // 표시한다. 0.5 = 상위 5개를 뺐을 때 연환산 수익률이 절반 이상 바뀌면 경고.
 export const STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO = 0.5;
 
+// forced_liquidation_ratio(강제청산 건수/전체 거래 건수)가 이 값 이상이면 "강제청산
+// 비중 높음" 안내를 표시한다. 강제청산 거래는 실제 매도 판단이 아니라 백테스트
+// 기간 종료 시점에 임의로 닫힌 것이라, 이게 많이 섞인 승률/수익률은 정상 매도만
+// 있는 다른 전략과 직접 비교하면 오해할 수 있다(peg_lynch가 max_holding_days가
+// 없어 특히 잘 걸리는 사례 — 2026-09-27 사용자 요청).
+export const STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD = 0.2;
+
 // ma_cross/minervini_trend_template은 strategies 테이블(market='KR')에 활성 행이
 // 없을 때 쓰는 임시 기본값. diagnose-strategy-daily-returns.ts/
 // diagnose-strategy-return-concentration.ts가 2026-09-24 사용자 확인을 받아 쓴 값과

@@ -59,11 +59,33 @@ async function fetchHotRowsForCode(code: string): Promise<{ trade_date: string; 
   return (data ?? []) as { trade_date: string; close_price: number }[];
 }
 
+const STORAGE_BUCKET = "stock-daily-prices";
+
+/** stock-daily-prices 버킷의 연도별 Parquet 파일 크기(바이트) 목록 — Storage 무료
+ * 용량(1GB) 대비 현재 사용량을 가늠하는 데 쓴다. */
+async function reportStorageBucketSize(): Promise<void> {
+  const { data, error } = await supabaseAdmin.storage.from(STORAGE_BUCKET).list("", { limit: 200 });
+  if (error) {
+    console.log(`  버킷 목록 조회 실패: ${error.message}`);
+    return;
+  }
+  const files = (data ?? []).filter((f) => f.name.endsWith(".parquet"));
+  const totalBytes = files.reduce((sum, f) => sum + (f.metadata?.size ?? 0), 0);
+  console.log(`  ${STORAGE_BUCKET} 버킷: 파일 ${files.length}개, 총 ${(totalBytes / 1024 / 1024).toFixed(1)}MB (무료 한도 1GB 대비)`);
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  for (const f of sorted) {
+    console.log(`    ${f.name}: ${(((f.metadata?.size ?? 0) / 1024 / 1024).toFixed(2))}MB`);
+  }
+}
+
 async function main(): Promise<void> {
   console.log(`데이터 현황 조사 시작: ${new Date().toISOString()}`);
   console.log(
     `기준값: 후보 컷오프 ${STOCK_DATA_CANDIDATE_MARKET_CAP_EOK}억원, 백필 저장 하한 ${STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK}억원`
   );
+
+  console.log("\n=== 0) Storage 버킷 용량 현황 ===");
+  await reportStorageBucketSize();
 
   // 1) 연도별 저장된 고유 종목 수 (cold parquet + hot 구간 합집합)
   console.log("\n=== 1) 연도별 저장된 고유 종목 수 (2011~오늘) ===");

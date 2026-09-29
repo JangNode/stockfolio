@@ -34,7 +34,8 @@
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
-    "diagnose:overseas-adjusted-price-verify": "tsx --conditions=react-server scripts/diagnose-overseas-adjusted-price-verify.ts"
+    "diagnose:overseas-adjusted-price-verify": "tsx --conditions=react-server scripts/diagnose-overseas-adjusted-price-verify.ts",
+    "diagnose:us-active-positions-modp-impact": "tsx --conditions=react-server scripts/diagnose-us-active-positions-modp-impact.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

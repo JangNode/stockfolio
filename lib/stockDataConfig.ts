@@ -11,9 +11,10 @@
 // 다른 기준을 쓰고 싶으면 이 값과 별개로 자기 기준을 두면 된다.
 export const STOCK_DATA_CANDIDATE_MARKET_CAP_EOK = 10_000; // 1조원
 
-// 백필 저장 시점에 적용하는 하한(억원) — STOCK_DATA_CANDIDATE_MARKET_CAP_EOK보다
-// 낮게 잡아 여유를 둔다. 이 하한 밑인 종목·날짜는 애초에 Parquet 파일에 저장하지
-// 않는다(용량 절감). 후보 기준을 나중에 이 값보다 낮게 내리고 싶으면 재백필이 필요하다.
+// 백필 저장 시점에 적용하던 하한(억원) — STOCK_DATA_CANDIDATE_MARKET_CAP_EOK보다
+// 낮게 잡아 여유를 둔다. 2026-09-29 전종목 재백필로 scripts/backfill-stock-daily-prices.ts와
+// scripts/update-stock-daily-prices-recent.ts에서는 제거했고, 지금은
+// scripts/backfill-theme-stock-prices.ts(테마 소속 시가총액 예외 필터)에서만 쓴다.
 export const STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK = 5_000; // 5천억원
 
 // hot/cold 분리(용량 예산 재산정, 2026-08-28) — 최근 이 기간(년)치 일별시세는

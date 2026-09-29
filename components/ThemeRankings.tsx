@@ -343,7 +343,7 @@ export default function ThemeRankings() {
               {detail.message ?? "해당 기간 표시할 구성종목이 없습니다."}
             </p>
           ) : (
-            <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-5 md:grid md:grid-cols-2 md:gap-6">
               <div>
                 <p className="mb-2 text-xs font-medium text-ink-muted">상승 TOP</p>
                 <ul className="flex flex-col gap-2 text-sm">

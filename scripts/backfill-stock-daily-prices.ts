@@ -1,27 +1,18 @@
 /**
  * 종목 시세 원자료(여러 전략이 공유) 백필 1단계 — KRX 일별매매정보(stk_bydd_trd/
- * ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가·고가·저가·거래량/시가총액/상장주식수를
- * 연도별 Parquet 파일(stock-daily-prices/{year}.parquet, Supabase Storage)로 만든다. Postgres가
- * 아니라 Storage에 쓰는 이유는 supabase/migrations의
+ * ksq_bydd_trd)로 전종목(KOSPI+KOSDAQ) 종가/시가·고가·저가·거래량·거래대금/시가총액/
+ * 상장주식수를 연도별 Parquet 파일(stock-daily-prices/{year}.parquet, Supabase
+ * Storage)로 만든다. Postgres가 아니라 Storage에 쓰는 이유는 supabase/migrations의
  * 20260827060000_dh_daily_prices_to_storage.sql 코멘트 참고 — 전종목 15년치를
  * Postgres에 다 넣었더니 무료 플랜 DB 용량(500MB)을 넘겨버렸다(639만 행에서
  * "No space left on device"로 중단됨).
  *
- * 시가총액이 STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK(lib/stockDataConfig.ts, 5천억원)
- * 미만인 행은, 아래 셋 중 하나에 해당하지 않는 한 저장하지 않는다 — 후보종목 기준
- * (1조원)보다 낮게 잡아 여유를 두면서도, 저장량을 크게 줄인다.
- *   1) 오늘 기준 KIS 종목마스터에서 테마(lib/themeConfig.ts) 플래그가 하나라도 있는 종목
- *      (테마/업종별 등락률 순위 기능, lib/stockMaster.ts의 getThemeFlaggedStockCodes 참고)
- *   2) reversal_breakout("급등주 찾기") 전략이 지금까지 한 번이라도 매칭한 적 있는 종목
- *      (2026-09-06 요청 — 시총 기준만으로는 이 전략이 실제로 잡는 중소형 급등주 다수가
- *      백필 대상에서 아예 빠져, 15년 백테스트가 대형주 위주로 왜곡되는 문제를 부분
- *      보완한다. 과거 마스터/매칭 이력이 없어 오늘 기준을 전체 구간에 근사 적용한다 —
- *      테마 플래그와 같은 한계다.)
- *   3) 상장폐지된 종목(2026-09-21 생존편향 백필 요청 — lib/delistedStockList.ts 참고).
- *      2011~2026년 상장폐지 726개 중 617개(85%)가 시총 5천억 미만이라 원자료에
- *      아예 없었고, reversal_breakout이 정확히 이 구간을 노리는 전략이라 영향이
- *      컸다. KRX 응답은 상장폐지 종목도 과거 조회 시 실제로 포함한다는 걸 실측
- *      확인했다(diagnose-delisted-stock-krx-coverage, PR #345~347, 정리 예정).
+ * 2026-09-29 전종목 재백필로 시가총액 하한(STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK,
+ * 5천억원) 필터를 제거했다 — 그동안 시총 5천억 미달 종목은 테마/reversal_breakout
+ * 매칭 이력/상장폐지 예외에 해당하지 않으면 저장하지 않았는데, discoverCandidateStockCodes
+ * (1조원 기준, 실제 백테스트 유니버스)는 그대로 유지하면서도 저장 자체는 KRX 응답에
+ * 있는 종목을 전부 받아두기로 했다(용량 예산은 Storage/Parquet라 여유가 있고, 나중에
+ * 하한을 낮추고 싶어질 때마다 재백필하는 부담을 없앤다).
  * 거래량(ACC_TRDVOL)이 0인 날은 거래정지 등으로 실제 거래가 없었던 날이라 저장하지
  * 않는다 — KRX가 이런 날도 행 자체는 빼지 않고 마지막 체결가를 그대로 돌려주는데,
  * 이걸 그대로 저장하면 실제로 몰랐던(정지 중) 가격을 아는 것처럼 왜곡된다
@@ -35,9 +26,13 @@
  * 연도 단위다 — 이미 Storage에 있는 연도는(현재 진행 중인 최신 연도 제외) 통째로
  * 건너뛴다. 중간에 실패한 해는 파일이 아예 안 올라가 있으므로 다음 실행이 그 해를
  * 처음부터 다시 받는다(한 해 최대 ~245영업일이라 다시 받아도 오래 안 걸림).
- * FORCE_REFETCH_ALL_YEARS=true를 주면 이미 있는 연도도 다시 받는다 — 2026-09-06
- * 시가/거래량 컬럼 추가 직후처럼, 스키마가 바뀌어 기존 연도 파일을 전부 다시 만들어야
- * 하는 1회성 재백필에 쓴다(평소엔 쓰지 않는다).
+ * FORCE_REFETCH_ALL_YEARS=true를 주면 이미 있는 연도도 다시 받는다 — 스키마가 바뀌어
+ * 기존 연도 파일을 전부 다시 만들어야 하는 1회성 재백필(2026-09-06 시가/거래량 컬럼
+ * 추가, 2026-09-29 하한 제거+거래대금 추가)에 쓴다(평소엔 쓰지 않는다).
+ * BACKFILL_YEAR_RANGE_START/BACKFILL_YEAR_RANGE_END를 주면 처리할 연도 범위를 좁힐 수
+ * 있다(지정 안 하면 기존과 동일하게 BACKFILL_START_YEAR~올해 전체) — 2026-09-29
+ * 재백필처럼 전종목 수천~수만 건 호출이 늘어난 실행을 몇 년씩 나눠 여러 번 돌릴 때
+ * 쓴다. 각 실행은 지정된 범위만 독립적으로 처리하고 끝난다.
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
@@ -48,9 +43,6 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { uploadYearPrices, yearPricesExist, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
-import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
-import { getThemeFlaggedStockCodes } from "@/lib/stockMaster";
-import { getDelistedStockCodes } from "@/lib/delistedStockList";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
@@ -59,7 +51,6 @@ const CONCURRENCY = 8;
 const CALL_RETRY_COUNT = 2;
 const CALL_RETRY_DELAY_MS = 1500;
 const FORCE_REFETCH_ALL_YEARS = process.env.FORCE_REFETCH_ALL_YEARS === "true";
-const REVERSAL_BREAKOUT_STRATEGY_RULE_TYPE = "reversal_breakout";
 
 interface KrxTradeRow {
   ISU_CD: string;
@@ -68,29 +59,9 @@ interface KrxTradeRow {
   TDD_HGPRC: string;
   TDD_LWPRC: string;
   ACC_TRDVOL: string;
+  ACC_TRDVAL: string;
   MKTCAP: string;
   LIST_SHRS: string;
-}
-
-/** reversal_breakout 전략이 지금까지 매칭한 적 있는 종목코드 집합 — 시총 무관 저장
- * 예외에 쓴다(getThemeFlaggedStockCodes와 같은 용도). strategies.rule_type으로
- * screening_results를 조인한다. */
-async function getReversalBreakoutMatchedStockCodes(): Promise<Set<string>> {
-  const { data: strategies, error: strategiesError } = await supabaseAdmin
-    .from("strategies")
-    .select("id")
-    .eq("rule_type", REVERSAL_BREAKOUT_STRATEGY_RULE_TYPE);
-  if (strategiesError) throw new Error(`reversal_breakout 전략 조회 실패: ${strategiesError.message}`);
-  const strategyIds = (strategies ?? []).map((s) => s.id);
-  if (strategyIds.length === 0) return new Set();
-
-  const { data: rows, error: rowsError } = await supabaseAdmin
-    .from("screening_results")
-    .select("stock_code")
-    .in("strategy_id", strategyIds);
-  if (rowsError) throw new Error(`reversal_breakout 매칭 종목 조회 실패: ${rowsError.message}`);
-
-  return new Set((rows ?? []).map((r) => r.stock_code));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -174,8 +145,7 @@ function weekdaysInYear(year: number, endDate: Date): string[] {
 async function backfillYear(
   year: number,
   targetDates: string[],
-  apiKey: string,
-  exceptionCodes: Set<string>
+  apiKey: string
 ): Promise<{ rows: number; errors: number }> {
   const yearRows: StockDailyPriceRow[] = [];
   let errors = 0;
@@ -194,13 +164,21 @@ async function backfillYear(
         }
         const marketCapEok = Number(row.MKTCAP) / 100_000_000;
         if (!Number.isFinite(marketCapEok)) continue;
-        if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !exceptionCodes.has(row.ISU_CD)) continue;
 
         const openPrice = Number(row.TDD_OPNPRC);
         const volume = Number(row.ACC_TRDVOL);
         const highPrice = Number(row.TDD_HGPRC);
         const lowPrice = Number(row.TDD_LWPRC);
-        if (!Number.isFinite(openPrice) || !Number.isFinite(volume) || !Number.isFinite(highPrice) || !Number.isFinite(lowPrice)) continue;
+        const tradingValue = Number(row.ACC_TRDVAL);
+        if (
+          !Number.isFinite(openPrice) ||
+          !Number.isFinite(volume) ||
+          !Number.isFinite(highPrice) ||
+          !Number.isFinite(lowPrice) ||
+          !Number.isFinite(tradingValue)
+        ) {
+          continue;
+        }
         // 거래정지 등으로 실제 거래가 없었던 날 — 파일 상단 주석 참고(point-in-time 원칙).
         if (volume === 0) continue;
 
@@ -214,6 +192,7 @@ async function backfillYear(
           volume,
           highPrice,
           lowPrice,
+          tradingValue,
         });
       }
     } catch (error) {
@@ -246,25 +225,21 @@ async function main(): Promise<void> {
   const endDate = new Date();
   endDate.setUTCDate(endDate.getUTCDate() - 1);
 
-  const [themeFlaggedCodes, reversalBreakoutMatchedCodes, delistedCodes] = await Promise.all([
-    getThemeFlaggedStockCodes(),
-    getReversalBreakoutMatchedStockCodes(),
-    getDelistedStockCodes(),
-  ]);
-  const exceptionCodes = new Set([...themeFlaggedCodes, ...reversalBreakoutMatchedCodes, ...delistedCodes]);
-  console.log(
-    `오늘 기준 테마 소속 종목 ${themeFlaggedCodes.size}개 + reversal_breakout 매칭 이력 종목 ${reversalBreakoutMatchedCodes.size}개 ` +
-      `+ 상장폐지 종목 ${delistedCodes.size}개 ` +
-      `= 저장 예외 대상 ${exceptionCodes.size}개(시가총액 하한 미달이어도 저장 대상에 포함)`
-  );
+  // 분할 실행용 — 지정 안 하면 기존과 동일하게 BACKFILL_START_YEAR~올해 전체를 처리한다.
+  const yearRangeStart = process.env.BACKFILL_YEAR_RANGE_START
+    ? Number(process.env.BACKFILL_YEAR_RANGE_START)
+    : BACKFILL_START_YEAR;
+  const yearRangeEnd = process.env.BACKFILL_YEAR_RANGE_END ? Number(process.env.BACKFILL_YEAR_RANGE_END) : currentYear;
+
   if (FORCE_REFETCH_ALL_YEARS) {
     console.log("FORCE_REFETCH_ALL_YEARS=true — 이미 있는 연도도 전부 다시 받습니다.");
   }
+  console.log(`처리 대상 연도 범위: ${yearRangeStart}~${yearRangeEnd}`);
 
   let totalRows = 0;
   let totalErrors = 0;
 
-  for (let year = BACKFILL_START_YEAR; year <= currentYear; year++) {
+  for (let year = yearRangeStart; year <= yearRangeEnd; year++) {
     const isCurrentYear = year === currentYear;
     if (!isCurrentYear && !FORCE_REFETCH_ALL_YEARS && (await yearPricesExist(year))) {
       console.log(`${year}년: 이미 완료됨, 건너뜀`);
@@ -275,7 +250,7 @@ async function main(): Promise<void> {
     if (targetDates.length === 0) continue;
 
     console.log(`${year}년 백필 시작: ${targetDates.length}개 평일 (${targetDates[0]} ~ ${targetDates[targetDates.length - 1]})`);
-    const { rows, errors } = await backfillYear(year, targetDates, apiKey, exceptionCodes);
+    const { rows, errors } = await backfillYear(year, targetDates, apiKey);
     totalRows += rows;
     totalErrors += errors;
 
@@ -285,10 +260,10 @@ async function main(): Promise<void> {
       return;
     }
 
-    console.log(`${year}년 완료: ${rows}행 저장(기준 미달 종목 제외)`);
+    console.log(`${year}년 완료: ${rows}행 저장`);
   }
 
-  await recordCheckpoint(startedAt, `${currentYear}-12-31`, totalRows, totalErrors);
+  await recordCheckpoint(startedAt, `${yearRangeEnd}-12-31`, totalRows, totalErrors);
   console.log(`KRX 시세 백필 완료: 총 ${totalRows}행 저장`);
 }
 

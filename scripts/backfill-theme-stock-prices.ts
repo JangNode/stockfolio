@@ -50,6 +50,7 @@ interface KrxTradeRow {
   TDD_HGPRC: string;
   TDD_LWPRC: string;
   ACC_TRDVOL: string;
+  ACC_TRDVAL: string;
   MKTCAP: string;
   LIST_SHRS: string;
 }
@@ -127,7 +128,16 @@ async function fetchAndFilterDay(
     const volume = Number(row.ACC_TRDVOL);
     const highPrice = Number(row.TDD_HGPRC);
     const lowPrice = Number(row.TDD_LWPRC);
-    if (!Number.isFinite(openPrice) || !Number.isFinite(volume) || !Number.isFinite(highPrice) || !Number.isFinite(lowPrice)) continue;
+    const tradingValue = Number(row.ACC_TRDVAL);
+    if (
+      !Number.isFinite(openPrice) ||
+      !Number.isFinite(volume) ||
+      !Number.isFinite(highPrice) ||
+      !Number.isFinite(lowPrice) ||
+      !Number.isFinite(tradingValue)
+    ) {
+      continue;
+    }
 
     rows.push({
       stockCode: row.ISU_CD,
@@ -139,6 +149,7 @@ async function fetchAndFilterDay(
       volume,
       highPrice,
       lowPrice,
+      tradingValue,
     });
   }
   return rows;

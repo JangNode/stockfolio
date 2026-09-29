@@ -169,21 +169,33 @@ function printOverseasRows(label: string, rows: OverseasChartRow[]): void {
 
 /** 상장폐지 종목 중 저장된 시세가 있는(마지막 거래일을 알 수 있는) 종목 1개를
  * 고른다 — 존재하는 실제 종목코드 + 실제 마지막 거래일 근처로 KIS를 호출해봐야
- * "코드가 잘못됐나/원래 안 되나"를 구분할 수 있다. */
+ * "코드가 잘못됐나/원래 안 되나"를 구분할 수 있다. getDelistedStockCodes()의
+ * 소스(GitHub raw CSV 미러)가 일시적으로 응답하지 않을 수 있어(2026-09-29
+ * 1차 실행에서 실측 확인), 실패하면 대안으로 "예전 연도(2019~2021) Parquet엔
+ * 있지만 최근 2년 hot 구간엔 없는 종목"을 상장폐지 근사 후보로 쓴다(둘 다 해당하면
+ * 상장폐지가 아니라 그냥 백필 하한 미달로 최근에 저장 안 됐을 수도 있어 완벽하진
+ * 않지만, "KIS가 이 코드를 아예 모르는지" 확인하는 목적엔 충분하다). */
 async function pickDelistedSample(): Promise<{ code: string; lastDate: string } | null> {
-  const delisted = await getDelistedStockCodes();
-  const currentYear = new Date().getUTCFullYear();
-  // 최근 연도부터 거슬러 올라가며 delisted 코드가 등장하는 연도 파일을 찾는다(가장
-  // 최근에 상장폐지된 종목일수록 KIS 조회 시도가 의미 있다 — 오래 전에 폐지된
-  // 종목은 애초에 요즘 종목코드 체계와 안 맞을 수도 있어서).
-  for (let year = currentYear; year >= currentYear - 5; year--) {
-    const rows: StockDailyPriceRow[] = await downloadYearPrices(year);
-    const candidates = rows.filter((r) => delisted.has(r.stockCode));
-    if (candidates.length === 0) continue;
-    candidates.sort((a, b) => b.tradeDate.localeCompare(a.tradeDate));
-    return { code: candidates[0].stockCode, lastDate: candidates[0].tradeDate };
+  try {
+    const delisted = await getDelistedStockCodes();
+    const currentYear = new Date().getUTCFullYear();
+    for (let year = currentYear; year >= currentYear - 5; year--) {
+      const rows: StockDailyPriceRow[] = await downloadYearPrices(year);
+      const candidates = rows.filter((r) => delisted.has(r.stockCode));
+      if (candidates.length === 0) continue;
+      candidates.sort((a, b) => b.tradeDate.localeCompare(a.tradeDate));
+      return { code: candidates[0].stockCode, lastDate: candidates[0].tradeDate };
+    }
+  } catch (error) {
+    console.log(`  getDelistedStockCodes() 실패, 대안 방식으로 전환: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return null;
+
+  const oldYearRows = await downloadYearPrices(2019);
+  const recentCodes = new Set((await downloadYearPrices(new Date().getUTCFullYear() - 1)).map((r) => r.stockCode));
+  const candidates = oldYearRows.filter((r) => !recentCodes.has(r.stockCode));
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.tradeDate.localeCompare(a.tradeDate));
+  return { code: candidates[0].stockCode, lastDate: candidates[0].tradeDate };
 }
 
 function toYyyymmdd(dateStr: string): string {
@@ -223,7 +235,8 @@ async function main(): Promise<void> {
     else console.log(`  [FID_ORG_ADJ_PRC=1] 실패: ${adj1.msg}`);
   }
 
-  console.log("\n=== 2) 국내: 상장폐지 종목 1개 조회 가능 여부(FID_ORG_ADJ_PRC=0) ===");
+  console.log("\n=== 2) 국내: 상장폐지(근사) 종목 1개 조회 가능 여부(FID_ORG_ADJ_PRC=0) ===");
+  try {
   const delistedSample = await pickDelistedSample();
   if (!delistedSample) {
     console.log("  저장된 시세가 있는 상장폐지 종목 표본을 찾지 못했습니다.");
@@ -241,6 +254,9 @@ async function main(): Promise<void> {
     // 비교용으로 같은 종목의 저장된(KRX 기반) 값도 함께 보여준다.
     const stored = await getDailyPriceSeries(delistedSample.code, shiftDate(delistedSample.lastDate, -30), shiftDate(delistedSample.lastDate, 5));
     console.log(`  (참고) 저장된 KRX 기반 시세 ${stored.length}행 — 마지막 3행: ${stored.slice(-3).map((r) => `${r.tradeDate}:${r.closePrice}`).join(", ")}`);
+  }
+  } catch (error) {
+    console.log(`  2번 섹션 실패(3번은 계속 진행): ${error instanceof Error ? error.message : String(error)}`);
   }
 
   console.log("\n=== 3) 해외 참고: 애플(AAPL, NAS) 2020-08-31 4:1 분할 전후, MODP=0 vs 1 ===");

@@ -12,6 +12,10 @@ import type { PricePoint } from "@/lib/beta";
 
 const TABLE = "beta_price_history";
 
+// Supabase/PostgREST 기본 최대 반환 행 수. 이 값을 넘는 구간을 조회하려면
+// range()로 페이지네이션해야 한다(안 하면 에러 없이 앞쪽만 반환되고 잘림).
+const POSTGREST_MAX_ROWS = 1000;
+
 interface BetaPriceHistoryRow {
   market: KrxMarket;
   trade_date: string;
@@ -49,15 +53,23 @@ export async function getIndexPriceSeries(
   startDate: string,
   endDate: string
 ): Promise<PricePoint[]> {
-  const { data, error } = await supabaseAdmin
-    .from(TABLE)
-    .select("market, trade_date, close_price")
-    .eq("market", market)
-    .gte("trade_date", startDate)
-    .lte("trade_date", endDate)
-    .order("trade_date", { ascending: true });
-  if (error) throw new Error(`${market} 지수 시세 구간 조회 실패: ${error.message}`);
-  return (data ?? []).map((row: BetaPriceHistoryRow) => ({
+  const rows: BetaPriceHistoryRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from(TABLE)
+      .select("market, trade_date, close_price")
+      .eq("market", market)
+      .gte("trade_date", startDate)
+      .lte("trade_date", endDate)
+      .order("trade_date", { ascending: true })
+      .range(from, from + POSTGREST_MAX_ROWS - 1);
+    if (error) throw new Error(`${market} 지수 시세 구간 조회 실패: ${error.message}`);
+    rows.push(...(data ?? []));
+    if (!data || data.length < POSTGREST_MAX_ROWS) break;
+    from += POSTGREST_MAX_ROWS;
+  }
+  return rows.map((row) => ({
     tradeDate: row.trade_date,
     closePrice: Number(row.close_price),
   }));

@@ -20,6 +20,9 @@ interface StrategyBacktestSummaryRow {
   forced_liquidation_count: number;
   forced_liquidation_ratio: number | null;
   top5_exclude_return_pct: number | null;
+  avg_win_pct: number | null;
+  avg_loss_pct: number | null;
+  payoff_ratio: number | null;
 }
 
 /**

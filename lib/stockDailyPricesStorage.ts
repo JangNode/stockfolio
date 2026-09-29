@@ -22,6 +22,11 @@ import { STOCK_DATA_HOT_WINDOW_YEARS } from "@/lib/stockDataConfig";
 const BUCKET = "stock-daily-prices";
 const HOT_TABLE = "stock_daily_prices_recent";
 
+// Supabase/PostgREST 기본 최대 반환 행 수. hot 구간 전체를 훑는 조회(연 1회
+// 아카이빙, 후보종목 발굴)는 이 값을 훌쩍 넘을 수 있어 range()로 페이지네이션해야
+// 한다(안 하면 에러 없이 앞쪽만 반환되고 나머지가 조용히 잘린다).
+const HOT_TABLE_PAGE_SIZE = 1000;
+
 export interface StockDailyPriceRow {
   stockCode: string;
   tradeDate: string; // YYYY-MM-DD
@@ -325,13 +330,19 @@ export async function discoverCandidateStockCodes(years: number[], minMarketCapE
     }
   }
 
-  const { data, error } = await supabaseAdmin
-    .from(HOT_TABLE)
-    .select("stock_code")
-    .gte("market_cap_eok", minMarketCapEok)
-    .gte("trade_date", hotWindowStartDate());
-  if (error) throw new Error(`최근 후보종목 조회 실패: ${error.message}`);
-  for (const row of data ?? []) codes.add(row.stock_code);
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from(HOT_TABLE)
+      .select("stock_code")
+      .gte("market_cap_eok", minMarketCapEok)
+      .gte("trade_date", hotWindowStartDate())
+      .range(from, from + HOT_TABLE_PAGE_SIZE - 1);
+    if (error) throw new Error(`최근 후보종목 조회 실패: ${error.message}`);
+    for (const row of data ?? []) codes.add(row.stock_code);
+    if (!data || data.length < HOT_TABLE_PAGE_SIZE) break;
+    from += HOT_TABLE_PAGE_SIZE;
+  }
 
   return Array.from(codes);
 }
@@ -382,12 +393,20 @@ export async function getLatestRecentPriceDate(): Promise<string | null> {
 /** cutoffDate(YYYY-MM-DD) 이전(미포함하지 않음, cutoffDate 당일은 hot 구간에 남김)
  * 행을 전부 가져온다 — 연 1회 아카이빙 배치가 Parquet로 옮길 대상을 고를 때 쓴다. */
 export async function getRecentPricesBefore(cutoffDate: string): Promise<StockDailyPriceRow[]> {
-  const { data, error } = await supabaseAdmin
-    .from(HOT_TABLE)
-    .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
-    .lt("trade_date", cutoffDate);
-  if (error) throw new Error(`아카이빙 대상 조회 실패: ${error.message}`);
-  return (data ?? []).map((row) => fromHotRow(row as HotTableRow));
+  const rows: StockDailyPriceRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from(HOT_TABLE)
+      .select("stock_code, trade_date, close_price, market_cap_eok, listed_shares, open_price, volume, high_price, low_price")
+      .lt("trade_date", cutoffDate)
+      .range(from, from + HOT_TABLE_PAGE_SIZE - 1);
+    if (error) throw new Error(`아카이빙 대상 조회 실패: ${error.message}`);
+    for (const row of data ?? []) rows.push(fromHotRow(row as HotTableRow));
+    if (!data || data.length < HOT_TABLE_PAGE_SIZE) break;
+    from += HOT_TABLE_PAGE_SIZE;
+  }
+  return rows;
 }
 
 /** cutoffDate 이전 행을 stock_daily_prices_recent에서 지운다 — 아카이빙 배치가

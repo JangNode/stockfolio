@@ -1,0 +1,34 @@
+name: 진단 - 백테스트 유니버스 확장 후보 비교 (조사용, 임시)
+
+# scripts/diagnose-universe-expansion-benchmark-comparison.ts 실행용 — 백테스트
+# 유니버스를 "시총 무관 전종목(상장폐지 포함), 시점별 편입"으로 넓히는 방안 조사
+# (2026-09-29)의 2단계. 조사 종료 후 정리 PR로 이 워크플로/스크립트를 제거한다.
+# 새로운 백필(KRX API 호출) 없음 — 이미 저장된 데이터만 조회+계산, DB에는 아무것도
+# 쓰지 않는다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # A'(근사 전종목) 유니버스가 현행 673개보다 커서 가격 조회+ma_cross 백테스트가
+    # 더 오래 걸릴 수 있다 — 넉넉히 잡는다.
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmark comparison diagnosis
+        run: npm run diagnose:universe-expansion-benchmark-comparison
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

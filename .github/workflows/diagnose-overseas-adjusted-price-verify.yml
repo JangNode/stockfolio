@@ -1,0 +1,33 @@
+name: 해외 수정주가(MODP) 재검증 (진단, 1회성)
+
+# getOverseasDailyPrices의 MODP=0→1 수정(fix/overseas-adjusted-price-modp) 전,
+# 애플 외 분할 이력이 있는 미국 종목(테슬라, 엔비디아)을 추가로 실측해 MODP=1이
+# 분할 이전 구간까지 소급 조정된 연속값을 주는지 재확인한다. 확인 끝나면 이
+# 워크플로와 scripts/diagnose-overseas-adjusted-price-verify.ts를 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Diagnose overseas adjusted price (MODP)
+        run: npm run diagnose:overseas-adjusted-price-verify
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

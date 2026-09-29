@@ -1,4 +1,6 @@
 import { computeSMA } from "@/lib/sma";
+import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
+import type { Market } from "@/lib/market";
 import {
   pickFundamentalsAsOf,
   pickDividendsPaidAsOf,
@@ -640,8 +642,11 @@ export function runBacktest(
   rule: StrategyRule,
   windowStartDate: string,
   fundamentals?: FundamentalsSeries,
-  listedSharesByFiscalYear?: ListedSharesByFiscalYear
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear,
+  options?: { market?: Market; includeTransactionCosts?: boolean }
 ): BacktestResult {
+  const market = options?.market ?? "KR";
+  const includeTransactionCosts = options?.includeTransactionCosts ?? true;
   const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
 
   if (states.every((s) => s === undefined)) {
@@ -665,7 +670,9 @@ export function runBacktest(
     if (signal.type === "golden" && !openBuy) {
       openBuy = { date: signal.date, price: signal.price };
     } else if (signal.type === "dead" && openBuy) {
-      const returnPct = (signal.price - openBuy.price) / openBuy.price;
+      const returnPct = includeTransactionCosts
+        ? computeCostAdjustedReturnPct(openBuy.price, signal.price, signal.date, market)
+        : (signal.price - openBuy.price) / openBuy.price;
       trades.push({
         buyDate: openBuy.date,
         buyPrice: openBuy.price,
@@ -679,12 +686,15 @@ export function runBacktest(
 
   if (openBuy) {
     const lastBar = prices[prices.length - 1];
+    const returnPct = includeTransactionCosts
+      ? computeCostAdjustedReturnPct(openBuy.price, lastBar.close, lastBar.date, market)
+      : (lastBar.close - openBuy.price) / openBuy.price;
     trades.push({
       buyDate: openBuy.date,
       buyPrice: openBuy.price,
       sellDate: lastBar.date,
       sellPrice: lastBar.close,
-      returnPct: (lastBar.close - openBuy.price) / openBuy.price,
+      returnPct,
       isForcedLiquidation: true,
     });
   }

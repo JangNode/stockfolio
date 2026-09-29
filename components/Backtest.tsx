@@ -185,7 +185,8 @@ export default function Backtest({ user }: { user: User }) {
         selectedStrategy,
         startDate,
         fundamentals,
-        listedSharesByFiscalYear
+        listedSharesByFiscalYear,
+        { market }
       );
 
       setStockLabel(`${resolved.name} (${resolved.code})`);

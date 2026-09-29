@@ -32,7 +32,11 @@
     "calc:stock-beta": "tsx --conditions=react-server scripts/calc-stock-beta.ts",
     "backfill:stock-industry-classification": "tsx --conditions=react-server scripts/backfill-stock-industry-classification.ts",
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
-    "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts"
+    "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
+    "diagnose:index-price-coverage": "tsx --conditions=react-server scripts/diagnose-index-price-coverage.ts",
+    "diagnose:krx-index-history-availability": "tsx --conditions=react-server scripts/diagnose-krx-index-history-availability.ts",
+    "backfill:index-daily-prices-historical-gap": "tsx --conditions=react-server scripts/backfill-index-daily-prices-historical-gap.ts",
+    "diagnose:benchmark-comparison": "tsx --conditions=react-server scripts/diagnose-benchmark-comparison.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

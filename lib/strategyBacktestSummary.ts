@@ -1,4 +1,6 @@
 import type { BacktestTrade, DailyPrice } from "@/lib/backtest";
+import type { Market } from "@/lib/market";
+import { computeEffectiveBuyPrice, computeEffectiveSellPrice } from "@/lib/transactionCost";
 
 /**
  * "장기 백테스트(2016~오늘)" 캐시 배치(scripts/compute-strategy-backtest-summary.ts)가
@@ -14,6 +16,14 @@ import type { BacktestTrade, DailyPrice } from "@/lib/backtest";
  *   복리로 쌓아 총수익률/MDD/CAGR을 낸다("매일 자금을 동일가중으로 분산 투입"에
  *   가까운 가정). 같은 거래 데이터에서 나와도 두 통계가 서로 다른 값이 되는 게
  *   정상이다 — 나중에 헷갈리지 않도록 이 차이를 항상 함께 언급한다.
+ *
+ * accumulateStockDailyReturns도 이제 거래비용(수수료/증권거래세/슬리피지,
+ * lib/transactionCost.ts)을 반영한다. lib/backtest.ts의 runBacktest가 만드는
+ * trade.returnPct에 비용을 반영하는 것과는 별개로, 이 함수는 trade.returnPct를
+ * 전혀 참조하지 않고 raw 종가만으로 매수 다음날~매도일 수익률을 다시 쌓기
+ * 때문이다 — 두 경로가 서로 다른 출력(거래별 승률/평균/손익비 vs 날짜별 복리
+ * MDD/CAGR)을 만드는 완전히 독립된 계산이라, 각자 raw 데이터에서 한 번씩만
+ * 비용을 적용하는 것이지 같은 값에 이중으로 적용하는 게 아니다.
  *
  * diagnose-strategy-daily-returns.ts(#356)/diagnose-strategy-return-concentration.ts
  * (#358, 둘 다 디스포저블 진단 스크립트였고 정리 PR로 제거됨)에서 검증된 로직을
@@ -54,7 +64,8 @@ export function accumulateStockDailyReturns(
   stockCode: string,
   prices: DailyPrice[],
   trades: BacktestTrade[],
-  windowStartDate: string
+  windowStartDate: string,
+  market: Market
 ): void {
   if (trades.length === 0) return;
 
@@ -71,7 +82,17 @@ export function accumulateStockDailyReturns(
       const date = prices[i].date;
       if (date < windowStartDate) continue;
 
-      const dailyReturn = (prices[i].close - prices[i - 1].close) / prices[i - 1].close;
+      let dailyReturn = (prices[i].close - prices[i - 1].close) / prices[i - 1].close;
+      let multiplier = 1 + dailyReturn;
+      if (i === buyIdx + 1) {
+        // 매수 체결가가 종가보다 비싸므로, 그만큼 첫날 수익률에서 나눠 반영한다.
+        multiplier /= computeEffectiveBuyPrice(prices[buyIdx].close) / prices[buyIdx].close;
+      }
+      if (i === sellIdx) {
+        // 매도 체결가가 종가보다 싸므로, 그만큼 마지막날 수익률에 곱해 반영한다.
+        multiplier *= computeEffectiveSellPrice(prices[sellIdx].close, trade.sellDate, market) / prices[sellIdx].close;
+      }
+      dailyReturn = multiplier - 1;
 
       const list = dailyReturns.get(date);
       if (list) list.push({ stockCode, returnPct: dailyReturn });

@@ -108,6 +108,7 @@ interface StrategyBacktestSummaryRow {
   avg_win_pct: number | null;
   avg_loss_pct: number | null;
   payoff_ratio: number | null;
+  cost_included: boolean;
 }
 
 interface StrategyBacktestSummaryResponse {

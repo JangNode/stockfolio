@@ -203,13 +203,22 @@ async function main(): Promise<void> {
           RULES[ruleType],
           PERIOD_START_DATE,
           needsFundamentals ? fundamentals : undefined,
-          needsFundamentals ? listedSharesByFiscalYear : undefined
+          needsFundamentals ? listedSharesByFiscalYear : undefined,
+          { market: "KR" }
         );
         if (result.insufficientData || result.trades.length === 0) continue;
 
         const acc = accumulators[ruleType];
         acc.trades.push(...result.trades);
-        accumulateStockDailyReturns(acc.dailyReturns, acc.contributions, stockCode, prices, result.trades, PERIOD_START_DATE);
+        accumulateStockDailyReturns(
+          acc.dailyReturns,
+          acc.contributions,
+          stockCode,
+          prices,
+          result.trades,
+          PERIOD_START_DATE,
+          "KR"
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -285,6 +294,7 @@ async function main(): Promise<void> {
       avg_win_pct: avgWinPct,
       avg_loss_pct: avgLossPct,
       payoff_ratio: payoffRatio,
+      cost_included: true,
     });
 
     if (error) {
@@ -296,7 +306,7 @@ async function main(): Promise<void> {
       `  [${ruleType}] 거래 ${totalTrades}건(종료 ${closedTrades}/강제청산 ${aggregate.forcedLiquidationCount}), ` +
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
         `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
-        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} — 저장 완료`
+        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (비용 반영) — 저장 완료`
     );
   }
 

@@ -622,6 +622,9 @@ export async function getDailyPrices(
     url.searchParams.set("FID_INPUT_DATE_1", CHART_START_DATE);
     url.searchParams.set("FID_INPUT_DATE_2", endDate);
     url.searchParams.set("FID_PERIOD_DIV_CODE", period);
+    // 0: 이미 수정주가(권리조정) 반영 — 파라미터 이름과 반대로 동작함을 삼성전자
+    // 2018-05-04 50:1 액면분할 실측으로 확인(2026-09-29). 값은 그대로 두고 이 주석만
+    // 정정한다(해외 getOverseasDailyPrices의 MODP와는 극성이 반대다).
     url.searchParams.set("FID_ORG_ADJ_PRC", "0");
 
     const data = (await kisFetch(
@@ -1165,7 +1168,8 @@ const overseasChartCache = new Map<string, { prices: DailyPrice[]; fetchedAt: nu
  * 멈춘다(더 안전한 쪽으로) — 대신 MAX_CHART_PAGES로 상한을 둔다. 국내와 동일하게 5분
  * 캐시를 둔다(스크리닝 배치처럼 실시간성이 필요 없는 호출도 있고, 이 함수엔 원래
  * 캐시가 없어서 워치리스트/차트처럼 사람이 자주 호출하는 경로에 그대로 쓰면 호출량이
- * 불필요하게 늘어난다).
+ * 불필요하게 늘어난다). MODP는 국내 FID_ORG_ADJ_PRC와 극성이 반대다(1이 수정주가) —
+ * 애플(AAPL) 2020-08-31 4:1 분할 실측으로 확인, 2026-09-29.
  */
 export async function getOverseasDailyPrices(
   excd: OverseasExchangeCode,
@@ -1193,7 +1197,9 @@ export async function getOverseasDailyPrices(
     url.searchParams.set("SYMB", symb);
     url.searchParams.set("GUBN", OVERSEAS_GUBN[period]);
     url.searchParams.set("BYMD", bymd);
-    url.searchParams.set("MODP", "0"); // 0: 수정주가 미반영(국내 getDailyPrices와 동일 정책)
+    url.searchParams.set("MODP", "1"); // 1: 수정주가 반영 — 국내(FID_ORG_ADJ_PRC=0)와 파라미터
+    // 극성이 반대라는 걸 실측 확인(애플 2020-08-31 4:1 분할, 2026-09-29). 이전엔 "0"을
+    // 보내 분할·병합 이력이 있는 종목의 과거 구간이 원가로 저장돼 있었다(버그, 이번에 수정).
 
     const data = (await kisFetch(
       url,

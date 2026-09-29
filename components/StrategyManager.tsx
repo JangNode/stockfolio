@@ -313,7 +313,7 @@ export default function StrategyManager({ user }: { user: User }) {
   }, [backtestSummaryData]);
 
   return (
-    <div className="w-full max-w-3xl">
+    <div className="w-full max-w-4xl">
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
       {hasComparisonPair && reversalBreakoutPair.v1 && reversalBreakoutPair.v2 && (
@@ -408,14 +408,14 @@ export default function StrategyManager({ user }: { user: User }) {
           <h3 className="mb-3 text-sm font-medium text-ink">전략 성과 비교</h3>
 
           {strategyStats ? (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {comparableStrategies.map(({ ruleType }) => {
                 const stats = strategyStats.get(ruleType);
                 const isLowSample = !stats || stats.closedCount < MIN_CLOSED_SAMPLES_FOR_RELIABLE_STATS;
                 return (
                   <div
                     key={ruleType}
-                    className="w-full max-w-sm rounded-card border border-border bg-surface p-4"
+                    className="rounded-card border border-border bg-surface p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
@@ -470,7 +470,7 @@ export default function StrategyManager({ user }: { user: User }) {
         {market === "US" ? (
           <p className="text-sm text-ink-muted">국내(KR) 종목만 제공됩니다.</p>
         ) : (
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {STRATEGY_BACKTEST_TARGET_RULE_TYPES.map((ruleType) => {
               const summary = backtestSummaryByRuleType.get(ruleType);
               const concentrationWarning = summary
@@ -481,7 +481,7 @@ export default function StrategyManager({ user }: { user: User }) {
                 : false;
 
               return (
-                <div key={ruleType} className="w-full max-w-sm rounded-card border border-border bg-surface p-4">
+                <div key={ruleType} className="rounded-card border border-border bg-surface p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
                     {concentrationWarning && (
@@ -559,11 +559,11 @@ export default function StrategyManager({ user }: { user: User }) {
       ) : error ? (
         <p className="text-sm text-blue-600 dark:text-blue-400">전략을 불러오지 못했습니다.</p>
       ) : marketStrategies.length > 0 ? (
-        <div className="flex flex-wrap gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {marketStrategies.map((strategy) => (
             <div
               key={strategy.id}
-              className="w-full max-w-sm rounded-card border border-border bg-surface p-4"
+              className="rounded-card border border-border bg-surface p-4"
             >
               <p className="font-medium text-ink">
                 <span className="mr-2 rounded-full bg-black/[.06] px-2 py-0.5 text-xs font-normal text-ink-muted dark:bg-white/[.1]">

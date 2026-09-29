@@ -35,6 +35,14 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      - name: Diagnose US active positions MODP impact
+        run: npm run diagnose:us-active-positions-modp-impact | tee -a diagnostic-output.txt
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       # 이 환경(Claude Code 세션)은 Actions 로그 다운로드가 붙는 blob storage
       # 호스트에 egress 정책상 접근할 수 없어, 결과를 로그 대신 전용 브랜치에
       # 커밋해 Contents API로 읽는다(디스포저블 — 확인 끝나면 브랜치째 정리).

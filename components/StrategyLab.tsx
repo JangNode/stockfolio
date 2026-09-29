@@ -673,7 +673,7 @@ export default function StrategyLab({}: { user: User }) {
         ) : runsData.runs.length === 0 ? (
           <p className="text-sm text-ink-muted">아직 요청한 백테스트가 없습니다.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {runsData.runs.map((run) => (
               <li key={run.id}>
                 <button

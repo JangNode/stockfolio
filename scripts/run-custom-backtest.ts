@@ -427,7 +427,9 @@ async function main(): Promise<void> {
         }
       }
 
-      const result = runBacktest(prices, rule, windowStartDate, fundamentals, listedSharesByFiscalYear);
+      const result = runBacktest(prices, rule, windowStartDate, fundamentals, listedSharesByFiscalYear, {
+        market: run.market,
+      });
       if (result.insufficientData || result.tradeCount === 0) continue;
 
       matchedStocks.push({

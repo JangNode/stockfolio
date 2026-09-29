@@ -146,6 +146,17 @@ export function simulateUniverseMonthlyRebalance(
         for (const code of allCodes) {
           turnoverSum += Math.abs((currentWeights.get(code) ?? 0) - (targetWeights.get(code) ?? 0));
         }
+        // 현금 잔고도 "종목 하나"처럼 취급해 회전율에 포함한다 — 최초 리밸런싱은
+        // 현금 100%에서 종목 100%로 바뀌는 순수 매수라, 종목만 놓고 보면
+        // turnoverSum이 1(=현금에서 각 종목으로 나눠 들어간 만큼)에 그쳐 turnover가
+        // 0.5로 축소 계산된다(실제로는 전량 매수라 1이어야 함). currentWeights/
+        // targetWeights는 둘 다 항상 0 또는 1로 합산되므로(각각 전액 현금 또는
+        // 전액 투자), 현금 잔고 = 1 - 종목 비중 합계로 구해 더하면 상시 리밸런싱
+        // (현금 유입/유출 없음, 양쪽 다 0)에는 영향을 주지 않고 최초 매수만
+        // 올바르게 보정된다.
+        const cashBefore = 1 - sumValues(currentWeights);
+        const cashTarget = 1 - sumValues(targetWeights);
+        turnoverSum += Math.abs(cashBefore - cashTarget);
         const turnover = 0.5 * turnoverSum;
 
         // computeEffectiveBuyPrice/computeEffectiveSellPrice에 1을 넣어 "1원당

@@ -33,6 +33,7 @@ import {
   type StrategyRule,
 } from "@/lib/backtest";
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
+import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 
 // ===== 잡주 필터링 조건 =====
 // 영문 종목명에 이 패턴이 매치되면 제외한다(SPAC). 국내와 달리 미국 마스터파일엔 SPAC
@@ -275,8 +276,10 @@ async function updateActiveTracking(): Promise<{
     const currentPrice = priceByCode.get(row.stock_code);
     if (currentPrice === undefined) continue;
 
-    const returnPct = ((currentPrice - row.entry_price) / row.entry_price) * 100;
     const status = evaluateTrackingStatus(currentPrice, row.stop_loss_price, row.take_profit_price);
+    // "지금 판다면" 가정으로 매도측 비용(수수료+슬리피지, 미국은 증권거래세 0)까지
+    // 반영한 순수익률 — active 상태에서도 실현 시 손익을 그대로 보여주는 게 의도된 설계다.
+    const returnPct = computeCostAdjustedReturnPct(row.entry_price, currentPrice, todayKstDate(), "US") * 100;
 
     const update: Record<string, unknown> = {
       current_price: currentPrice,

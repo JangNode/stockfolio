@@ -501,7 +501,9 @@ async function runPortfolio(
       stock_name: decision.candidate.stockName,
       side: "buy",
       quantity: decision.quantity,
-      price: decision.candidate.currentPrice,
+      // amount(=quantity × effectivePrice)와 맞도록 실제 체결가(수수료+슬리피지
+      // 반영)를 기록한다 — raw 현재가를 쓰면 quantity × price ≠ amount가 된다.
+      price: decision.effectivePrice,
       amount: decision.amount,
       rationale: decision.rationale,
       screening_result_id: decision.candidate.screeningResultId,
@@ -518,7 +520,9 @@ async function runPortfolio(
       stock_code: decision.candidate.stockCode,
       stock_name: decision.candidate.stockName,
       quantity: decision.quantity,
-      avg_price: decision.candidate.currentPrice,
+      // 실제 매입 원가(수수료+슬리피지 반영) 기준 — 이후 손절/익절 판단이 이 값을
+      // avgPrice로 비교하므로 raw 현재가가 아니라 effectivePrice를 기록해야 한다.
+      avg_price: decision.effectivePrice,
       screening_result_id: decision.candidate.screeningResultId,
       opened_strategy_id: strategyRow.id,
       market: decision.candidate.market,
@@ -532,7 +536,7 @@ async function runPortfolio(
     cash -= decision.amount;
     buyCount++;
     successfulBuyDecisions.push(decision);
-    console.log(`    [${style}] ✓ 매수 ${decision.candidate.stockName}(${decision.candidate.stockCode}) ${decision.quantity}주 @${decision.candidate.currentPrice}`);
+    console.log(`    [${style}] ✓ 매수 ${decision.candidate.stockName}(${decision.candidate.stockCode}) ${decision.quantity}주 @${decision.effectivePrice}`);
   }
 
   // 3) 평가금액 계산 및 스냅샷/현금 반영

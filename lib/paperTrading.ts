@@ -1,6 +1,7 @@
 import type { PaperStrategyConditions, SourceRuleType } from "@/lib/paperStrategy";
 import { PAPER_STYLE_LABEL, type PaperStyle } from "@/lib/paperStyles";
 import type { Market } from "@/lib/market";
+import { computeEffectiveBuyPrice, computeEffectiveSellPrice } from "@/lib/transactionCost";
 
 // 매매 판단에는 조건 3종만 있으면 되고 label/rationale/generated_at은 필요 없다 —
 // DB에 저장된 활성 전략 행(ActiveStrategyRow)에는 그 필드들이 없으므로 여기서 따로 뺀다.
@@ -61,6 +62,7 @@ export interface BuyDecision {
   candidate: ScreeningCandidateRow;
   quantity: number;
   amount: number;
+  effectivePrice: number;
   rationale: string;
 }
 
@@ -114,10 +116,14 @@ export function selectBuyCandidates(
     if (pickedStockCodes.has(candidate.stockCode)) continue;
 
     const budget = cash * (entry.position_size_pct / 100);
-    const quantity = Math.floor(budget / candidate.currentPrice);
+    // 수수료+슬리피지가 반영된 실제 체결가로 수량을 정하므로, quantity * effectivePrice(=amount)는
+    // 항상 budget 이하가 되고 budget은 항상 cash 이하다 — 현금이 음수가 될 수 없어 별도 방어가
+    // 필요 없다.
+    const effectivePrice = computeEffectiveBuyPrice(candidate.currentPrice);
+    const quantity = Math.floor(budget / effectivePrice);
     if (quantity < 1) continue;
 
-    const amount = quantity * candidate.currentPrice;
+    const amount = quantity * effectivePrice;
     cash -= amount;
     slotsAvailable--;
     pickedStockCodes.add(candidate.stockCode);
@@ -127,13 +133,14 @@ export function selectBuyCandidates(
       candidate,
       quantity,
       amount,
+      effectivePrice,
       rationale:
         `[${STYLE_LABEL[style]}] ${candidate.ruleType} 신호 종목 중 신호 대비 수익률 ` +
         `${candidate.returnPct.toFixed(2)}%(조건 ${entry.min_signal_return_pct}~` +
         `${entry.max_signal_return_pct}%, ${rankOrder} 우선)로 매수 후보 선정. ` +
         `보유 현금 ${formatMoney(cash + amount, candidate.market)}의 ` +
         `${entry.position_size_pct}%인 ${formatMoney(amount, candidate.market)} 투입 ` +
-        `(${quantity}주 @ ${formatMoney(candidate.currentPrice, candidate.market)}).`,
+        `(${quantity}주 @ ${formatMoney(effectivePrice, candidate.market)}, 수수료·슬리피지 반영).`,
     });
   }
 
@@ -254,10 +261,16 @@ export function evaluateExit(
     return null;
   }
 
+  const effectiveSellPrice = computeEffectiveSellPrice(
+    underlying.currentPrice,
+    now.toISOString().slice(0, 10),
+    position.market
+  );
+
   if (underlying.status !== "active") {
     const resultLabel = underlying.status === "stopped" ? "손절" : "익절";
     return {
-      price: underlying.currentPrice,
+      price: effectiveSellPrice,
       rationale: `[${label}] 원 스크리닝 신호가 ${resultLabel}로 종료되어 포지션도 함께 청산.`,
     };
   }
@@ -266,7 +279,7 @@ export function evaluateExit(
 
   if (pct >= exit.take_profit_pct) {
     return {
-      price: underlying.currentPrice,
+      price: effectiveSellPrice,
       rationale:
         `[${label}] 청산조건(익절 ${exit.take_profit_pct}%) 도달: ` +
         `매입가 ${formatMoney(position.avgPrice, position.market)} 대비 +${pct.toFixed(2)}%.`,
@@ -275,7 +288,7 @@ export function evaluateExit(
 
   if (pct <= -exit.stop_loss_pct) {
     return {
-      price: underlying.currentPrice,
+      price: effectiveSellPrice,
       rationale:
         `[${label}] 청산조건(손절 ${exit.stop_loss_pct}%) 도달: ` +
         `매입가 ${formatMoney(position.avgPrice, position.market)} 대비 ${pct.toFixed(2)}%.`,
@@ -285,7 +298,7 @@ export function evaluateExit(
   const holdingDays = (now.getTime() - new Date(position.openedAt).getTime()) / 86_400_000;
   if (holdingDays >= exit.max_holding_days) {
     return {
-      price: underlying.currentPrice,
+      price: effectiveSellPrice,
       rationale: `[${label}] 최대 보유기간(${exit.max_holding_days}일)을 초과해 청산(경과 ${holdingDays.toFixed(1)}일).`,
     };
   }

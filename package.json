@@ -33,7 +33,6 @@
     "backfill:stock-industry-classification": "tsx --conditions=react-server scripts/backfill-stock-industry-classification.ts",
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
-    "diagnose:benchmark-mismatch-isolation": "tsx --conditions=react-server scripts/diagnose-benchmark-mismatch-isolation.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts"
   },
   "dependencies": {

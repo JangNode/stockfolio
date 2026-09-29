@@ -201,7 +201,7 @@ export default function Backtest({ user }: { user: User }) {
     "h-10 rounded-lg border border-border bg-transparent px-3 text-sm text-ink outline-none focus:border-black/30 dark:focus:border-white/30";
 
   return (
-    <div className="w-full max-w-3xl">
+    <div className="w-full max-w-4xl">
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
 
       <div className="mb-6 flex flex-wrap items-end gap-3 rounded-card border border-border bg-surface p-4">

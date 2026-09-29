@@ -105,6 +105,9 @@ interface StrategyBacktestSummaryRow {
   forced_liquidation_count: number;
   forced_liquidation_ratio: number | null;
   top5_exclude_return_pct: number | null;
+  avg_win_pct: number | null;
+  avg_loss_pct: number | null;
+  payoff_ratio: number | null;
 }
 
 interface StrategyBacktestSummaryResponse {
@@ -518,6 +521,17 @@ export default function StrategyManager({ user }: { user: User }) {
                       <div className="flex items-center justify-between gap-3">
                         <dt className="text-xs text-ink-muted">중앙값 수익률</dt>
                         <dd className="tabular-nums text-ink">{formatPct(summary.median_return_pct)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-xs text-ink-muted">손익비</dt>
+                        <dd
+                          className="tabular-nums text-ink"
+                          title={summary.payoff_ratio === null ? "승 또는 패 트레이드가 없어 계산 불가" : undefined}
+                        >
+                          {summary.payoff_ratio === null
+                            ? "-"
+                            : `${summary.payoff_ratio.toFixed(2)}:1 (${formatPct(summary.avg_win_pct)} / ${formatPct(summary.avg_loss_pct)})`}
+                        </dd>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <dt className="text-xs text-ink-muted">MDD</dt>

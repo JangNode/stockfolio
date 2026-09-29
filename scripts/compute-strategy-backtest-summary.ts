@@ -240,6 +240,17 @@ async function main(): Promise<void> {
     const avgReturnPct = returnPctList.reduce((s, v) => s + v, 0) / returnPctList.length;
     const medianReturnPct = median(returnPctList);
 
+    // 손익비(평균승/평균패) — "장기 백테스트" 카드에서 MDD가 높은데 CAGR이
+    // 플러스인 조합이 트렌드추종 손익 구조(손절 짧고 승리 큼)인지 소수 트레이드
+    // 의존인지 구분하는 데 쓴다(2026-09-29 진단으로 검증된 계산 그대로 승격).
+    // 승/패 중 한쪽이 0건이거나 평균패가 0이면 계산 불가라 null로 둔다(0으로
+    // 나누기·NaN이 DB에 들어가지 않게).
+    const winReturns = returnPctList.filter((v) => v > 0);
+    const lossReturns = returnPctList.filter((v) => v <= 0);
+    const avgWinPct = winReturns.length > 0 ? winReturns.reduce((s, v) => s + v, 0) / winReturns.length : null;
+    const avgLossPct = lossReturns.length > 0 ? lossReturns.reduce((s, v) => s + v, 0) / lossReturns.length : null;
+    const payoffRatio = avgWinPct !== null && avgLossPct !== null && avgLossPct !== 0 ? avgWinPct / Math.abs(avgLossPct) : null;
+
     const dailySeries = computeEqualWeightDailyReturns(acc.dailyReturns);
     const { totalReturnPct, mddPct } = computeCumulativeAndMdd(dailySeries);
     const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, TODAY);
@@ -271,6 +282,9 @@ async function main(): Promise<void> {
       forced_liquidation_count: aggregate.forcedLiquidationCount,
       forced_liquidation_ratio: forcedLiquidationRatio,
       top5_exclude_return_pct: top5ExcludeCagrPct,
+      avg_win_pct: avgWinPct,
+      avg_loss_pct: avgLossPct,
+      payoff_ratio: payoffRatio,
     });
 
     if (error) {
@@ -281,7 +295,8 @@ async function main(): Promise<void> {
     console.log(
       `  [${ruleType}] 거래 ${totalTrades}건(종료 ${closedTrades}/강제청산 ${aggregate.forcedLiquidationCount}), ` +
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
-        `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}% — 저장 완료`
+        `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
+        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} — 저장 완료`
     );
   }
 

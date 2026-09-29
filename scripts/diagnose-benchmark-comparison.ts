@@ -54,7 +54,41 @@ import {
   type DailyStockReturns,
   type StockContribution,
 } from "@/lib/strategyBacktestSummary";
-import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
+import type { KrxMarket } from "@/lib/stockMaster";
+
+// lib/betaPriceHistoryStorage.ts의 getIndexPriceSeries는 Supabase(PostgREST)
+// 기본 최대 행 수(1000)에 걸려 2016~오늘 전체 구간(2600여 행)을 한 번에 못
+// 가져온다는 걸 이번 조사로 실측 확인했다(첫 실행 시 2020-02-03까지만 잘려
+// 들어와 마스터 캘린더가 짧아지는 버그로 드러남 — 기존 프로덕션 사용처
+// (calc-stock-beta.ts)는 3년(~750행)만 조회해 지금까지 드러나지 않았을 뿐,
+// 이 함수 자체의 잠재 결함이라 보고서에 별도로 남긴다). 여기서는 프로덕션
+// 함수를 수정하지 않고, 진단 스크립트 안에서만 페이지네이션으로 전체를
+// 가져온다.
+const SUPABASE_PAGE_SIZE = 1000;
+async function getFullIndexPriceSeries(
+  market: KrxMarket,
+  startDate: string,
+  endDate: string
+): Promise<{ tradeDate: string; closePrice: number }[]> {
+  const rows: { tradeDate: string; closePrice: number }[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("beta_price_history")
+      .select("trade_date, close_price")
+      .eq("market", market)
+      .gte("trade_date", startDate)
+      .lte("trade_date", endDate)
+      .order("trade_date", { ascending: true })
+      .range(offset, offset + SUPABASE_PAGE_SIZE - 1);
+    if (error) throw new Error(`${market} 지수 시세 페이지 조회 실패: ${error.message}`);
+    const page = data ?? [];
+    for (const row of page) rows.push({ tradeDate: row.trade_date, closePrice: Number(row.close_price) });
+    if (page.length < SUPABASE_PAGE_SIZE) break;
+    offset += SUPABASE_PAGE_SIZE;
+  }
+  return rows;
+}
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -269,8 +303,8 @@ async function main(): Promise<void> {
 
   // 코스피 지수를 거래일 캘린더(마스터 캘린더)로 쓴다. 백필이 안 돼 있으면(2016년까지
   // 못 미치면) 유니버스 종목 날짜 union으로 대체한다.
-  const kospiSeries = await getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY);
-  const kosdaqSeries = await getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY);
+  const kospiSeries = await getFullIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY);
+  const kosdaqSeries = await getFullIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY);
 
   let masterDates: string[];
   if (kospiSeries.length > 0 && kospiSeries[0].tradeDate <= ALREADY_LISTED_THRESHOLD_DATE) {

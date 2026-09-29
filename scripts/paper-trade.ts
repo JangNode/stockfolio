@@ -518,7 +518,9 @@ async function runPortfolio(
       stock_code: decision.candidate.stockCode,
       stock_name: decision.candidate.stockName,
       quantity: decision.quantity,
-      avg_price: decision.candidate.currentPrice,
+      // 실제 매입 원가(수수료+슬리피지 반영) 기준 — 이후 손절/익절 판단이 이 값을
+      // avgPrice로 비교하므로 raw 현재가가 아니라 effectivePrice를 기록해야 한다.
+      avg_price: decision.effectivePrice,
       screening_result_id: decision.candidate.screeningResultId,
       opened_strategy_id: strategyRow.id,
       market: decision.candidate.market,

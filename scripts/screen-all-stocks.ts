@@ -34,6 +34,7 @@ import {
   REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO,
 } from "@/lib/reversalBreakoutConfig";
 import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
+import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import {
   loadFundamentalsSeries,
@@ -413,12 +414,14 @@ async function updateActiveTracking(): Promise<{
       continue;
     }
 
-    const returnPct = ((currentPrice - row.entry_price) / row.entry_price) * 100;
     const status = evaluateTrackingStatus(
       currentPrice,
       row.stop_loss_price,
       row.take_profit_price
     );
+    // "지금 판다면" 가정으로 매도측 비용(수수료+슬리피지+세금)까지 반영한 순수익률 —
+    // active 상태에서도 실현 시 손익을 그대로 보여주는 게 의도된 설계다.
+    const returnPct = computeCostAdjustedReturnPct(row.entry_price, currentPrice, now.slice(0, 10), "KR") * 100;
 
     const update: Record<string, unknown> = {
       current_price: currentPrice,

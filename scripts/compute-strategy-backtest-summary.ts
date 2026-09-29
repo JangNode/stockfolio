@@ -56,6 +56,12 @@ import {
   type DailyStockReturns,
   type StockContribution,
 } from "@/lib/strategyBacktestSummary";
+import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
+import {
+  computeIndexDailyReturnsPct,
+  simulateUniverseMonthlyRebalance,
+  computeCalmarRatio,
+} from "@/lib/benchmarkSummary";
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -174,6 +180,11 @@ async function main(): Promise<void> {
     peg_lynch: createAccumulator(),
   };
 
+  // 벤치마크(유니버스 동일가중 월간 리밸런싱) 계산이 재사용할 종목별 가격
+  // 시계열. 전략 계산 때문에 이미 종목마다 한 번씩 조회하는 것이므로, 벤치마크
+  // 때문에 672종목을 또 조회하지 않도록 여기에 모아둔다.
+  const pricesByStock = new Map<string, DailyPrice[]>();
+
   let completed = 0;
   await runWithConcurrency(universe, BATCH_CONCURRENCY, async (stockCode) => {
     try {
@@ -181,6 +192,7 @@ async function main(): Promise<void> {
       if (priceRows.length === 0) return;
 
       const prices = priceRows.map(toDailyPrice);
+      pricesByStock.set(stockCode, prices);
 
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
@@ -307,6 +319,58 @@ async function main(): Promise<void> {
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
         `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
         `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (비용 반영) — 저장 완료`
+    );
+  }
+
+  console.log("\n=== 벤치마크(코스피/코스닥/유니버스 월간 리밸런싱) 계산 및 저장 ===");
+
+  const [kospiSeries, kosdaqSeries] = await Promise.all([
+    getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
+    getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
+  ]);
+
+  const benchmarkInputs: { benchmarkType: string; dailyReturnsPct: number[]; costIncluded: boolean }[] = [
+    { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
+    { benchmarkType: "kosdaq", dailyReturnsPct: computeIndexDailyReturnsPct(kosdaqSeries), costIncluded: false },
+    {
+      benchmarkType: "universe_monthly_rebalance",
+      // 코스피 지수 시리즈의 tradeDate를 실제 KRX 거래일 캘린더로 재사용한다
+      // (따로 캘린더를 조회하지 않는다).
+      dailyReturnsPct: simulateUniverseMonthlyRebalance(
+        pricesByStock,
+        kospiSeries.map((p) => p.tradeDate),
+        PERIOD_START_DATE
+      ),
+      costIncluded: true,
+    },
+  ];
+
+  const benchmarkRows = benchmarkInputs.map(({ benchmarkType, dailyReturnsPct, costIncluded }) => {
+    const { totalReturnPct, mddPct } = computeCumulativeAndMdd(dailyReturnsPct);
+    const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, TODAY);
+    const calmarRatio = computeCalmarRatio(cagrPct, mddPct);
+    return { benchmarkType, cagrPct, mddPct, calmarRatio, costIncluded };
+  });
+
+  for (const row of benchmarkRows) {
+    const { error } = await supabaseAdmin.from("benchmark_summary").insert({
+      benchmark_type: row.benchmarkType,
+      period_start_date: PERIOD_START_DATE,
+      period_end_date: TODAY,
+      cagr_pct: row.cagrPct,
+      mdd_pct: row.mddPct,
+      calmar_ratio: row.calmarRatio,
+      cost_included: row.costIncluded,
+    });
+
+    if (error) {
+      console.error(`  [${row.benchmarkType}] 벤치마크 저장 실패: ${error.message}`);
+      continue;
+    }
+
+    console.log(
+      `  [${row.benchmarkType}] MDD ${row.mddPct.toFixed(1)}%, CAGR ${row.cagrPct.toFixed(1)}%, ` +
+        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? " (비용 반영)" : ""} — 저장 완료`
     );
   }
 

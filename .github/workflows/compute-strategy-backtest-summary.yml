@@ -1,9 +1,16 @@
 name: Strategy Backtest Summary
 
-# "전략 관리" 탭의 "장기 백테스트(2016~오늘)" 섹션 캐시를 매주 한 번 재계산한다.
+# "전략 관리" 탭의 "장기 백테스트(2016~오늘)" 섹션 캐시(전략 5종 + 벤치마크
+# 3종: 코스피/코스닥/유니버스 월간 리밸런싱)를 매주 한 번 재계산한다.
 # 몇 시간 밀려도 무방한 정적 재계산이라(다음 주 실행에서 자동으로 최신 데이터를
 # 다시 반영) GitHub Actions의 schedule 트리거를 그대로 쓴다(SKILLS.md 배치
 # 스케줄링 방식 선택 참고) — pg_cron을 거칠 필요가 없다.
+#
+# 벤치마크 계산이 코스피/코스닥 지수 시세(beta_price_history)를 쓰므로, 이 배치가
+# 매번 최신 지수로 계산하도록 "Compute strategy backtest summary" 스텝 앞에 지수
+# 백필을 먼저 돌린다(계산 시점 지수가 최대 몇 달 묵어 있던 문제, 2026-09-29 조사로
+# 확인). .github/workflows/calc-stock-beta.yml의 분기 1회 지수 백필과 중복
+# 실행되지만 멱등적이라 해롭지 않다.
 on:
   schedule:
     # 매주 월요일 한국시간(KST) 05:00 = UTC 일요일 20:00. 스크리닝/AI 모의투자
@@ -27,6 +34,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Update index prices
+        run: npm run backfill:index-daily-prices
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Compute strategy backtest summary
         run: npm run batch:strategy-backtest-summary

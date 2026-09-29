@@ -1,0 +1,33 @@
+name: 벤치마크 참조 구현 재실행 (검증, 영구 보존)
+
+# scripts/diagnose-benchmark-reference-implementation.ts는 lib/benchmarkSummary.ts의
+# 유니버스 동일가중 월간 리밸런싱 계산을 원자료에서 독립적으로 재구현한 참조
+# 스크립트다(2026-09-29 CAGR/MDD 불일치 조사, 재현 가능성을 위해 영구 보존 —
+# 이 스크립트 자체는 정리 대상이 아니다). 이 워크플로는 필요할 때 수동으로
+# 다시 돌려 프로덕션 DB 값(benchmark_summary)과 교차검증하는 용도다. 순수
+# 조회+계산(쓰기 없음).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmark reference implementation
+        run: npm run diagnose:benchmark-reference-implementation
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

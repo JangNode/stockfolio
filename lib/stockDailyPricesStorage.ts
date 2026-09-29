@@ -330,10 +330,10 @@ export async function getDailyPriceSeries(
 }
 
 /** 여러 연도에 걸쳐 minMarketCapEok(억원) 이상이었던 적 있는 종목코드 집합을 반환한다
- * — 재무/배당 백필의 후보종목 발굴에 쓴다. 저장 자체는 더 낮은 하한
- * (STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK)으로 돼 있으므로, 여기서 실제 후보
- * 기준(minMarketCapEok)으로 다시 걸러야 한다. hot 구간(Postgres)에는 원래 15년
- * Parquet 백필 이후 새로 쌓인 행이 있을 수 있어 별도로 한 번 더 확인한다. */
+ * — 재무/배당 백필의 후보종목 발굴에 쓴다. 저장 자체는 2026-09-29부터 시가총액
+ * 하한 없이 전종목이지만, 여기서는 여전히 실제 후보 기준(minMarketCapEok)으로
+ * 걸러야 한다. hot 구간(Postgres)에는 원래 15년 Parquet 백필 이후 새로 쌓인 행이
+ * 있을 수 있어 별도로 한 번 더 확인한다. */
 export async function discoverCandidateStockCodes(years: number[], minMarketCapEok: number): Promise<string[]> {
   const codes = new Set<string>();
   for (const year of years) {

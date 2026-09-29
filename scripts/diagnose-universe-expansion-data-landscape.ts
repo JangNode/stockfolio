@@ -59,6 +59,69 @@ async function fetchHotRowsForCode(code: string): Promise<{ trade_date: string; 
   return (data ?? []) as { trade_date: string; close_price: number }[];
 }
 
+/** lib/delistedStockList.ts의 getDelistedStockCodes()는 최근 10일 내 파일만 찾는데,
+ * 이 조사를 실행한 시점에 미러 저장소(FinanceData/fdr_krx_data_cache)에 그 안에
+ * 해당하는 날짜 파일이 없어 실패했다 — 조사 목적상 GitHub API로 디렉터리를 직접
+ * 조회해 실제로 존재하는 가장 최근 파일을 찾는 방식으로 우회한다(운영 코드는
+ * 건드리지 않는다. 운영 백필 스크립트는 매일 도는 배치라 10일 lookback으로
+ * 충분하지만, 이 진단은 임의 시점에 1회 실행되므로 더 넓게 찾아야 한다). */
+async function getDelistedStockCodesRobust(): Promise<Set<string>> {
+  const dirUrl = "https://api.github.com/repos/FinanceData/fdr_krx_data_cache/contents/data/listing/delisting?ref=master";
+  const res = await fetch(dirUrl, { headers: { "User-Agent": "stockfolio-diagnose" } });
+  if (!res.ok) throw new Error(`GitHub API 디렉터리 조회 실패: HTTP ${res.status}`);
+  const entries = (await res.json()) as { name: string; download_url: string }[];
+  const csvEntries = entries.filter((e) => /^\d{4}-\d{2}-\d{2}\.csv$/.test(e.name)).sort((a, b) => b.name.localeCompare(a.name));
+  if (csvEntries.length === 0) throw new Error("상장폐지 목록 CSV 파일을 디렉터리에서 찾지 못했습니다.");
+  const latest = csvEntries[0];
+  console.log(`  (fallback) 가장 최근 상장폐지 목록 파일: ${latest.name}`);
+
+  const csvRes = await fetch(latest.download_url);
+  if (!csvRes.ok) throw new Error(`상장폐지 목록 CSV 다운로드 실패: HTTP ${csvRes.status}`);
+  const csvText = await csvRes.text();
+
+  // lib/delistedStockList.ts의 parseDelistedCodes/parseCsvLine과 동일한 파싱 로직
+  // (조사용 임시 복제 — export되어 있지 않아 재사용 불가, 운영 코드는 변경하지 않음).
+  function parseCsvLine(line: string): string[] {
+    const fields: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else inQuotes = false;
+        } else cur += ch;
+      } else if (ch === '"') inQuotes = true;
+      else if (ch === ",") {
+        fields.push(cur);
+        cur = "";
+      } else cur += ch;
+    }
+    fields.push(cur);
+    return fields;
+  }
+
+  const lines = csvText.split("\n").filter((l) => l.trim());
+  const header = parseCsvLine(lines[0]);
+  const symbolIdx = header.indexOf("Symbol");
+  const marketIdx = header.indexOf("Market");
+  const secuGroupIdx = header.indexOf("SecuGroup");
+  const codes = new Set<string>();
+  for (const line of lines.slice(1)) {
+    const fields = parseCsvLine(line);
+    const symbol = fields[symbolIdx]?.trim();
+    const market = fields[marketIdx]?.trim();
+    const secuGroup = fields[secuGroupIdx]?.trim();
+    if (!symbol || secuGroup !== "주권") continue;
+    if (market !== "KOSPI" && market !== "KOSDAQ") continue;
+    codes.add(symbol);
+  }
+  return codes;
+}
+
 const STORAGE_BUCKET = "stock-daily-prices";
 
 /** stock-daily-prices 버킷의 연도별 Parquet 파일 크기(바이트) 목록 — Storage 무료
@@ -145,29 +208,39 @@ async function main(): Promise<void> {
 
   // 3) 상장폐지 종목 vs 저장된 종목 diff
   console.log("\n=== 3) 상장폐지 종목(getDelistedStockCodes) vs 저장된 종목 diff ===");
-  const delistedCodes = await getDelistedStockCodes();
-  console.log(`상장폐지 종목 목록: ${delistedCodes.size}개`);
+  try {
+    let delistedCodes: Set<string>;
+    try {
+      delistedCodes = await getDelistedStockCodes();
+    } catch {
+      console.log("  운영 함수(10일 lookback) 실패 — GitHub API 디렉터리 조회로 재시도합니다.");
+      delistedCodes = await getDelistedStockCodesRobust();
+    }
+    console.log(`상장폐지 종목 목록: ${delistedCodes.size}개`);
 
-  const delistedWithData = Array.from(delistedCodes).filter((c) => allStoredCodes.has(c));
-  const delistedWithoutData = delistedCodes.size - delistedWithData.length;
-  console.log(`  시세 있음: ${delistedWithData.length}개, 시세 없음: ${delistedWithoutData}개`);
+    const delistedWithData = Array.from(delistedCodes).filter((c) => allStoredCodes.has(c));
+    const delistedWithoutData = delistedCodes.size - delistedWithData.length;
+    console.log(`  시세 있음: ${delistedWithData.length}개, 시세 없음: ${delistedWithoutData}개`);
 
-  // 데이터 기간(첫날~마지막날) 분포 확인 — 표본 60개만 hot 구간 쿼리로 확인(전체
-  // 726개를 다 개별 쿼리하면 시간이 오래 걸려 조사 목적에는 표본으로 충분).
-  const SAMPLE_SIZE = 60;
-  const sample = delistedWithData.slice(0, SAMPLE_SIZE);
-  console.log(`  데이터 기간 표본 확인(${sample.length}개, hot 구간 쿼리 — cold 구간 종목은 아래 연도별 로그로 범위 추정):`);
-  let sampleChecked = 0;
-  for (const code of sample) {
-    const hotRows = await fetchHotRowsForCode(code);
-    if (hotRows.length > 0) {
-      sampleChecked++;
-      if (sampleChecked <= 10) {
-        console.log(`    ${code}: hot 구간 ${hotRows[0].trade_date} ~ ${hotRows[hotRows.length - 1].trade_date} (${hotRows.length}행)`);
+    // 데이터 기간(첫날~마지막날) 분포 확인 — 표본 60개만 hot 구간 쿼리로 확인(전체
+    // 726개를 다 개별 쿼리하면 시간이 오래 걸려 조사 목적에는 표본으로 충분).
+    const SAMPLE_SIZE = 60;
+    const sample = delistedWithData.slice(0, SAMPLE_SIZE);
+    console.log(`  데이터 기간 표본 확인(${sample.length}개, hot 구간 쿼리 — cold 구간 종목은 아래 연도별 로그로 범위 추정):`);
+    let sampleChecked = 0;
+    for (const code of sample) {
+      const hotRows = await fetchHotRowsForCode(code);
+      if (hotRows.length > 0) {
+        sampleChecked++;
+        if (sampleChecked <= 10) {
+          console.log(`    ${code}: hot 구간 ${hotRows[0].trade_date} ~ ${hotRows[hotRows.length - 1].trade_date} (${hotRows.length}행)`);
+        }
       }
     }
+    console.log(`  표본 중 hot 구간(최근 2년)에도 데이터가 있는 종목: ${sampleChecked}/${sample.length}개(나머지는 cold 구간에만 있거나 이미 오래전 상장폐지)`);
+  } catch (error) {
+    console.error(`  상장폐지 종목 목록 조회 실패(이 섹션만 건너뜁니다): ${error instanceof Error ? error.message : String(error)}`);
   }
-  console.log(`  표본 중 hot 구간(최근 2년)에도 데이터가 있는 종목: ${sampleChecked}/${sample.length}개(나머지는 cold 구간에만 있거나 이미 오래전 상장폐지)`);
 
   // 4) 수정주가 여부 확인 — 삼성전자 2018-05-04 50:1 액면분할 전후 종가/상장주식수
   console.log("\n=== 4) 수정주가 여부 확인 (삼성전자 005930, 2018-05-04 50:1 액면분할) ===");

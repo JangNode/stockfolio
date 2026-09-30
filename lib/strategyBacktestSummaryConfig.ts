@@ -54,5 +54,10 @@ export const FALLBACK_MINERVINI_PARAMS: MinerviniParams = { ma_short: 50, ma_mid
 // (재백필 도중 계산된 중간 상태 행), 'full'(2015~2026 재백필 완료 후 행). 배치는 기본적으로
 // 'full'로 저장하고(환경변수 DATA_WIDEN_STAGE로 재정의 가능 — 재백필 도중 시험 실행용),
 // 화면 API는 'full' 행을 우선 보여주고 없으면 'narrow' 행을 보여준다(중간 상태는 숨김).
-export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "full";
+//
+// 2026-09-30 결정 변경: 원자료를 넓힌 직후 수치는 분할·병합 보정 전 원가 기준이고 유니버스도
+// 아직 사후 선정(1조원 이상 이력) 기반이라 화면에 내보내지 않는다. 배치는 기본적으로
+// 'wide_unadjusted'로 저장하고(화면에서 숨김), 조정계수 적용 후 'full'로 올린다.
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "wide_unadjusted";
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED = "full";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";

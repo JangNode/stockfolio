@@ -65,7 +65,8 @@ export function accumulateStockDailyReturns(
   prices: DailyPrice[],
   trades: BacktestTrade[],
   windowStartDate: string,
-  market: Market
+  market: Market,
+  includeTransactionCosts: boolean = true
 ): void {
   if (trades.length === 0) return;
 
@@ -84,11 +85,11 @@ export function accumulateStockDailyReturns(
 
       let dailyReturn = (prices[i].close - prices[i - 1].close) / prices[i - 1].close;
       let multiplier = 1 + dailyReturn;
-      if (i === buyIdx + 1) {
+      if (includeTransactionCosts && i === buyIdx + 1) {
         // 매수 체결가가 종가보다 비싸므로, 그만큼 첫날 수익률에서 나눠 반영한다.
         multiplier /= computeEffectiveBuyPrice(prices[buyIdx].close) / prices[buyIdx].close;
       }
-      if (i === sellIdx) {
+      if (includeTransactionCosts && i === sellIdx) {
         // 매도 체결가가 종가보다 싸므로, 그만큼 마지막날 수익률에 곱해 반영한다.
         multiplier *= computeEffectiveSellPrice(prices[sellIdx].close, trade.sellDate, market) / prices[sellIdx].close;
       }

@@ -373,8 +373,13 @@ export async function loadCandidateSeriesFromParquet(
   discoveryYears: number[],
   minMarketCapEok: number,
   seriesStartDate: string,
-  seriesEndDate: string
-): Promise<{ universe: string[]; seriesByCode: Map<string, StockDailyPriceRow[]> }> {
+  seriesEndDate: string,
+  listedSharesStartYear: number = Number(seriesStartDate.slice(0, 4))
+): Promise<{
+  universe: string[];
+  seriesByCode: Map<string, StockDailyPriceRow[]>;
+  listedSharesOnOrBefore: (stockCode: string, date: string) => number | null;
+}> {
   const candidates = new Set<string>();
   for (const year of discoveryYears) {
     const rows = await downloadYearPrices(year);
@@ -384,12 +389,24 @@ export async function loadCandidateSeriesFromParquet(
   }
 
   const seriesByCode = new Map<string, StockDailyPriceRow[]>();
-  const firstYear = Number(seriesStartDate.slice(0, 4));
+  // 상장주식수 조회(peg_lynch의 공시일 시점 주식수)는 가격 시계열보다 더 이른 연도가 필요할
+  // 수 있어(공시가 2012년부터), 가볍게 (날짜, 주식수)만 따로 모은다.
+  const sharesByCode = new Map<string, { dates: string[]; shares: number[] }>();
+  const firstYear = Math.min(Number(seriesStartDate.slice(0, 4)), listedSharesStartYear);
   const lastYear = Number(seriesEndDate.slice(0, 4));
   for (let year = firstYear; year <= lastYear; year++) {
     const rows = await downloadYearPrices(year);
     for (const row of rows) {
       if (!candidates.has(row.stockCode)) continue;
+      if (row.tradeDate >= `${listedSharesStartYear}-01-01`) {
+        let entry = sharesByCode.get(row.stockCode);
+        if (!entry) {
+          entry = { dates: [], shares: [] };
+          sharesByCode.set(row.stockCode, entry);
+        }
+        entry.dates.push(row.tradeDate);
+        entry.shares.push(row.listedShares);
+      }
       if (row.tradeDate < seriesStartDate || row.tradeDate > seriesEndDate) continue;
       const list = seriesByCode.get(row.stockCode);
       if (list) list.push(row);
@@ -398,7 +415,36 @@ export async function loadCandidateSeriesFromParquet(
   }
   for (const list of seriesByCode.values()) list.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
 
-  return { universe: Array.from(candidates), seriesByCode };
+  // 연도 오름차순으로 이미 쌓았고 각 연도 파일 안 순서는 보장되지 않으므로 날짜 기준 정렬.
+  for (const entry of sharesByCode.values()) {
+    const order = entry.dates.map((_, i) => i).sort((a, b) => entry.dates[a].localeCompare(entry.dates[b]));
+    entry.dates = order.map((i) => entry.dates[i]);
+    entry.shares = order.map((i) => entry.shares[i]);
+  }
+
+  // getDailyPriceOnOrBefore와 같은 규칙: date 이전(포함) 가장 가까운 거래일 값을, 최대
+  // DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS일 전까지만 인정한다.
+  const listedSharesOnOrBefore = (stockCode: string, date: string): number | null => {
+    const entry = sharesByCode.get(stockCode);
+    if (!entry) return null;
+    let lo = 0;
+    let hi = entry.dates.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (entry.dates[mid] <= date) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    if (found < 0) return null;
+    const earliestAllowed = addDays(date, -DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS);
+    return entry.dates[found] >= earliestAllowed ? entry.shares[found] : null;
+  };
+
+  return { universe: Array.from(candidates), seriesByCode, listedSharesOnOrBefore };
 }
 
 /** stock_daily_prices_recent에 오늘치(또는 특정일) 시세를 저장한다(upsert) — 매일

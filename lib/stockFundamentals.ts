@@ -184,11 +184,15 @@ export async function computeEpsCagrAsOf(
  * 호출이 더 들지만(연도 수만큼), 같은 종목을 여러 날짜에 반복 조회할 때는 이쪽이
  * DB 왕복을 줄인다. */
 export async function loadFundamentalsSeriesWithListedShares(
-  stockCode: string
+  stockCode: string,
+  // 배치 전용: 주면 hot 표(Postgres) 대신 이 함수(Parquet에서 미리 읽은 값)로 상장주식수를
+  // 찾는다. 장기 백테스트 배치가 hot 표에 의존하지 않게 하려는 용도.
+  listedSharesOnOrBefore?: (stockCode: string, date: string) => number | null
 ): Promise<{ series: FundamentalsSeries; listedSharesByFiscalYear: ListedSharesByFiscalYear }> {
   const series = await loadFundamentalsSeries(stockCode);
   const entries = await Promise.all(
     series.annual.map(async (row) => {
+      if (listedSharesOnOrBefore) return [row.fiscalYear, listedSharesOnOrBefore(stockCode, row.rceptDate)] as const;
       const priceRow = await getDailyPriceOnOrBefore(stockCode, row.rceptDate);
       return [row.fiscalYear, priceRow?.listedShares ?? null] as const;
     })

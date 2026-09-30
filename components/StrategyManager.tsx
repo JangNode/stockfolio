@@ -109,6 +109,7 @@ interface StrategyBacktestSummaryRow {
   avg_loss_pct: number | null;
   payoff_ratio: number | null;
   cost_included: boolean;
+  data_widen_stage: string | null;
 }
 
 interface StrategyBacktestSummaryResponse {
@@ -470,6 +471,11 @@ export default function StrategyManager({ user }: { user: User }) {
           전체 종목 풀을 대상으로 매주 한 번 재계산하는 결과입니다. 최근 장세에 좌우되지 않는 장기 성과를 보려면
           이 섹션을 참고하세요.
         </p>
+        {market !== "US" && backtestSummaryData?.summaries.some((s) => s.data_widen_stage !== "full") && (
+          <p className="mb-3 rounded-card bg-est-soft px-3 py-2 text-xs text-est">
+            데이터 재정비 중, 수치는 변경될 수 있음
+          </p>
+        )}
 
         {market === "US" ? (
           <p className="text-sm text-ink-muted">국내(KR) 종목만 제공됩니다.</p>

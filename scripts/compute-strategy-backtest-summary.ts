@@ -68,6 +68,9 @@ const PERIOD_START_DATE = `${STRATEGY_BACKTEST_WINDOW_START_YEAR}-01-01`;
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
 // 동일 여유).
 const PRICE_FETCH_START_DATE = "2014-01-01";
+// peg_lynch가 공시일 시점 상장주식수를 찾을 때 필요한 가장 이른 연도 — 시세 백필 시작
+// 연도(scripts/backfill-stock-daily-prices.ts의 BACKFILL_START_YEAR)와 같다.
+const LISTED_SHARES_LOOKUP_START_YEAR = 2011;
 
 const BATCH_CONCURRENCY = 10;
 const PROGRESS_LOG_INTERVAL = 100;
@@ -168,11 +171,12 @@ async function main(): Promise<void> {
     (_, i) => STRATEGY_BACKTEST_WINDOW_START_YEAR + i
   );
   // hot 표를 쓰지 않고 전 구간을 Parquet에서만 읽는다(lib/stockDailyPricesStorage.ts 참고).
-  const { universe, seriesByCode } = await loadCandidateSeriesFromParquet(
+  const { universe, seriesByCode, listedSharesOnOrBefore } = await loadCandidateSeriesFromParquet(
     discoveryYears,
     STOCK_DATA_CANDIDATE_MARKET_CAP_EOK,
     PRICE_FETCH_START_DATE,
-    TODAY
+    TODAY,
+    LISTED_SHARES_LOOKUP_START_YEAR
   );
   console.log(`유니버스: ${universe.length}개 종목 (${STRATEGY_BACKTEST_WINDOW_START_YEAR}~ 시가총액 1조원 이상 이력)`);
 
@@ -201,7 +205,7 @@ async function main(): Promise<void> {
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
       try {
-        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode);
+        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, listedSharesOnOrBefore);
         fundamentals = loaded.series;
         listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
       } catch (error) {

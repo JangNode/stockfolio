@@ -42,7 +42,12 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { uploadYearPrices, yearPricesExist, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import {
+  downloadYearPrices,
+  uploadYearPrices,
+  yearPricesExist,
+  type StockDailyPriceRow,
+} from "@/lib/stockDailyPricesStorage";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 const BACKFILL_START_YEAR = 2011; // 10년 백테스트(2016~) + 5년 배당 lookback
@@ -51,6 +56,12 @@ const CONCURRENCY = 8;
 const CALL_RETRY_COUNT = 2;
 const CALL_RETRY_DELAY_MS = 1500;
 const FORCE_REFETCH_ALL_YEARS = process.env.FORCE_REFETCH_ALL_YEARS === "true";
+// MERGE_EXISTING_ROWS=true: 기존 연도 파일의 행은 값 그대로 보존하고, 새로 받은 행 중 (종목,
+// 날짜) 키가 없는 것만 추가한다(덮어쓰기 없음). SKIP_EXISTING_DATES=true는 여기에 더해 기존
+// 파일에 이미 있는 날짜는 API 호출 자체를 건너뛴다 — 이미 전종목으로 넓어진 현재 연도를
+// 주 1회 최신화하는 용도(장기 백테스트 배치 직전 스텝).
+const SKIP_EXISTING_DATES = process.env.SKIP_EXISTING_DATES === "true";
+const MERGE_EXISTING_ROWS = process.env.MERGE_EXISTING_ROWS === "true" || SKIP_EXISTING_DATES;
 
 interface KrxTradeRow {
   ISU_CD: string;
@@ -145,7 +156,8 @@ function weekdaysInYear(year: number, endDate: Date): string[] {
 async function backfillYear(
   year: number,
   targetDates: string[],
-  apiKey: string
+  apiKey: string,
+  existingRows: StockDailyPriceRow[] | null
 ): Promise<{ rows: number; errors: number }> {
   const yearRows: StockDailyPriceRow[] = [];
   let errors = 0;
@@ -208,6 +220,13 @@ async function backfillYear(
   });
 
   if (errors === 0) {
+    if (existingRows) {
+      const existingKeys = new Set(existingRows.map((r) => `${r.stockCode}:${r.tradeDate}`));
+      const added = yearRows.filter((r) => !existingKeys.has(`${r.stockCode}:${r.tradeDate}`));
+      console.log(`  ${year}년 병합: 기존 ${existingRows.length}행 보존 + 신규 ${added.length}행 추가`);
+      await uploadYearPrices(year, [...existingRows, ...added]);
+      return { rows: added.length, errors };
+    }
     await uploadYearPrices(year, yearRows);
   }
 
@@ -241,16 +260,24 @@ async function main(): Promise<void> {
 
   for (let year = yearRangeStart; year <= yearRangeEnd; year++) {
     const isCurrentYear = year === currentYear;
-    if (!isCurrentYear && !FORCE_REFETCH_ALL_YEARS && (await yearPricesExist(year))) {
+    if (!isCurrentYear && !FORCE_REFETCH_ALL_YEARS && !MERGE_EXISTING_ROWS && (await yearPricesExist(year))) {
       console.log(`${year}년: 이미 완료됨, 건너뜀`);
       continue;
     }
 
-    const targetDates = weekdaysInYear(year, endDate);
-    if (targetDates.length === 0) continue;
+    const existingRows = MERGE_EXISTING_ROWS ? await downloadYearPrices(year) : null;
+    let targetDates = weekdaysInYear(year, endDate);
+    if (SKIP_EXISTING_DATES && existingRows) {
+      const existingDates = new Set(existingRows.map((r) => r.tradeDate));
+      targetDates = targetDates.filter((d) => !existingDates.has(d));
+    }
+    if (targetDates.length === 0) {
+      console.log(`${year}년: 새로 받을 날짜 없음`);
+      continue;
+    }
 
     console.log(`${year}년 백필 시작: ${targetDates.length}개 평일 (${targetDates[0]} ~ ${targetDates[targetDates.length - 1]})`);
-    const { rows, errors } = await backfillYear(year, targetDates, apiKey);
+    const { rows, errors } = await backfillYear(year, targetDates, apiKey, existingRows);
     totalRows += rows;
     totalErrors += errors;
 

@@ -360,6 +360,47 @@ export async function discoverCandidateStockCodes(years: number[], minMarketCapE
   return Array.from(codes);
 }
 
+/** 장기 백테스트 배치 전용 — hot 표(Postgres)를 전혀 쓰지 않고 [startYear, endYear] 전
+ * 구간을 Parquet(cold)에서만 읽는다(hot 표는 시가총액 5천억 필터라 최근 2년 구간이
+ * 좁은 데이터가 되기 때문). 화면·스크리닝용 getDailyPrice/getDailyPriceSeries와
+ * discoverCandidateStockCodes는 기존 동작 그대로 둔다.
+ *
+ * 전종목으로 넓어진 연도 파일(연 ~60만 행)을 getYearLookup 캐시에 전부 쌓으면 메모리가
+ * 연도 수에 비례해 커지므로, 연도를 하나씩 내려받아 (1) 후보종목 판정 → 후보 확정 후
+ * (2) 다시 한 해씩 내려받아 후보 종목 행만 남기는 2-pass로 처리한다. 반환 시리즈는
+ * tradeDate 오름차순. */
+export async function loadCandidateSeriesFromParquet(
+  discoveryYears: number[],
+  minMarketCapEok: number,
+  seriesStartDate: string,
+  seriesEndDate: string
+): Promise<{ universe: string[]; seriesByCode: Map<string, StockDailyPriceRow[]> }> {
+  const candidates = new Set<string>();
+  for (const year of discoveryYears) {
+    const rows = await downloadYearPrices(year);
+    for (const row of rows) {
+      if (row.marketCapEok >= minMarketCapEok) candidates.add(row.stockCode);
+    }
+  }
+
+  const seriesByCode = new Map<string, StockDailyPriceRow[]>();
+  const firstYear = Number(seriesStartDate.slice(0, 4));
+  const lastYear = Number(seriesEndDate.slice(0, 4));
+  for (let year = firstYear; year <= lastYear; year++) {
+    const rows = await downloadYearPrices(year);
+    for (const row of rows) {
+      if (!candidates.has(row.stockCode)) continue;
+      if (row.tradeDate < seriesStartDate || row.tradeDate > seriesEndDate) continue;
+      const list = seriesByCode.get(row.stockCode);
+      if (list) list.push(row);
+      else seriesByCode.set(row.stockCode, [row]);
+    }
+  }
+  for (const list of seriesByCode.values()) list.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+
+  return { universe: Array.from(candidates), seriesByCode };
+}
+
 /** stock_daily_prices_recent에 오늘치(또는 특정일) 시세를 저장한다(upsert) — 매일
  * 갱신 배치가 쓴다. */
 // 한 번에 upsert할 최대 행 수. 2026-09-06 시가/거래량 컬럼 추가 + reversal_breakout

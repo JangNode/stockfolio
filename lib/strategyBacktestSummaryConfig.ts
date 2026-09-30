@@ -48,3 +48,11 @@ export const STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD = 0.2;
 // 사용자 개인화 값이라 서버 설정 상수(lib/pegConfig.ts류)가 없다.
 export const FALLBACK_MA_CROSS_PARAMS: MaCrossParams = { short_period: 20, long_period: 60 };
 export const FALLBACK_MINERVINI_PARAMS: MinerviniParams = { ma_short: 50, ma_mid: 150, ma_long: 200 };
+
+// strategy_backtest_summary/benchmark_summary 행이 어떤 원자료 확장 단계에서 계산됐는지
+// 구분하는 data_widen_stage 값. 'narrow'(전종목 재백필 전 기존 행), 'partial_2023_2026'
+// (재백필 도중 계산된 중간 상태 행), 'full'(2015~2026 재백필 완료 후 행). 배치는 기본적으로
+// 'full'로 저장하고(환경변수 DATA_WIDEN_STAGE로 재정의 가능 — 재백필 도중 시험 실행용),
+// 화면 API는 'full' 행을 우선 보여주고 없으면 'narrow' 행을 보여준다(중간 상태는 숨김).
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "full";
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";

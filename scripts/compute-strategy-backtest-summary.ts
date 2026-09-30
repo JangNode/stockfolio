@@ -23,11 +23,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import {
-  discoverCandidateStockCodes,
-  getDailyPriceSeries,
-  type StockDailyPriceRow,
-} from "@/lib/stockDailyPricesStorage";
+import { loadCandidateSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
   runBacktest,
@@ -44,6 +40,7 @@ import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TOP_EXCLUDE_COUNT,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
+  STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT,
   FALLBACK_MA_CROSS_PARAMS,
   FALLBACK_MINERVINI_PARAMS,
 } from "@/lib/strategyBacktestSummaryConfig";
@@ -65,6 +62,7 @@ import {
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const TODAY = new Date().toISOString().slice(0, 10);
+const DATA_WIDEN_STAGE = process.env.DATA_WIDEN_STAGE || STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT;
 const PERIOD_START_DATE = `${STRATEGY_BACKTEST_WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
@@ -169,7 +167,13 @@ async function main(): Promise<void> {
     { length: CURRENT_YEAR - STRATEGY_BACKTEST_WINDOW_START_YEAR + 1 },
     (_, i) => STRATEGY_BACKTEST_WINDOW_START_YEAR + i
   );
-  const universe = await discoverCandidateStockCodes(discoveryYears, STOCK_DATA_CANDIDATE_MARKET_CAP_EOK);
+  // hot 표를 쓰지 않고 전 구간을 Parquet에서만 읽는다(lib/stockDailyPricesStorage.ts 참고).
+  const { universe, seriesByCode } = await loadCandidateSeriesFromParquet(
+    discoveryYears,
+    STOCK_DATA_CANDIDATE_MARKET_CAP_EOK,
+    PRICE_FETCH_START_DATE,
+    TODAY
+  );
   console.log(`유니버스: ${universe.length}개 종목 (${STRATEGY_BACKTEST_WINDOW_START_YEAR}~ 시가총액 1조원 이상 이력)`);
 
   const accumulators: Record<TargetRuleType, RuleTypeAccumulator> = {
@@ -188,7 +192,7 @@ async function main(): Promise<void> {
   let completed = 0;
   await runWithConcurrency(universe, BATCH_CONCURRENCY, async (stockCode) => {
     try {
-      const priceRows = await getDailyPriceSeries(stockCode, PRICE_FETCH_START_DATE, TODAY);
+      const priceRows = seriesByCode.get(stockCode) ?? [];
       if (priceRows.length === 0) return;
 
       const prices = priceRows.map(toDailyPrice);
@@ -307,6 +311,7 @@ async function main(): Promise<void> {
       avg_loss_pct: avgLossPct,
       payoff_ratio: payoffRatio,
       cost_included: true,
+      data_widen_stage: DATA_WIDEN_STAGE,
     });
 
     if (error) {
@@ -361,6 +366,7 @@ async function main(): Promise<void> {
       mdd_pct: row.mddPct,
       calmar_ratio: row.calmarRatio,
       cost_included: row.costIncluded,
+      data_widen_stage: DATA_WIDEN_STAGE,
     });
 
     if (error) {

@@ -36,7 +36,8 @@
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
     "diagnose:widen-backfill-safety-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-safety-check.ts",
     "diagnose:storage-usage-before-widen-2015-2026": "tsx --conditions=react-server scripts/diagnose-storage-usage-before-widen-2015-2026.ts",
-    "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts"
+    "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts",
+    "diagnose:hot-table-reseed-impact": "tsx --conditions=react-server scripts/diagnose-hot-table-reseed-impact.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

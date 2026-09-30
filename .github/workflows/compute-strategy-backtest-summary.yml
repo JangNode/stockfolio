@@ -17,6 +17,11 @@ on:
     # 배치(.github/workflows/screening.yml 등)와 시간대가 겹치지 않게 잡았다.
     - cron: "0 20 * * 0"
   workflow_dispatch:
+    inputs:
+      data_widen_stage:
+        description: "저장할 data_widen_stage 값(비우면 'full'). 재백필 도중 시험 실행은 'partial_...'로 지정."
+        type: string
+        default: ""
 
 jobs:
   compute:
@@ -42,8 +47,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      # 장기 백테스트가 Parquet만 읽으므로(hot 표 미사용), 현재 연도 파일에 빠진 최근
+      # 거래일을 계산 직전에 채운다. 기존 행은 보존하고 없는 날짜만 받는다(전년도는 연초
+      # 공백 보정용). 일일 갱신 배치는 hot 표만 갱신하므로 Parquet는 이 스텝이 유일한 갱신.
+      - name: Refresh current-year price parquet
+        run: |
+          export BACKFILL_YEAR_RANGE_START=$(( $(date -u +%Y) - 1 ))
+          export BACKFILL_YEAR_RANGE_END=$(date -u +%Y)
+          npm run backfill:stock-daily-prices
+        env:
+          SKIP_EXISTING_DATES: "true"
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Compute strategy backtest summary
         run: npm run batch:strategy-backtest-summary
         env:
+          DATA_WIDEN_STAGE: ${{ inputs.data_widen_stage }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -17,6 +17,10 @@ on:
         description: "재백필 종료 연도(비우면 올해). 드라이런/분할 실행용."
         type: string
         default: ""
+      merge_existing_rows:
+        description: "기존 행은 그대로 두고 없는 (종목,날짜) 행만 추가(덮어쓰기 금지)"
+        type: boolean
+        default: false
 
 jobs:
   backfill:
@@ -47,3 +51,4 @@ jobs:
           FORCE_REFETCH_ALL_YEARS: ${{ inputs.force_refetch_all_years }}
           BACKFILL_YEAR_RANGE_START: ${{ inputs.year_range_start }}
           BACKFILL_YEAR_RANGE_END: ${{ inputs.year_range_end }}
+          MERGE_EXISTING_ROWS: ${{ inputs.merge_existing_rows }}

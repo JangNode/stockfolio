@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireApproved } from "@/lib/requireApproved";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT,
+  STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK,
+} from "@/lib/strategyBacktestSummaryConfig";
 
 interface StrategyBacktestSummaryRow {
   id: string;
@@ -24,6 +28,7 @@ interface StrategyBacktestSummaryRow {
   avg_loss_pct: number | null;
   payoff_ratio: number | null;
   cost_included: boolean;
+  data_widen_stage: string | null;
 }
 
 /**
@@ -45,12 +50,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 502 });
   }
 
+  // 재백필 도중 계산된 중간 상태 행(partial_*)은 숨긴다 — 'full' 행이 있으면 그중 최신,
+  // 없으면 재백필 전 'narrow' 행(data_widen_stage가 비어 있는 기존 행 포함) 중 최신을 쓴다.
   const rows = (data ?? []) as StrategyBacktestSummaryRow[];
-  const latestByKey = new Map<string, StrategyBacktestSummaryRow>();
+  const latestFull = new Map<string, StrategyBacktestSummaryRow>();
+  const latestNarrow = new Map<string, StrategyBacktestSummaryRow>();
   for (const row of rows) {
     const key = `${row.rule_type}:${row.market}`;
-    if (!latestByKey.has(key)) latestByKey.set(key, row);
+    if (row.data_widen_stage === STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT) {
+      if (!latestFull.has(key)) latestFull.set(key, row);
+    } else if (!row.data_widen_stage || row.data_widen_stage === STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK) {
+      if (!latestNarrow.has(key)) latestNarrow.set(key, row);
+    }
   }
+  const latestByKey = new Map(latestNarrow);
+  for (const [key, row] of latestFull) latestByKey.set(key, row);
 
   return NextResponse.json({ summaries: Array.from(latestByKey.values()) });
 }

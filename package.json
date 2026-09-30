@@ -35,7 +35,8 @@
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
     "diagnose:widen-backfill-safety-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-safety-check.ts",
-    "diagnose:storage-usage-before-widen-2015-2026": "tsx --conditions=react-server scripts/diagnose-storage-usage-before-widen-2015-2026.ts"
+    "diagnose:storage-usage-before-widen-2015-2026": "tsx --conditions=react-server scripts/diagnose-storage-usage-before-widen-2015-2026.ts",
+    "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

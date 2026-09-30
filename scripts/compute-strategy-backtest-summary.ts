@@ -29,6 +29,7 @@ import {
   type StockDailyPriceRow,
 } from "@/lib/stockDailyPricesStorage";
 import { computeTrailingAvgTradingValue, pickListedSharesOnOrBefore } from "@/lib/pitUniverse";
+import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
   runBacktest,
@@ -185,7 +186,11 @@ async function main(): Promise<void> {
     kospiSeries.map((p) => p.tradeDate).filter((d) => d >= PERIOD_START_DATE).sort()
   );
 
-  const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR);
+  // 분할·병합 조정계수(신뢰도 높은 이벤트만)를 배치 전용으로 적용해 읽는다 — 원본 Parquet와 화면용
+  // 조회 함수는 원가 그대로다(lib/priceAdjustment.ts).
+  const appliedAdjustments = await loadAppliedAdjustments();
+  console.log(`조정계수 적용 대상: ${appliedAdjustments.size}종목`);
+  const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR, appliedAdjustments);
   const universe = Array.from(seriesByCode.keys());
   console.log(
     `전체 종목(시세 존재 이력): ${universe.length}개 — 시점별 유동성(직전 ${PIT_LIQUIDITY_LOOKBACK_DAYS}거래일 평균 ` +

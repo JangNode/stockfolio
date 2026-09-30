@@ -61,7 +61,10 @@ export const FALLBACK_MINERVINI_PARAMS: MinerviniParams = { ma_short: 50, ma_mid
 //
 // 2026-09-30 추가 결정: 유니버스를 사후 1조 선정에서 시점별 전 종목(point-in-time)으로
 // 교체했다. 이 유니버스 결과는 분할·병합 보정 전이라 'pit_unadjusted'로 저장(화면 숨김).
-export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "pit_unadjusted";
+//
+// 2026-09-30 분할·병합 조정계수 적용 후: 배치 기본 저장값은 'pit_adjusted'(팀장 확인 후 'full'로
+// 올릴 때까지 화면 숨김).
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "pit_adjusted";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED = "full";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";
 

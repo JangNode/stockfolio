@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { parquetReadObjects } from "hyparquet";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { STOCK_DATA_HOT_WINDOW_YEARS } from "@/lib/stockDataConfig";
+import { applyAdjustmentsInPlace, type AppliedAdjustment } from "@/lib/priceAdjustment";
 
 /**
  * 종목 일별시세(종가/시가총액/상장주식수) — 여러 전략이 같이 쓰는 공유 원자료라
@@ -367,7 +368,9 @@ export async function discoverCandidateStockCodes(years: number[], minMarketCapE
  * 각 종목 시리즈는 tradeDate 오름차순. */
 export async function loadAllStockSeriesFromParquet(
   startYear: number,
-  endYear: number
+  endYear: number,
+  // 주면 종목별로 분할·병합 조정(lib/priceAdjustment.ts)을 최신 기준으로 적용해 돌려준다.
+  adjustments?: Map<string, AppliedAdjustment[]>
 ): Promise<Map<string, StockDailyPriceRow[]>> {
   const seriesByCode = new Map<string, StockDailyPriceRow[]>();
   for (let year = startYear; year <= endYear; year++) {
@@ -378,7 +381,11 @@ export async function loadAllStockSeriesFromParquet(
       else seriesByCode.set(row.stockCode, [row]);
     }
   }
-  for (const list of seriesByCode.values()) list.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  for (const [code, list] of seriesByCode) {
+    list.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    const applied = adjustments?.get(code);
+    if (applied) applyAdjustmentsInPlace(list, applied);
+  }
   return seriesByCode;
 }
 

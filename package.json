@@ -34,8 +34,7 @@
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
-    "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts",
-    "diagnose:trading-value-proxy": "tsx --conditions=react-server scripts/diagnose-trading-value-proxy.ts"
+    "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

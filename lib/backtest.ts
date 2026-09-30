@@ -643,7 +643,12 @@ export function runBacktest(
   windowStartDate: string,
   fundamentals?: FundamentalsSeries,
   listedSharesByFiscalYear?: ListedSharesByFiscalYear,
-  options?: { market?: Market; includeTransactionCosts?: boolean }
+  options?: {
+    market?: Market;
+    includeTransactionCosts?: boolean;
+    // 시점별 유니버스용: false를 돌려주는 날의 골든(진입) 신호는 무시한다(보유 중 청산은 영향 없음).
+    entryAllowed?: (date: string) => boolean;
+  }
 ): BacktestResult {
   const market = options?.market ?? "KR";
   const includeTransactionCosts = options?.includeTransactionCosts ?? true;
@@ -667,7 +672,7 @@ export function runBacktest(
   let openBuy: { date: string; price: number } | null = null;
 
   for (const signal of signals) {
-    if (signal.type === "golden" && !openBuy) {
+    if (signal.type === "golden" && !openBuy && (options?.entryAllowed?.(signal.date) ?? true)) {
       openBuy = { date: signal.date, price: signal.price };
     } else if (signal.type === "dead" && openBuy) {
       const returnPct = includeTransactionCosts

@@ -1,4 +1,3 @@
-import type { DailyPrice } from "@/lib/backtest";
 import type { PricePoint } from "@/lib/beta";
 import { computeEffectiveBuyPrice, computeEffectiveSellPrice } from "@/lib/transactionCost";
 
@@ -42,6 +41,16 @@ function sumValues(values: Map<string, number>): number {
   return sum;
 }
 
+/** 오름차순 거래일 목록에서 매월 첫 거래일(+ 첫 날)을 리밸런싱 날짜로 뽑는다. */
+export function computeMonthlyRebalanceDates(sortedDates: string[]): string[] {
+  if (sortedDates.length === 0) return [];
+  const result = [sortedDates[0]];
+  for (let i = 1; i < sortedDates.length; i++) {
+    if (sortedDates[i].slice(0, 7) !== sortedDates[i - 1].slice(0, 7)) result.push(sortedDates[i]);
+  }
+  return result;
+}
+
 /**
  * 유니버스 동일가중 월간 리밸런싱 벤치마크의 일별 수익률(%) 시계열을 만든다.
  *
@@ -70,9 +79,12 @@ function sumValues(values: Map<string, number>): number {
  *   거래일에 최초 매수(전량 리밸런싱)한다.
  */
 export function simulateUniverseMonthlyRebalance(
-  pricesByStock: Map<string, DailyPrice[]>,
+  pricesByStock: Map<string, { date: string; close: number }[]>,
   tradeDateCalendar: string[],
-  periodStartDate: string
+  periodStartDate: string,
+  // 주면 리밸런싱 날짜에 시세가 있는 종목 중 이 함수가 true인 종목만 유니버스로 삼는다
+  // (시점별 유동성 필터). 안 주면 기존과 동일하게 시세가 있는 전 종목.
+  isEligibleAtRebalance?: (stockCode: string, date: string) => boolean
 ): number[] {
   const datesInPeriod = tradeDateCalendar.filter((d) => d >= periodStartDate).slice().sort();
   if (datesInPeriod.length === 0) return [];
@@ -88,12 +100,7 @@ export function simulateUniverseMonthlyRebalance(
 
   // 매월 리밸런싱 날짜: 이전 거래일과 연-월이 다른 첫 거래일들 + 기간 시작일이
   // 속한 달의 첫 거래일(최초 매수).
-  const rebalanceDates = new Set<string>([datesInPeriod[0]]);
-  for (let i = 1; i < datesInPeriod.length; i++) {
-    if (datesInPeriod[i].slice(0, 7) !== datesInPeriod[i - 1].slice(0, 7)) {
-      rebalanceDates.add(datesInPeriod[i]);
-    }
-  }
+  const rebalanceDates = new Set<string>(computeMonthlyRebalanceDates(datesInPeriod));
 
   // 종목코드 → 현재 보유 "가치"(리밸런싱 직후 목표비중으로 초기화되고, 매일
   // 그날 가격변동만큼 곱해져 드리프트된다). 합계가 항상 1은 아니다(드리프트로
@@ -128,7 +135,7 @@ export function simulateUniverseMonthlyRebalance(
     if (rebalanceDates.has(date)) {
       const universeToday: string[] = [];
       for (const [code, priceMap] of priceMapByStock) {
-        if (priceMap.has(date)) universeToday.push(code);
+        if (priceMap.has(date) && (!isEligibleAtRebalance || isEligibleAtRebalance(code, date))) universeToday.push(code);
       }
 
       if (universeToday.length > 0) {

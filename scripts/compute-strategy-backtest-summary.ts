@@ -23,7 +23,12 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { loadCandidateSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import {
+  DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS,
+  loadAllStockSeriesFromParquet,
+  type StockDailyPriceRow,
+} from "@/lib/stockDailyPricesStorage";
+import { computeTrailingAvgTradingValue, pickListedSharesOnOrBefore } from "@/lib/pitUniverse";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
   runBacktest,
@@ -34,13 +39,15 @@ import {
   type MaCrossParams,
   type MinerviniParams,
 } from "@/lib/backtest";
-import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TOP_EXCLUDE_COUNT,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
   STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT,
+  PIT_LIQUIDITY_LOOKBACK_DAYS,
+  PIT_MIN_AVG_TRADING_VALUE_WON,
+  PIT_LIQUIDITY_SENSITIVITY_WON,
   FALLBACK_MA_CROSS_PARAMS,
   FALLBACK_MINERVINI_PARAMS,
 } from "@/lib/strategyBacktestSummaryConfig";
@@ -58,6 +65,7 @@ import {
   computeIndexDailyReturnsPct,
   simulateUniverseMonthlyRebalance,
   computeCalmarRatio,
+  computeMonthlyRebalanceDates,
 } from "@/lib/benchmarkSummary";
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
@@ -67,10 +75,9 @@ const PERIOD_START_DATE = `${STRATEGY_BACKTEST_WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
 // 동일 여유).
-const PRICE_FETCH_START_DATE = "2014-01-01";
-// peg_lynch가 공시일 시점 상장주식수를 찾을 때 필요한 가장 이른 연도 — 시세 백필 시작
-// 연도(scripts/backfill-stock-daily-prices.ts의 BACKFILL_START_YEAR)와 같다.
-const LISTED_SHARES_LOOKUP_START_YEAR = 2011;
+// 시세 백필 시작 연도(scripts/backfill-stock-daily-prices.ts의 BACKFILL_START_YEAR)와 같다 —
+// 워밍업 + peg_lynch가 공시일 시점 상장주식수를 찾을 때 필요한 가장 이른 연도.
+const PRICE_FETCH_START_YEAR = 2011;
 
 const BATCH_CONCURRENCY = 10;
 const PROGRESS_LOG_INTERVAL = 100;
@@ -166,19 +173,32 @@ async function main(): Promise<void> {
     peg_lynch: { rule_type: "peg_lynch", rule_params: {} },
   };
 
-  const discoveryYears = Array.from(
-    { length: CURRENT_YEAR - STRATEGY_BACKTEST_WINDOW_START_YEAR + 1 },
-    (_, i) => STRATEGY_BACKTEST_WINDOW_START_YEAR + i
+  // 시점별(point-in-time) 유니버스: 전종목(상장폐지 포함) 시세를 Parquet에서만 읽고(hot 표 미사용),
+  // 각 날짜에 시세가 있는 종목 중 직전 20거래일 평균 거래대금이 기준 이상인 종목만 그날 진입
+  // 후보로 삼는다(lib/pitUniverse.ts). 5개 전략과 벤치마크가 같은 기준을 공유한다.
+  const startedMs = Date.now();
+  const [kospiSeries, kosdaqSeries] = await Promise.all([
+    getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
+    getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
+  ]);
+  const rebalanceDates = computeMonthlyRebalanceDates(
+    kospiSeries.map((p) => p.tradeDate).filter((d) => d >= PERIOD_START_DATE).sort()
   );
-  // hot 표를 쓰지 않고 전 구간을 Parquet에서만 읽는다(lib/stockDailyPricesStorage.ts 참고).
-  const { universe, seriesByCode, listedSharesOnOrBefore } = await loadCandidateSeriesFromParquet(
-    discoveryYears,
-    STOCK_DATA_CANDIDATE_MARKET_CAP_EOK,
-    PRICE_FETCH_START_DATE,
-    TODAY,
-    LISTED_SHARES_LOOKUP_START_YEAR
+
+  const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR);
+  const universe = Array.from(seriesByCode.keys());
+  console.log(
+    `전체 종목(시세 존재 이력): ${universe.length}개 — 시점별 유동성(직전 ${PIT_LIQUIDITY_LOOKBACK_DAYS}거래일 평균 ` +
+      `거래대금 ${PIT_MIN_AVG_TRADING_VALUE_WON / 1e8}억원 이상)으로 진입 후보를 걸러냄. ` +
+      `로드 완료 ${((Date.now() - startedMs) / 1000).toFixed(0)}초, heap ${(process.memoryUsage().heapUsed / 1048576).toFixed(0)}MB`
   );
-  console.log(`유니버스: ${universe.length}개 종목 (${STRATEGY_BACKTEST_WINDOW_START_YEAR}~ 시가총액 1조원 이상 이력)`);
+  const lowestThresholdWon = Math.min(
+    PIT_MIN_AVG_TRADING_VALUE_WON,
+    ...PIT_LIQUIDITY_SENSITIVITY_WON.map((s) => s.minAvgTradingValueWon)
+  );
+  // 리밸런싱 날짜별 종목의 직전 20거래일 평균 거래대금(벤치마크 유니버스 필터용).
+  const liquidityAtRebalance = new Map<string, Map<string, number>>();
+  let everEligibleCount = 0;
 
   const accumulators: Record<TargetRuleType, RuleTypeAccumulator> = {
     ma_cross: createAccumulator(),
@@ -188,10 +208,10 @@ async function main(): Promise<void> {
     peg_lynch: createAccumulator(),
   };
 
-  // 벤치마크(유니버스 동일가중 월간 리밸런싱) 계산이 재사용할 종목별 가격
-  // 시계열. 전략 계산 때문에 이미 종목마다 한 번씩 조회하는 것이므로, 벤치마크
-  // 때문에 672종목을 또 조회하지 않도록 여기에 모아둔다.
-  const pricesByStock = new Map<string, DailyPrice[]>();
+  // 벤치마크(유니버스 동일가중 월간 리밸런싱) 계산이 재사용할 종목별 (날짜, 종가) 시계열 —
+  // 전략 계산 때문에 이미 종목마다 한 번 읽는 것이므로 벤치마크 때문에 다시 읽지 않는다. 종목
+  // 수가 수천 개라 메모리를 아끼려고 종가만 보관한다.
+  const pricesByStock = new Map<string, { date: string; close: number }[]>();
 
   let completed = 0;
   await runWithConcurrency(universe, BATCH_CONCURRENCY, async (stockCode) => {
@@ -200,12 +220,49 @@ async function main(): Promise<void> {
       if (priceRows.length === 0) return;
 
       const prices = priceRows.map(toDailyPrice);
-      pricesByStock.set(stockCode, prices);
+      const avgTradingValue = computeTrailingAvgTradingValue(priceRows, PIT_LIQUIDITY_LOOKBACK_DAYS);
+      const indexByDate = new Map<string, number>(prices.map((p, i) => [p.date, i]));
+
+      const liquidity = new Map<string, number>();
+      for (const d of rebalanceDates) {
+        const i = indexByDate.get(d);
+        if (i !== undefined && Number.isFinite(avgTradingValue[i])) liquidity.set(d, avgTradingValue[i]);
+      }
+      liquidityAtRebalance.set(stockCode, liquidity);
+      pricesByStock.set(
+        stockCode,
+        prices.map((p) => ({ date: p.date, close: p.close }))
+      );
+
+      // 기간 내 한 번이라도(가장 낮은 민감도 기준) 유동성 조건을 넘긴 적 없는 종목은 전략 계산을
+      // 건너뛴다(어차피 진입 불가) — 벤치마크용 시세/유동성은 위에서 이미 보관했다.
+      let everEligible = false;
+      for (let i = 0; i < prices.length; i++) {
+        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= lowestThresholdWon) {
+          everEligible = true;
+          break;
+        }
+      }
+      if (!everEligible) return;
+      let everEligibleMain = false;
+      for (let i = 0; i < prices.length; i++) {
+        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON) {
+          everEligibleMain = true;
+          break;
+        }
+      }
+      if (everEligibleMain) everEligibleCount++;
+      const entryAllowed = (date: string): boolean => {
+        const i = indexByDate.get(date);
+        return i !== undefined && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON;
+      };
 
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
       try {
-        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, listedSharesOnOrBefore);
+        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, (_code, date) =>
+          pickListedSharesOnOrBefore(priceRows, date, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS)
+        );
         fundamentals = loaded.series;
         listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
       } catch (error) {
@@ -224,7 +281,7 @@ async function main(): Promise<void> {
           PERIOD_START_DATE,
           needsFundamentals ? fundamentals : undefined,
           needsFundamentals ? listedSharesByFiscalYear : undefined,
-          { market: "KR" }
+          { market: "KR", entryAllowed }
         );
         if (result.insufficientData || result.trades.length === 0) continue;
 
@@ -244,12 +301,30 @@ async function main(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`  ${stockCode} 처리 실패, 건너뜁니다: ${message}`);
     } finally {
+      seriesByCode.delete(stockCode); // 처리 끝난 종목의 원본 행은 바로 해제(메모리 상한 관리)
       completed++;
       if (completed === 1 || completed % PROGRESS_LOG_INTERVAL === 0 || completed === universe.length) {
         console.log(`  [${completed}/${universe.length}] 종목 처리 중...`);
       }
     }
   });
+
+  // 월별(리밸런싱 시점) 편입 종목 수 = 그날 시세가 있고 유동성 조건을 넘는 종목 수.
+  for (const thresholdWon of [PIT_MIN_AVG_TRADING_VALUE_WON, ...PIT_LIQUIDITY_SENSITIVITY_WON.map((s) => s.minAvgTradingValueWon)]) {
+    const counts = rebalanceDates.map((d) => {
+      let n = 0;
+      for (const liquidity of liquidityAtRebalance.values()) {
+        const v = liquidity.get(d);
+        if (v !== undefined && v >= thresholdWon) n++;
+      }
+      return n;
+    });
+    const avg = counts.reduce((sum, v) => sum + v, 0) / Math.max(counts.length, 1);
+    console.log(
+      `월별 편입 종목 수(유동성 ${thresholdWon / 1e8}억원, ${counts.length}개 리밸런싱 시점): ` +
+        `최소 ${Math.min(...counts)} / 평균 ${avg.toFixed(0)} / 최대 ${Math.max(...counts)}`
+    );
+  }
 
   console.log("\n=== rule_type별 요약 계산 및 저장 ===");
   for (const ruleType of TARGET_RULE_TYPES) {
@@ -300,7 +375,7 @@ async function main(): Promise<void> {
       market: "KR",
       period_start_date: PERIOD_START_DATE,
       period_end_date: TODAY,
-      universe_stock_count: universe.length,
+      universe_stock_count: everEligibleCount,
       win_rate: aggregate.winRate,
       avg_return_pct: avgReturnPct,
       median_return_pct: medianReturnPct,
@@ -333,10 +408,9 @@ async function main(): Promise<void> {
 
   console.log("\n=== 벤치마크(코스피/코스닥/유니버스 월간 리밸런싱) 계산 및 저장 ===");
 
-  const [kospiSeries, kosdaqSeries] = await Promise.all([
-    getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
-    getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
-  ]);
+  const eligibleAtRebalance = (thresholdWon: number) => (stockCode: string, date: string) =>
+    (liquidityAtRebalance.get(stockCode)?.get(date) ?? NaN) >= thresholdWon;
+  const universeCalendar = kospiSeries.map((p) => p.tradeDate);
 
   const benchmarkInputs: { benchmarkType: string; dailyReturnsPct: number[]; costIncluded: boolean }[] = [
     { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
@@ -347,11 +421,23 @@ async function main(): Promise<void> {
       // (따로 캘린더를 조회하지 않는다).
       dailyReturnsPct: simulateUniverseMonthlyRebalance(
         pricesByStock,
-        kospiSeries.map((p) => p.tradeDate),
-        PERIOD_START_DATE
+        universeCalendar,
+        PERIOD_START_DATE,
+        eligibleAtRebalance(PIT_MIN_AVG_TRADING_VALUE_WON)
       ),
       costIncluded: true,
     },
+    // 유동성 기준 민감도(1억/10억) — 벤치마크에서만 계산한다.
+    ...PIT_LIQUIDITY_SENSITIVITY_WON.map(({ label, minAvgTradingValueWon }) => ({
+      benchmarkType: `universe_monthly_rebalance_${label}`,
+      dailyReturnsPct: simulateUniverseMonthlyRebalance(
+        pricesByStock,
+        universeCalendar,
+        PERIOD_START_DATE,
+        eligibleAtRebalance(minAvgTradingValueWon)
+      ),
+      costIncluded: true,
+    })),
   ];
 
   const benchmarkRows = benchmarkInputs.map(({ benchmarkType, dailyReturnsPct, costIncluded }) => {
@@ -384,6 +470,11 @@ async function main(): Promise<void> {
     );
   }
 
+  const usage = process.resourceUsage();
+  console.log(
+    `\n실행 시간 ${((Date.now() - startedMs) / 1000).toFixed(0)}초(시작 후 데이터 로드 포함), ` +
+      `최대 메모리(RSS) ${(usage.maxRSS / 1024).toFixed(0)}MB`
+  );
   console.log("\n완료");
 }
 

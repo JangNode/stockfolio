@@ -58,6 +58,19 @@ export const FALLBACK_MINERVINI_PARAMS: MinerviniParams = { ma_short: 50, ma_mid
 // 2026-09-30 결정 변경: 원자료를 넓힌 직후 수치는 분할·병합 보정 전 원가 기준이고 유니버스도
 // 아직 사후 선정(1조원 이상 이력) 기반이라 화면에 내보내지 않는다. 배치는 기본적으로
 // 'wide_unadjusted'로 저장하고(화면에서 숨김), 조정계수 적용 후 'full'로 올린다.
-export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "wide_unadjusted";
+//
+// 2026-09-30 추가 결정: 유니버스를 사후 1조 선정에서 시점별 전 종목(point-in-time)으로
+// 교체했다. 이 유니버스 결과는 분할·병합 보정 전이라 'pit_unadjusted'로 저장(화면 숨김).
+export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "pit_unadjusted";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED = "full";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";
+
+// 시점별(point-in-time) 유니버스의 유동성 필터(2026-09-30 팀장 결정): 진입 판단일 직전
+// PIT_LIQUIDITY_LOOKBACK_DAYS 거래일 평균 거래대금(원)이 기준 이상인 종목만 그날 진입
+// 후보로 삼는다. 5억원이 기본, 1억/10억은 벤치마크 민감도로만 계산한다.
+export const PIT_LIQUIDITY_LOOKBACK_DAYS = 20;
+export const PIT_MIN_AVG_TRADING_VALUE_WON = 500_000_000;
+export const PIT_LIQUIDITY_SENSITIVITY_WON = [
+  { label: "liq_1e8", minAvgTradingValueWon: 100_000_000 },
+  { label: "liq_1e9", minAvgTradingValueWon: 1_000_000_000 },
+] as const;

@@ -1,0 +1,24 @@
+name: Postgres DB 사용량 확인 - hot table 재시딩 전 (진단, 1회성)
+
+# stock_daily_prices_recent 재시딩(scripts/seed-stock-daily-prices-recent.ts 재실행)
+# 전 DB 실사용량을 확인한다. 읽기 전용 SQL만 실행(SET default_transaction_read_only
+# on으로 이중 안전장치). 확인 끝나면 이 워크플로와
+# scripts/diagnose-db-usage-before-reseed.sql을 정리 PR로 제거한다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run read-only diagnostic SQL
+        run: |
+          psql "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.yxknesiiwhtjpgbwvggp.supabase.co:5432/postgres" \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/diagnose-db-usage-before-reseed.sql
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

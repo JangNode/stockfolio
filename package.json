@@ -35,7 +35,7 @@
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
     "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts",
-    "diagnose:wide-vs-narrow-backtest": "tsx --conditions=react-server scripts/diagnose-wide-vs-narrow-backtest.ts"
+    "diagnose:trading-value-proxy": "tsx --conditions=react-server scripts/diagnose-trading-value-proxy.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -1,8 +1,8 @@
-name: 좁은/넓은 원자료 백테스트 비교 (진단, 1회성)
+name: 거래대금 대체값(종가×거래량) 오차 확인 (진단, 1회성)
 
-# minervini/reversal_breakout_v2를 좁은(옛 필터 재현)·넓은 원자료에서 비용 반영/미반영으로
-# 각각 계산해 비교한다. 쓰기 없음. 확인 끝나면 이 워크플로와
-# scripts/diagnose-wide-vs-narrow-backtest.ts를 정리 PR로 제거한다.
+# trading_value가 0인 2015~2022 기존 행에 쓰는 대체값이 2023년 이후 실제 거래대금과 얼마나
+# 다른지 확인한다. 쓰기 없음. 확인 끝나면 이 워크플로와
+# scripts/diagnose-trading-value-proxy.ts를 정리 PR로 제거한다.
 on:
   workflow_dispatch: {}
 
@@ -23,8 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compare wide vs narrow backtest
-        run: npm run diagnose:wide-vs-narrow-backtest
+      - name: Check trading value proxy error
+        run: npm run diagnose:trading-value-proxy
         env:
+          NODE_OPTIONS: --max-old-space-size=8192
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

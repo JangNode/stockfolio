@@ -19,14 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       data_widen_stage:
-        description: "저장할 data_widen_stage 값(비우면 'full'). 재백필 도중 시험 실행은 'partial_...'로 지정."
+        description: "저장할 data_widen_stage 값(비우면 'pit_unadjusted' — 화면 미노출. 조정계수 적용 후 결과만 'full'로 올림)."
         type: string
         default: ""
 
 jobs:
   compute:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,5 +65,7 @@ jobs:
         run: npm run batch:strategy-backtest-summary
         env:
           DATA_WIDEN_STAGE: ${{ inputs.data_widen_stage }}
+          # 전종목(수천 개) 시점별 유니버스라 Node 기본 힙(약 4GB)으로는 부족할 수 있어 넉넉히 준다.
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

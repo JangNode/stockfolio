@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       data_widen_stage:
-        description: "저장할 data_widen_stage 값(비우면 'pit_unadjusted' — 화면 미노출. 조정계수 적용 후 결과만 'full'로 올림)."
+        description: "저장할 data_widen_stage 값(비우면 'pit_adjusted' — 화면 미노출. 팀장 확인 후 'full'로 올림)."
         type: string
         default: ""
 
@@ -58,6 +58,14 @@ jobs:
         env:
           SKIP_EXISTING_DATES: "true"
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 새로 생긴 분할·병합 이벤트를 배치 직전에 탐지·저장한다(신뢰도 높은 것만 배치가 적용).
+      - name: Scan price adjustment events
+        run: npm run scan:price-adjustment-events
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

@@ -1,0 +1,31 @@
+name: 분할·병합 조정계수 스캔
+
+# 전 종목 원가 시세에서 분할·병합 이벤트를 자체 탐지해 stock_price_adjustment_events에
+# 저장한다(신뢰도 높은 것만 배치가 적용). 주간 장기 백테스트 워크플로가 배치 직전에 같은
+# 스크립트를 돌리므로, 이 워크플로는 수동 실행(최초 스캔/재스캔)용이다.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scan price adjustment events
+        run: npm run scan:price-adjustment-events
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

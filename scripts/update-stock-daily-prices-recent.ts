@@ -4,9 +4,13 @@
  * 채운다 — Parquet처럼 파일 전체를 다시 쓸 필요 없이 그날치만 INSERT하면 되므로
  * 가볍다. .github/workflows/screening.yml 마지막 스텝으로 매 평일 실행된다.
  *
- * 2026-09-29 전종목 재백필로 시가총액 하한(STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK)
- * 필터를 제거했다 — 이제 KRX 응답에 있는 시가총액 무관 전종목을 매일 그대로 저장한다
- * (scripts/backfill-stock-daily-prices.ts와 동일한 변경).
+ * 2026-09-29 전종목 확장 재백필(#413)이 이 스크립트에서도 시가총액 하한
+ * (STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK) 필터를 제거했었는데, 2026-09-30 되돌렸다
+ * — 그 확장은 장기 백테스트가 읽는 Parquet(cold, scripts/backfill-stock-daily-prices.ts)
+ * 쪽만 의도한 것이었고, hot 표(Postgres, 화면·스크리닝이 직접 조회)는 DB 용량
+ * 예산(RULES.md 3번) 검토 전까지 기존처럼 5천억 하한 + 테마 소속 예외를 유지한다.
+ * 두 저장 경로의 필터는 이제 서로 다르다: Parquet는 전종목, hot 표는 좁은 기준.
+ * 거래대금(ACC_TRDVAL) 저장은 필터와 무관한 별개 개선이라 그대로 유지한다.
  *
  * server-only로 막힌 lib/supabaseAdmin.ts를 순수 Node 스크립트에서도 재사용하려면
  * "react-server" 조건으로 실행해야 한다:
@@ -16,6 +20,8 @@
  */
 
 import { getLatestRecentPriceDate, upsertRecentPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import { STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK } from "@/lib/stockDataConfig";
+import { getThemeFlaggedStockCodes } from "@/lib/stockMaster";
 
 const KRX_BASE_URL = "https://data-dbg.krx.co.kr/svc/apis/sto";
 // stock_daily_prices_recent가 아직 비어있을 리 없지만(시딩 스크립트로 먼저 채움),
@@ -59,7 +65,11 @@ async function fetchKrxDaily(
   return body.OutBlock_1 ?? [];
 }
 
-async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<StockDailyPriceRow[]> {
+async function fetchAndFilterDay(
+  dateKey: string,
+  apiKey: string,
+  themeFlaggedCodes: Set<string>
+): Promise<StockDailyPriceRow[]> {
   const basDd = toBasDd(dateKey);
   const [kospi, kosdaq] = await Promise.all([
     fetchKrxDaily("stk_bydd_trd", basDd, apiKey),
@@ -71,6 +81,10 @@ async function fetchAndFilterDay(dateKey: string, apiKey: string): Promise<Stock
     if (!row.ISU_CD || !row.TDD_CLSPRC || row.TDD_CLSPRC === "-" || !row.LIST_SHRS || row.LIST_SHRS === "-") continue;
     const marketCapEok = Number(row.MKTCAP) / 100_000_000;
     if (!Number.isFinite(marketCapEok)) continue;
+    // 시가총액 하한 미달이어도 테마(lib/themeConfig.ts) 소속 종목이면 저장한다 —
+    // 테마/업종별 등락률 순위 기능이 필요로 하는 소형주 시세도 같이 채워 넣는다.
+    // (2026-09-30 복원 — hot 표는 넓히지 않기로 결정, Parquet만 전종목 유지.)
+    if (marketCapEok < STOCK_DATA_BACKFILL_MARKET_CAP_FLOOR_EOK && !themeFlaggedCodes.has(row.ISU_CD)) continue;
 
     const openPrice = Number(row.TDD_OPNPRC);
     const volume = Number(row.ACC_TRDVOL);
@@ -107,6 +121,7 @@ async function main(): Promise<void> {
   const apiKey = process.env.KRX_API_KEY;
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
 
+  const themeFlaggedCodes = await getThemeFlaggedStockCodes();
   const latestStored = await getLatestRecentPriceDate();
 
   const endDate = new Date(); // 오늘 데이터는 정산 전일 수 있어 어제까지만.
@@ -134,7 +149,7 @@ async function main(): Promise<void> {
 
   let total = 0;
   for (const dateKey of targetDates) {
-    const rows = await fetchAndFilterDay(dateKey, apiKey);
+    const rows = await fetchAndFilterDay(dateKey, apiKey, themeFlaggedCodes);
     if (rows.length > 0) {
       await upsertRecentPrices(rows);
       total += rows.length;

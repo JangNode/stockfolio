@@ -97,7 +97,9 @@ export interface AccumulationBarResult {
 export function findAccumulationBar(
   prices: DailyPriceLike[],
   prevAvgVolume: (number | undefined)[],
-  index: number
+  index: number,
+  // 실험용(기본값=현재 전략과 동일): 매집봉 거래량 배수 임계.
+  volumeMultiplier: number = ACCUMULATION_VOLUME_MULTIPLIER
 ): AccumulationBarResult | null {
   const start = Math.max(0, index - ACCUMULATION_LOOKBACK_DAYS + 1);
 
@@ -107,7 +109,7 @@ export function findAccumulationBar(
 
     const isBullish = prices[i].close > prices[i].open;
     const volumeMultiple = prices[i].volume / avg;
-    if (isBullish && volumeMultiple >= ACCUMULATION_VOLUME_MULTIPLIER) {
+    if (isBullish && volumeMultiple >= volumeMultiplier) {
       return { index: i, date: prices[i].date, volumeMultiple };
     }
   }
@@ -160,7 +162,9 @@ export function computeBreakoutFreshness(
  */
 export function computeReversalBreakoutStates(
   prices: DailyPriceLike[],
-  minInverseRatio: number = REVERSAL_MIN_INVERSE_RATIO
+  minInverseRatio: number = REVERSAL_MIN_INVERSE_RATIO,
+  // 실험용(기본값=현재 전략과 동일): 매집봉 거래량 배수 임계.
+  accumulationVolumeMultiplier: number = ACCUMULATION_VOLUME_MULTIPLIER
 ): (boolean | undefined)[] {
   const closes = prices.map((p) => p.close);
   const volumes = prices.map((p) => p.volume);
@@ -178,7 +182,7 @@ export function computeReversalBreakoutStates(
     const breakout = computeBreakoutFreshness(prices, breakoutSma, i);
     if (!breakout || breakout.daysSinceStart >= BREAKOUT_LOOKBACK_DAYS) return false;
 
-    const accumulation = findAccumulationBar(prices, prevAvgVolume, i);
+    const accumulation = findAccumulationBar(prices, prevAvgVolume, i, accumulationVolumeMultiplier);
     if (!accumulation) return false;
 
     return alignment.ratio >= minInverseRatio;

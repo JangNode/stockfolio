@@ -537,7 +537,8 @@ function computeStates(
   prices: DailyPrice[],
   rule: StrategyRule,
   fundamentals?: FundamentalsSeries,
-  listedSharesByFiscalYear?: ListedSharesByFiscalYear
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear,
+  overrides?: { accumulationVolumeMultiplier?: number }
 ): (boolean | undefined)[] {
   switch (rule.rule_type) {
     case "minervini_trend_template":
@@ -549,10 +550,19 @@ function computeStates(
     case "peg_lynch":
       return computePegLynchStates(prices, fundamentals, listedSharesByFiscalYear);
     case "reversal_breakout":
-      return computeReversalBreakoutStates(prices);
+      return computeReversalBreakoutStates(prices, undefined, overrides?.accumulationVolumeMultiplier);
     case "reversal_breakout_v2":
-      return computeReversalBreakoutStates(prices, REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO);
+      return computeReversalBreakoutStates(prices, REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO, overrides?.accumulationVolumeMultiplier);
   }
+}
+
+/** 실험용 하니스가 하루 단위 상태(true/false/undefined)를 직접 시뮬레이션할 수 있게 노출한다(전략 규칙 불변). */
+export function computeRuleStates(
+  prices: DailyPrice[],
+  rule: StrategyRule,
+  overrides?: { accumulationVolumeMultiplier?: number }
+): (boolean | undefined)[] {
+  return computeStates(prices, rule, undefined, undefined, overrides);
 }
 
 export interface BacktestTrade {

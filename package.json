@@ -36,6 +36,7 @@
     "scan:price-adjustment-events": "tsx --conditions=react-server scripts/scan-price-adjustment-events.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
+    "correct:fake-closures": "tsx --conditions=react-server scripts/correct-fake-closures.ts",
     "diagnose:corporate-action-guard": "tsx --conditions=react-server scripts/diagnose-corporate-action-guard.ts",
     "diagnose:corporate-action-impact": "tsx --conditions=react-server scripts/diagnose-corporate-action-impact.ts",
     "diagnose:detection-rule-change": "tsx --conditions=react-server scripts/diagnose-detection-rule-change.ts",

@@ -2,7 +2,12 @@ name: 조정계수 검증 진단(임시)
 
 # 디스포저블 — 워크스트림이 끝나면 정리 PR로 제거한다(RULES.md 11번).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "true면 가짜 청산 행을 정정한다(기본 false=계획 출력만)."
+        type: string
+        default: "false"
 
 jobs:
   diagnose:
@@ -16,11 +21,17 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Diagnose
-        run: |
-          npm run diagnose:corporate-action-guard
+        run: npm run correct:fake-closures
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-          INCREMENTAL_SCAN_DRY_RUN: "true"
+          CORRECT_APPLY: ${{ inputs.apply }}
+      - name: Upload correction backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: correction-backup
+          path: correction-backup.json
+          if-no-files-found: ignore

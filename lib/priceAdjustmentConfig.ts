@@ -48,3 +48,15 @@ export const HOLD_FOLLOW_TRADING_ROWS = 5;
 // 이 날짜 이후 이벤트만 스캔한다(직전 거래일 비교를 위해 그 이전 연도 시세도 함께 읽는다).
 export const PRICE_ADJUSTMENT_SCAN_FROM_DATE = "2015-01-01";
 export const PRICE_ADJUSTMENT_LOAD_FROM_YEAR = 2014;
+
+// 방어 로직(추적·모의투자, 2026-10-04 팀장 결정): 국내 일일 가격제한폭(±30%, 2015-06-15 이전 ±15%)에 소수점
+// 호가 반올림 여유를 더한 값. 이 폭을 넘는 일간 변동은 확정된 조정계수 이벤트가 없으면 자동 손절·익절·성과
+// 집계에서 제외하고 'price_anomaly'로 표시한다.
+export const DAILY_PRICE_LIMIT_RATIO = 0.305;
+export const DAILY_PRICE_LIMIT_RATIO_BEFORE_CHANGE = 0.15;
+export const PRICE_LIMIT_CHANGE_DATE = "2015-06-15";
+
+// 일일 증분 스캔(2026-10-04): 최신 거래일부터 거슬러 이 개수의 거래일에 걸린 이벤트만 다시 판정한다 —
+// 이벤트 직후 상장주식수 반영이 하루이틀 늦을 수 있어(SHARES_LOOKAHEAD_ROWS) 최신 거래일 하나만 보면
+// 그 지연 때문에 저신뢰로 남는다. 전체 재스캔(주간)과 달리 KRX 호출은 (이 개수 + 1)거래일치뿐이다.
+export const INCREMENTAL_SCAN_EVENT_TRADING_DAYS = 3;

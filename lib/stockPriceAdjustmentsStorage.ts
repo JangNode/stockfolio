@@ -28,6 +28,29 @@ export async function loadAppliedAdjustments(): Promise<Map<string, AppliedAdjus
   return byCode;
 }
 
+/** 지정한 종목들의 status='applied' 이벤트만 읽는다(추적·모의투자 방어 로직용 — 전체를 읽지 않는다). */
+export async function loadAppliedAdjustmentsForCodes(stockCodes: string[]): Promise<Map<string, AppliedAdjustment[]>> {
+  const byCode = new Map<string, AppliedAdjustment[]>();
+  const codes = Array.from(new Set(stockCodes));
+  const CHUNK = 200;
+  for (let i = 0; i < codes.length; i += CHUNK) {
+    const { data, error } = await supabaseAdmin
+      .from(TABLE)
+      .select("stock_code, event_date, adjustment_factor")
+      .eq("status", "applied")
+      .in("stock_code", codes.slice(i, i + CHUNK))
+      .order("event_date", { ascending: true });
+    if (error) throw new Error(`종목별 조정계수 조회 실패: ${error.message}`);
+    for (const row of data ?? []) {
+      const r = row as { stock_code: string; event_date: string; adjustment_factor: number | string };
+      const list = byCode.get(r.stock_code) ?? [];
+      list.push({ eventDate: r.event_date, factor: Number(r.adjustment_factor) });
+      byCode.set(r.stock_code, list);
+    }
+  }
+  return byCode;
+}
+
 /** 탐지 결과를 저장한다(종목+날짜 기준 upsert). */
 export async function saveAdjustmentEvents(events: DetectedAdjustmentEvent[]): Promise<void> {
   for (let i = 0; i < events.length; i += PAGE_SIZE) {

@@ -6,7 +6,7 @@ interface ScreeningPriceRow {
   id: string;
   current_price: number;
   score: number | null;
-  status: "active" | "stopped" | "profited" | "price_unavailable";
+  status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   price_fetch_failure_count: number;
 }
 

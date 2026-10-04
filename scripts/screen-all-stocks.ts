@@ -36,6 +36,8 @@ import {
 import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
+import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
+import { adjustPrice, describeFactor, getCumulativeFactor, isPriceAnomaly, weekdaysBetween } from "@/lib/corporateActionGuard";
 import {
   loadFundamentalsSeries,
   loadFundamentalsSeriesWithListedShares,
@@ -309,12 +311,18 @@ async function filterByQuote(
   return { survivors, marketCapByCode, changeRateByCode, excludedCount, fetchErrors };
 }
 
+const d10 = (iso: string): string => iso.slice(0, 10);
+
 interface ActiveRow {
   id: string;
   stock_code: string;
+  status: "active" | "price_anomaly";
+  matched_at: string;
   entry_price: number;
   stop_loss_price: number;
   take_profit_price: number;
+  current_price: number;
+  last_price_fetch_success_at: string;
   price_fetch_failure_count: number;
 }
 
@@ -340,8 +348,11 @@ async function updateActiveTracking(): Promise<{
   // 실패하므로 반드시 국내 행만 골라야 한다.
   const { data: activeRows, error } = await supabaseAdmin
     .from("screening_results")
-    .select("id, stock_code, entry_price, stop_loss_price, take_profit_price, price_fetch_failure_count")
-    .eq("status", "active")
+    .select(
+      "id, stock_code, status, matched_at, entry_price, stop_loss_price, take_profit_price, current_price, last_price_fetch_success_at, price_fetch_failure_count"
+    )
+    // price_anomaly 행도 매번 다시 평가한다 — 확정된 조정계수 이벤트가 등록되면 자동으로 active로 복귀한다.
+    .in("status", ["active", "price_anomaly"])
     .eq("market", "KR");
 
   if (error) throw new Error(`추적 종목 조회 실패: ${error.message}`);
@@ -386,6 +397,12 @@ async function updateActiveTracking(): Promise<{
   let priceUnavailable = 0;
   const now = new Date().toISOString();
 
+  // 액면분할·병합 방어: 저장된 진입가·손절가·익절가는 원가 그대로 두고, 진입 이후 확정된 조정계수를
+  // 곱해 현재가와 같은 기준으로 비교한다(lib/corporateActionGuard.ts).
+  const adjustmentsByCode = await loadAppliedAdjustmentsForCodes(uniqueCodes);
+  const today = now.slice(0, 10);
+  let priceAnomaly = 0;
+
   for (const row of activeRows as ActiveRow[]) {
     const currentPrice = priceByCode.get(row.stock_code);
 
@@ -414,14 +431,41 @@ async function updateActiveTracking(): Promise<{
       continue;
     }
 
+    // 직전 확인 가격을 이벤트 반영 후 기준으로 환산해 오늘 가격과 비교한다 — 확정된 이벤트가 없는데 가격제한폭을
+    // 넘게 움직였으면 자동 손절·익절·성과 집계에서 제외하고 'price_anomaly'로 표시한다(이벤트가 등록되면
+    // 다음 실행에서 자동 해제).
+    const lastCheckDate = row.last_price_fetch_success_at.slice(0, 10);
+    const previousAdjusted = adjustPrice(
+      row.current_price,
+      getCumulativeFactor(row.stock_code, lastCheckDate, today, adjustmentsByCode)
+    );
+    if (isPriceAnomaly(previousAdjusted, currentPrice, today, weekdaysBetween(lastCheckDate, today))) {
+      priceAnomaly++;
+      if (row.status !== "price_anomaly") {
+        const { error: anomalyError } = await supabaseAdmin
+          .from("screening_results")
+          .update({ status: "price_anomaly" })
+          .eq("id", row.id);
+        if (anomalyError) console.error(`    ${row.stock_code} price_anomaly 전환 실패: ${anomalyError.message}`);
+      }
+      console.log(
+        `    ⚠ 가격 이상(이벤트 미확정) — 손절·익절·집계 제외: ${row.stock_code} ` +
+          `${row.current_price}(환산 ${previousAdjusted}) → ${currentPrice}`
+      );
+      continue;
+    }
+
+    const factor = getCumulativeFactor(row.stock_code, d10(row.matched_at), today, adjustmentsByCode);
+    const adjustedEntry = adjustPrice(row.entry_price, factor);
     const status = evaluateTrackingStatus(
       currentPrice,
-      row.stop_loss_price,
-      row.take_profit_price
+      adjustPrice(row.stop_loss_price, factor),
+      adjustPrice(row.take_profit_price, factor)
     );
     // "지금 판다면" 가정으로 매도측 비용(수수료+슬리피지+세금)까지 반영한 순수익률 —
     // active 상태에서도 실현 시 손익을 그대로 보여주는 게 의도된 설계다.
-    const returnPct = computeCostAdjustedReturnPct(row.entry_price, currentPrice, now.slice(0, 10), "KR") * 100;
+    const returnPct = computeCostAdjustedReturnPct(adjustedEntry, currentPrice, today, "KR") * 100;
+    if (factor !== 1) console.log(`    ↻ 액면조정 반영: ${row.stock_code} ${describeFactor(factor)} (진입가 ${row.entry_price} → ${adjustedEntry})`);
 
     const update: Record<string, unknown> = {
       current_price: currentPrice,
@@ -429,6 +473,7 @@ async function updateActiveTracking(): Promise<{
       price_fetch_failure_count: 0,
       last_price_fetch_success_at: now,
     };
+    if (row.status === "price_anomaly") update.status = "active"; // 이벤트 확정으로 이상 해제
     if (status !== "active") {
       update.status = status;
       update.closed_at = now;
@@ -455,7 +500,7 @@ async function updateActiveTracking(): Promise<{
   }
 
   console.log(
-    `갱신 완료: ${updated}건 (손절 ${stopped}건, 익절 ${profited}건), 가격 확인 불가 전환 ${priceUnavailable}건`
+    `갱신 완료: ${updated}건 (손절 ${stopped}건, 익절 ${profited}건), 가격 확인 불가 전환 ${priceUnavailable}건, 가격 이상 ${priceAnomaly}건`
   );
   return { updated, stopped, profited, priceUnavailable };
 }

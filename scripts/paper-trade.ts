@@ -30,6 +30,9 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
+import type { AppliedAdjustment } from "@/lib/priceAdjustment";
+import { adjustPrice, adjustQuantity, describeFactor, getCumulativeFactor } from "@/lib/corporateActionGuard";
 import { loadStrategyFile, type PaperStrategyConditions } from "@/lib/paperStrategy";
 import { PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 import { EXPERIMENTAL_BLEND_STYLE, EXPERIMENTAL_BLEND_TARGET_WEIGHTS } from "@/lib/experimentalBlendConfig";
@@ -370,9 +373,17 @@ async function runPortfolio(
   candidates: ScreeningCandidateRow[],
   underlyingByScreeningId: Map<string, UnderlyingScreeningStatus>,
   ruleTypeByScreeningResultId: Map<string, string>,
+  adjustmentsByCode: Map<string, AppliedAdjustment[]>,
   now: Date
 ): Promise<RunPortfolioResult> {
   const conditions = toConditions(strategyRow);
+  const today = now.toISOString().slice(0, 10);
+  // 액면분할·병합 방어: 저장된 수량·평단가는 원본 그대로 두고, 보유 이후 확정된 조정계수로 환산해 쓴다
+  // (조정 평단가 = 평단가 × 계수, 조정 수량 = 수량 ÷ 계수 — 평가금액·원가는 변하지 않는다).
+  const adjusted = (p: PositionDbRow): { factor: number; quantity: number; avgPrice: number } => {
+    const factor = getCumulativeFactor(p.stock_code, p.opened_at.slice(0, 10), today, adjustmentsByCode);
+    return { factor, quantity: adjustQuantity(p.quantity, factor), avgPrice: adjustPrice(p.avg_price, factor) };
+  };
   const style = portfolio.style;
 
   let cash = portfolio.cash;
@@ -385,6 +396,7 @@ async function runPortfolio(
     const underlying = position.screening_result_id
       ? (underlyingByScreeningId.get(position.screening_result_id) ?? null)
       : null;
+    const adj = adjusted(position);
     const decision = evaluateExit(
       style,
       conditions,
@@ -392,8 +404,8 @@ async function runPortfolio(
         id: position.id,
         stockCode: position.stock_code,
         stockName: position.stock_name,
-        quantity: position.quantity,
-        avgPrice: position.avg_price,
+        quantity: adj.quantity,
+        avgPrice: adj.avgPrice,
         openedAt: position.opened_at,
         screeningResultId: position.screening_result_id,
         market: position.market,
@@ -407,8 +419,14 @@ async function runPortfolio(
       continue;
     }
 
-    const amount = decision.price * position.quantity;
-    const realizedPnl = (decision.price - position.avg_price) * position.quantity;
+    const amount = decision.price * adj.quantity;
+    const realizedPnl = (decision.price - adj.avgPrice) * adj.quantity;
+    // 거래 기록에 "액면조정" 안내를 남긴다(저장된 수량 컬럼은 정수라 환산 수량을 반올림해 기록하고, 금액은 정확한 값).
+    const adjustmentNote =
+      adj.factor === 1
+        ? ""
+        : ` [액면조정 ${describeFactor(adj.factor)} 반영: 보유 ${position.quantity}주 → ${adj.quantity.toFixed(2)}주, ` +
+          `조정 평단가 ${adj.avgPrice.toFixed(2)}원]`;
 
     const { error: tradeError } = await supabaseAdmin.from("paper_trades").insert({
       portfolio_id: portfolio.id,
@@ -416,11 +434,11 @@ async function runPortfolio(
       stock_code: position.stock_code,
       stock_name: position.stock_name,
       side: "sell",
-      quantity: position.quantity,
+      quantity: Math.max(1, Math.round(adj.quantity)),
       price: decision.price,
       amount,
       realized_pnl: realizedPnl,
-      rationale: decision.rationale,
+      rationale: decision.rationale + adjustmentNote,
       screening_result_id: position.screening_result_id,
       market: position.market,
       exchange: position.exchange,
@@ -441,7 +459,7 @@ async function runPortfolio(
 
     cash += amount;
     sellCount++;
-    console.log(`    [${style}] ✕ 매도 ${position.stock_name}(${position.stock_code}) ${position.quantity}주 @${decision.price}`);
+    console.log(`    [${style}] ✕ 매도 ${position.stock_name}(${position.stock_code}) ${adj.quantity.toFixed(adj.factor === 1 ? 0 : 2)}주 @${decision.price}`);
   }
 
   // 2) 매수 판단 (candidates는 이미 loadCandidates 단계에서 이번 실행의 대상 시장으로
@@ -456,8 +474,9 @@ async function runPortfolio(
     const heldValueByRuleType = new Map<string, number>();
     let remainingHoldingsValue = 0;
     for (const p of remainingPositions) {
-      const price = underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? p.avg_price;
-      const value = p.quantity * price;
+      const adj = adjusted(p);
+      const price = underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? adj.avgPrice;
+      const value = adj.quantity * price;
       remainingHoldingsValue += value;
 
       const ruleType = p.screening_result_id ? ruleTypeByScreeningResultId.get(p.screening_result_id) : undefined;
@@ -541,11 +560,14 @@ async function runPortfolio(
 
   // 3) 평가금액 계산 및 스냅샷/현금 반영
   const heldAfter = [
-    ...remainingPositions.map((p) => ({
-      code: p.stock_code,
-      quantity: p.quantity,
-      price: underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? p.avg_price,
-    })),
+    ...remainingPositions.map((p) => {
+      const adj = adjusted(p);
+      return {
+        code: p.stock_code,
+        quantity: adj.quantity,
+        price: underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? adj.avgPrice,
+      };
+    }),
     ...successfulBuyDecisions.map((d) => ({
       code: d.candidate.stockCode,
       quantity: d.quantity,
@@ -669,6 +691,11 @@ async function main(): Promise<void> {
   console.log(`  매수 후보(활성 스크리닝 결과): ${candidates.length}건`);
   const allPositions = await loadPositions(market);
   const underlyingByScreeningId = await loadUnderlyingStatuses(allPositions, candidates);
+  // 보유 종목의 확정된 액면분할·병합 이벤트(국내만). 보유 평가·청산 판단을 조정계수로 보정한다.
+  const adjustmentsByCode =
+    market === "KR"
+      ? await loadAppliedAdjustmentsForCodes(allPositions.map((p) => p.stock_code))
+      : new Map<string, AppliedAdjustment[]>();
 
   // "실험조합형" 계좌가 이번 실행의 대상 시장에 있을 때만(KR 전용이므로 US 배치에서는
   // 없음) 게이팅에 필요한 rule_type 조인을 수행한다.
@@ -699,6 +726,7 @@ async function main(): Promise<void> {
         candidates,
         underlyingByScreeningId,
         ruleTypeByScreeningResultId,
+        adjustmentsByCode,
         now
       );
       totalBuy += buyCount;

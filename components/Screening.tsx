@@ -21,7 +21,7 @@ interface ScreeningResultRow {
   current_price: number;
   return_pct: number;
   score: number | null;
-  status: "active" | "stopped" | "profited" | "price_unavailable";
+  status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   matched_at: string;
   closed_at: string | null;
 }
@@ -40,6 +40,8 @@ const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; classN
   // 시세 조회가 연속 실패해 가격이 멈춘 상태(2026-09-20 추가) — 손절/익절과 확실히
   // 구분되도록 est 토큰을 쓴다. "종료됨" 탭이 아니라 "추적 중" 탭에 계속 남는다.
   price_unavailable: { label: "가격 확인 불가", className: "text-est" },
+  // 확정된 액면조정 이벤트 없이 가격제한폭을 넘는 변동이 감지돼 손절/익절·집계에서 제외된 상태(이벤트 확정 시 자동 해제).
+  price_anomaly: { label: "가격 이상 확인 중", className: "text-est" },
 };
 
 function formatDateTime(iso: string): string {
@@ -149,7 +151,7 @@ export default function Screening({ user }: { user: User }) {
       // 탭 어디에도 안 보이고 사라진다(2026-09-20 확인).
       query =
         tab === "active"
-          ? query.in("status", ["active", "price_unavailable"])
+          ? query.in("status", ["active", "price_unavailable", "price_anomaly"])
           : query.in("status", ["stopped", "profited"]);
 
       const { data, error } = await query;

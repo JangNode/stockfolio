@@ -95,7 +95,11 @@ export function detectAdjustmentEvents(
 
     const prevIdx = tradingDayIndex?.get(prev.tradeDate);
     const curIdx = tradingDayIndex?.get(cur.tradeDate);
-    const afterHalt = prevIdx !== undefined && curIdx !== undefined && curIdx - prevIdx - 1 >= HALT_MIN_MISSING_TRADING_DAYS;
+    // 거래정지 직후: 사이에 빠진 거래일이 있거나(Parquet/hot 표는 거래정지일 행을 저장하지 않는다), 직전 행의
+    // 거래량이 0(KRX 원본은 거래정지 종목을 거래량 0으로 내려준다 — 일일 증분 스캔이 쓴다)이면 해당.
+    const afterHalt =
+      (prevIdx !== undefined && curIdx !== undefined && curIdx - prevIdx - 1 >= HALT_MIN_MISSING_TRADING_DAYS) ||
+      prev.volume === 0;
 
     let lowConfidenceReason: string | null = null;
     if (!sharesChanged) lowConfidenceReason = "shares_unchanged";

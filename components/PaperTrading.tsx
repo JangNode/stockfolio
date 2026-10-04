@@ -243,7 +243,8 @@ function usePositions() {
     return (positions ?? []).map((p) => {
       const priceStatus: PositionRow["priceStatus"] = !p.screening_result_id
         ? "no_reference"
-        : statusById.get(p.screening_result_id) === "price_unavailable"
+        : (statusById.get(p.screening_result_id) === "price_unavailable" ||
+            statusById.get(p.screening_result_id) === "price_anomaly")
           ? "unavailable"
           : "ok";
       return {

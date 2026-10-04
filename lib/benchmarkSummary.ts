@@ -84,7 +84,9 @@ export function simulateUniverseMonthlyRebalance(
   periodStartDate: string,
   // 주면 리밸런싱 날짜에 시세가 있는 종목 중 이 함수가 true인 종목만 유니버스로 삼는다
   // (시점별 유동성 필터). 안 주면 기존과 동일하게 시세가 있는 전 종목.
-  isEligibleAtRebalance?: (stockCode: string, date: string) => boolean
+  isEligibleAtRebalance?: (stockCode: string, date: string) => boolean,
+  // false면 회전율 비용 드래그를 반영하지 않는다(비용 미반영 검증용).
+  includeTransactionCosts: boolean = true
 ): number[] {
   const datesInPeriod = tradeDateCalendar.filter((d) => d >= periodStartDate).slice().sort();
   if (datesInPeriod.length === 0) return [];
@@ -177,7 +179,7 @@ export function simulateUniverseMonthlyRebalance(
         // 비율(매수/매도 각각의 비용률)을 구하는 트릭이다.
         const buyRate = computeEffectiveBuyPrice(1) - 1;
         const sellRate = 1 - computeEffectiveSellPrice(1, date, "KR");
-        costDrag = turnover * (buyRate + sellRate);
+        costDrag = includeTransactionCosts ? turnover * (buyRate + sellRate) : 0;
 
         values = targetWeights;
         lastCloseByCode = new Map<string, number>();

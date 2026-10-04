@@ -6,6 +6,9 @@ import {
   PRICE_JUMP_RATIO_UPPER,
   SHARES_CHANGE_MIN_RATIO,
   SHARES_LOOKAHEAD_ROWS,
+  HALT_MIN_MISSING_TRADING_DAYS,
+  ADJUSTMENT_SNAP_RATIOS,
+  ADJUSTMENT_SNAP_TOLERANCE,
   VOLUME_AGREE_MIN_RATIO,
 } from "@/lib/priceAdjustmentConfig";
 
@@ -26,8 +29,29 @@ export interface DetectedAdjustmentEvent {
   lowConfidenceReason: string | null;
 }
 
-/** rows(tradeDate 오름차순, 한 종목)에서 분할·병합 후보를 찾아 신뢰도를 판정한다. */
-export function detectAdjustmentEvents(rows: StockDailyPriceRow[], scanFromDate: string): DetectedAdjustmentEvent[] {
+/** 전 종목 시세의 거래일 합집합 캘린더(날짜 → 순번). 거래정지 직후 판정에 쓴다. */
+export function buildTradingDayIndex(seriesByCode: Map<string, StockDailyPriceRow[]>): Map<string, number> {
+  const dates = new Set<string>();
+  for (const rows of seriesByCode.values()) for (const row of rows) dates.add(row.tradeDate);
+  return new Map(Array.from(dates).sort().map((d, i) => [d, i]));
+}
+
+/** 주식수비가 대표 비율(또는 역수) 중 하나에 허용 오차 이내면 그 값으로, 아니면 그대로 돌려준다. */
+export function snapSharesRatio(ratio: number): number {
+  for (const target of ADJUSTMENT_SNAP_RATIOS) {
+    if (Math.abs(ratio / target - 1) <= ADJUSTMENT_SNAP_TOLERANCE) return target;
+    if (Math.abs(ratio * target - 1) <= ADJUSTMENT_SNAP_TOLERANCE) return 1 / target;
+  }
+  return ratio;
+}
+
+/** rows(tradeDate 오름차순, 한 종목)에서 분할·병합 후보를 찾아 신뢰도를 판정한다.
+ * tradingDayIndex(buildTradingDayIndex)를 주면 거래정지 직후 이벤트의 거래량 검증을 생략한다. */
+export function detectAdjustmentEvents(
+  rows: StockDailyPriceRow[],
+  scanFromDate: string,
+  tradingDayIndex?: Map<string, number>
+): DetectedAdjustmentEvent[] {
   const events: DetectedAdjustmentEvent[] = [];
   for (let i = 1; i < rows.length; i++) {
     const prev = rows[i - 1];
@@ -55,10 +79,14 @@ export function detectAdjustmentEvents(rows: StockDailyPriceRow[], scanFromDate:
     const volumeAgrees =
       sharesRatio > 1 ? volumeRatio >= VOLUME_AGREE_MIN_RATIO : volumeRatio <= 1 / VOLUME_AGREE_MIN_RATIO;
 
+    const prevIdx = tradingDayIndex?.get(prev.tradeDate);
+    const curIdx = tradingDayIndex?.get(cur.tradeDate);
+    const afterHalt = prevIdx !== undefined && curIdx !== undefined && curIdx - prevIdx - 1 >= HALT_MIN_MISSING_TRADING_DAYS;
+
     let lowConfidenceReason: string | null = null;
     if (!sharesChanged) lowConfidenceReason = "shares_unchanged";
     else if (!marketCapContinuous) lowConfidenceReason = "market_cap_discontinuity";
-    else if (!volumeAgrees) lowConfidenceReason = "volume_disagrees";
+    else if (!volumeAgrees && !afterHalt) lowConfidenceReason = "volume_disagrees";
 
     events.push({
       stockCode: cur.stockCode,
@@ -66,7 +94,7 @@ export function detectAdjustmentEvents(rows: StockDailyPriceRow[], scanFromDate:
       priceRatio,
       sharesRatio,
       volumeRatio: Number.isFinite(volumeRatio) ? volumeRatio : 0,
-      adjustmentFactor: 1 / sharesRatio,
+      adjustmentFactor: 1 / snapSharesRatio(sharesRatio),
       status: lowConfidenceReason === null ? "applied" : "low_confidence",
       lowConfidenceReason,
     });

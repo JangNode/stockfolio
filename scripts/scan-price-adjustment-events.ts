@@ -15,6 +15,7 @@ import { loadAllStockSeriesFromParquet, type StockDailyPriceRow } from "@/lib/st
 import { saveAdjustmentEvents } from "@/lib/stockPriceAdjustmentsStorage";
 import {
   applyAdjustmentsInPlace,
+  buildTradingDayIndex,
   detectAdjustmentEvents,
   type AppliedAdjustment,
   type DetectedAdjustmentEvent,
@@ -69,8 +70,9 @@ async function main(): Promise<void> {
   }
 
   const events: DetectedAdjustmentEvent[] = [];
+  const tradingDayIndex = buildTradingDayIndex(seriesByCode);
   for (const rows of seriesByCode.values()) {
-    events.push(...detectAdjustmentEvents(rows, PRICE_ADJUSTMENT_SCAN_FROM_DATE));
+    events.push(...detectAdjustmentEvents(rows, PRICE_ADJUSTMENT_SCAN_FROM_DATE, tradingDayIndex));
   }
   const applied = events.filter((e) => e.status === "applied");
   const lowConfidence = events.filter((e) => e.status === "low_confidence");

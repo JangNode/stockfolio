@@ -26,6 +26,17 @@ export const MARKET_CAP_CONTINUITY_UPPER = 1.3;
 // 거래량 교차검증: 분할(주식수↑)이면 거래량이 이 배수 이상, 병합이면 그 역수 이하여야 한다.
 export const VOLUME_AGREE_MIN_RATIO = 1.25;
 
+// 거래정지 직후 판정: 직전 행과 이벤트 행 사이에 전 종목 합집합 거래일 캘린더 기준으로 이 일수 이상
+// 빠져 있으면(거래정지일은 행을 저장하지 않는다) 거래정지 직후로 본다. 분할·병합은 거래정지를 동반하고
+// 재개일 거래량은 방향이 불규칙하므로, 이때는 시가총액 연속 조건만으로 거래량 방향 검증을 대신한다
+// (2026-10-04 팀장 결정).
+export const HALT_MIN_MISSING_TRADING_DAYS = 1;
+
+// 보정계수 스냅(2026-10-04 팀장 결정): 주식수비가 이 목록의 배수 또는 그 역수 중 하나에 이 비율 이내일
+// 때만 그 값으로 맞춘다(상장주식수 변동 중 자사주 등 잡음 제거). 그 밖의 비율(무상증자 등)은 계산값 그대로.
+export const ADJUSTMENT_SNAP_RATIOS = [2, 3, 4, 5, 10, 20, 25, 50, 100] as const;
+export const ADJUSTMENT_SNAP_TOLERANCE = 0.01;
+
 // 이 날짜 이후 이벤트만 스캔한다(직전 거래일 비교를 위해 그 이전 연도 시세도 함께 읽는다).
 export const PRICE_ADJUSTMENT_SCAN_FROM_DATE = "2015-01-01";
 export const PRICE_ADJUSTMENT_LOAD_FROM_YEAR = 2014;

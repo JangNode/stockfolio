@@ -37,6 +37,14 @@ export const HALT_MIN_MISSING_TRADING_DAYS = 1;
 export const ADJUSTMENT_SNAP_RATIOS = [2, 3, 4, 5, 10, 20, 25, 50, 100] as const;
 export const ADJUSTMENT_SNAP_TOLERANCE = 0.01;
 
+// 보류 규칙(2026-10-04 팀장 결정): 새로 적용되려는 이벤트라도 보정 후 (직전 종가 × 계수) / 이벤트일
+// 종가가 이 범위 밖이면 적용하지 않고 low_confidence('post_ratio_out_of_range')로 목록만 남긴다.
+export const POST_RATIO_LOWER = 0.7;
+export const POST_RATIO_UPPER = 1.3;
+export const POST_RATIO_OUT_OF_RANGE_REASON = "post_ratio_out_of_range";
+// 보류 목록에 남기는 "후속 N거래일 등락" 기준 일수.
+export const HOLD_FOLLOW_TRADING_ROWS = 5;
+
 // 이 날짜 이후 이벤트만 스캔한다(직전 거래일 비교를 위해 그 이전 연도 시세도 함께 읽는다).
 export const PRICE_ADJUSTMENT_SCAN_FROM_DATE = "2015-01-01";
 export const PRICE_ADJUSTMENT_LOAD_FROM_YEAR = 2014;

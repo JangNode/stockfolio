@@ -40,6 +40,10 @@ export async function saveAdjustmentEvents(events: DetectedAdjustmentEvent[]): P
       adjustment_factor: e.adjustmentFactor,
       status: e.status,
       low_confidence_reason: e.lowConfidenceReason,
+      post_adjust_close_ratio: e.holdMetrics?.postRatio ?? null,
+      halt_trading_days: e.holdMetrics?.haltTradingDays ?? null,
+      resume_day_change_pct: e.holdMetrics?.resumeChangePct ?? null,
+      follow_5d_change_pct: e.holdMetrics?.followChangePct ?? null,
       detected_at: new Date().toISOString(),
     }));
     const { error } = await supabaseAdmin.from(TABLE).upsert(batch);

@@ -9,6 +9,7 @@ import {
   HALT_MIN_MISSING_TRADING_DAYS,
   ADJUSTMENT_SNAP_RATIOS,
   ADJUSTMENT_SNAP_TOLERANCE,
+  HOLD_FOLLOW_TRADING_ROWS,
   VOLUME_AGREE_MIN_RATIO,
 } from "@/lib/priceAdjustmentConfig";
 
@@ -27,6 +28,19 @@ export interface DetectedAdjustmentEvent {
   adjustmentFactor: number;
   status: AdjustmentStatus;
   lowConfidenceReason: string | null;
+  /** 보류(post_ratio_out_of_range)된 이벤트만 채우는 점검용 지표. */
+  holdMetrics?: HoldMetrics;
+}
+
+export interface HoldMetrics {
+  /** (직전 종가 × 계수) / 이벤트일 종가. */
+  postRatio: number;
+  /** 직전 행과 이벤트일 사이에 빠진 거래일 수(거래정지 일수). */
+  haltTradingDays: number | null;
+  /** 보정 후 이벤트일 등락률(%) = 이벤트일 종가 / (직전 종가 × 계수) − 1. */
+  resumeChangePct: number;
+  /** 이벤트일 종가 대비 N번째 후속 거래일 종가 등락률(%) — 후속 행이 부족하면 null. */
+  followChangePct: number | null;
 }
 
 /** 전 종목 시세의 거래일 합집합 캘린더(날짜 → 순번). 거래정지 직후 판정에 쓴다. */
@@ -127,4 +141,32 @@ export function applyAdjustmentsInPlace(rows: StockDailyPriceRow[], adjustments:
     row.volume /= factor;
     row.listedShares /= factor;
   }
+}
+
+/** 이벤트의 보정 후 전후 종가 비율 = (직전 종가 × 계수) / 이벤트일 종가. 직전/당일 행이 없으면 null. */
+export function computePostRatio(rows: StockDailyPriceRow[], eventDate: string, factor: number): number | null {
+  const i = rows.findIndex((r) => r.tradeDate === eventDate);
+  if (i < 1 || !(rows[i].closePrice > 0)) return null;
+  return (rows[i - 1].closePrice * factor) / rows[i].closePrice;
+}
+
+/** 보류 이벤트 점검용 지표(거래정지 일수, 재개일 등락률, 후속 거래일 등락). */
+export function computeHoldMetrics(
+  rows: StockDailyPriceRow[],
+  eventDate: string,
+  factor: number,
+  tradingDayIndex: Map<string, number>
+): HoldMetrics | null {
+  const i = rows.findIndex((r) => r.tradeDate === eventDate);
+  const postRatio = computePostRatio(rows, eventDate, factor);
+  if (i < 1 || postRatio === null) return null;
+  const prevIdx = tradingDayIndex.get(rows[i - 1].tradeDate);
+  const curIdx = tradingDayIndex.get(eventDate);
+  const follow = rows[i + HOLD_FOLLOW_TRADING_ROWS];
+  return {
+    postRatio,
+    haltTradingDays: prevIdx !== undefined && curIdx !== undefined ? curIdx - prevIdx - 1 : null,
+    resumeChangePct: (1 / postRatio - 1) * 100,
+    followChangePct: follow && rows[i].closePrice > 0 ? (follow.closePrice / rows[i].closePrice - 1) * 100 : null,
+  };
 }

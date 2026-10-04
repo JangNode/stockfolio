@@ -72,6 +72,10 @@ import {
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const TODAY = new Date().toISOString().slice(0, 10);
 const DATA_WIDEN_STAGE = process.env.DATA_WIDEN_STAGE || STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT;
+// true면 거래비용을 끄고 계산하되 DB에는 저장하지 않는다(전략 자체의 우위 확인용 검증 실행, 2026-10-04).
+const COST_FREE_DRY_RUN = process.env.COST_FREE_DRY_RUN === "true";
+const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
+const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
 const PERIOD_START_DATE = `${STRATEGY_BACKTEST_WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
@@ -286,7 +290,7 @@ async function main(): Promise<void> {
           PERIOD_START_DATE,
           needsFundamentals ? fundamentals : undefined,
           needsFundamentals ? listedSharesByFiscalYear : undefined,
-          { market: "KR", entryAllowed }
+          { market: "KR", entryAllowed, includeTransactionCosts: INCLUDE_COSTS }
         );
         if (result.insufficientData || result.trades.length === 0) continue;
 
@@ -299,7 +303,8 @@ async function main(): Promise<void> {
           prices,
           result.trades,
           PERIOD_START_DATE,
-          "KR"
+          "KR",
+          INCLUDE_COSTS
         );
       }
     } catch (error) {
@@ -375,7 +380,7 @@ async function main(): Promise<void> {
     );
     const top5ExcludeCagrPct = computeCagrPct(top5ExcludeRawReturnPct, PERIOD_START_DATE, TODAY);
 
-    const { error } = await supabaseAdmin.from("strategy_backtest_summary").insert({
+    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
       rule_type: ruleType,
       market: "KR",
       period_start_date: PERIOD_START_DATE,
@@ -407,7 +412,7 @@ async function main(): Promise<void> {
       `  [${ruleType}] 거래 ${totalTrades}건(종료 ${closedTrades}/강제청산 ${aggregate.forcedLiquidationCount}), ` +
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
         `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
-        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (비용 반영) — 저장 완료`
+        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (${COST_LABEL}) — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
     );
   }
 
@@ -428,9 +433,10 @@ async function main(): Promise<void> {
         pricesByStock,
         universeCalendar,
         PERIOD_START_DATE,
-        eligibleAtRebalance(PIT_MIN_AVG_TRADING_VALUE_WON)
+        eligibleAtRebalance(PIT_MIN_AVG_TRADING_VALUE_WON),
+        INCLUDE_COSTS
       ),
-      costIncluded: true,
+      costIncluded: INCLUDE_COSTS,
     },
     // 유동성 기준 민감도(1억/10억) — 벤치마크에서만 계산한다.
     ...PIT_LIQUIDITY_SENSITIVITY_WON.map(({ label, minAvgTradingValueWon }) => ({
@@ -439,9 +445,10 @@ async function main(): Promise<void> {
         pricesByStock,
         universeCalendar,
         PERIOD_START_DATE,
-        eligibleAtRebalance(minAvgTradingValueWon)
+        eligibleAtRebalance(minAvgTradingValueWon),
+        INCLUDE_COSTS
       ),
-      costIncluded: true,
+      costIncluded: INCLUDE_COSTS,
     })),
   ];
 
@@ -453,7 +460,7 @@ async function main(): Promise<void> {
   });
 
   for (const row of benchmarkRows) {
-    const { error } = await supabaseAdmin.from("benchmark_summary").insert({
+    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("benchmark_summary").insert({
       benchmark_type: row.benchmarkType,
       period_start_date: PERIOD_START_DATE,
       period_end_date: TODAY,
@@ -471,7 +478,7 @@ async function main(): Promise<void> {
 
     console.log(
       `  [${row.benchmarkType}] MDD ${row.mddPct.toFixed(1)}%, CAGR ${row.cagrPct.toFixed(1)}%, ` +
-        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? " (비용 반영)" : ""} — 저장 완료`
+        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? ` (${COST_LABEL})` : ""} — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
     );
   }
 

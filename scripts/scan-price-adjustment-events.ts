@@ -12,14 +12,20 @@
  */
 
 import { loadAllStockSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
-import { saveAdjustmentEvents } from "@/lib/stockPriceAdjustmentsStorage";
+import { loadAppliedAdjustments, saveAdjustmentEvents } from "@/lib/stockPriceAdjustmentsStorage";
 import {
   applyAdjustmentsInPlace,
+  buildTradingDayIndex,
+  computeHoldMetrics,
+  computePostRatio,
   detectAdjustmentEvents,
   type AppliedAdjustment,
   type DetectedAdjustmentEvent,
 } from "@/lib/priceAdjustment";
 import {
+  POST_RATIO_LOWER,
+  POST_RATIO_OUT_OF_RANGE_REASON,
+  POST_RATIO_UPPER,
   PRICE_ADJUSTMENT_LOAD_FROM_YEAR,
   PRICE_ADJUSTMENT_SCAN_FROM_DATE,
   PRICE_JUMP_RATIO_LOWER,
@@ -69,8 +75,49 @@ async function main(): Promise<void> {
   }
 
   const events: DetectedAdjustmentEvent[] = [];
+  const tradingDayIndex = buildTradingDayIndex(seriesByCode);
   for (const rows of seriesByCode.values()) {
-    events.push(...detectAdjustmentEvents(rows, PRICE_ADJUSTMENT_SCAN_FROM_DATE));
+    events.push(...detectAdjustmentEvents(rows, PRICE_ADJUSTMENT_SCAN_FROM_DATE, tradingDayIndex));
+  }
+
+  // 보류 규칙: 이미 적용돼 있던 이벤트는 상태·계수를 그대로 두고(범위 밖 개수만 집계), 새로 적용되려는
+  // 이벤트가 보정 후 전후 종가 비율 범위 밖이면 적용하지 않고 점검 목록으로 남긴다.
+  const previouslyApplied = await loadAppliedAdjustments();
+  const outOfRange = (r: number | null): boolean => r === null || r < POST_RATIO_LOWER || r > POST_RATIO_UPPER;
+  let previouslyAppliedOutOfRange = 0;
+  let newlyApplied = 0;
+  let held = 0;
+  for (const e of events) {
+    if (e.status !== "applied") continue;
+    const rows = seriesByCode.get(e.stockCode);
+    if (!rows) continue;
+    const old = previouslyApplied.get(e.stockCode)?.find((a) => a.eventDate === e.eventDate);
+    if (old) {
+      if (outOfRange(computePostRatio(rows, e.eventDate, old.factor))) {
+        previouslyAppliedOutOfRange++;
+        e.adjustmentFactor = old.factor; // 범위 밖인 기존 이벤트의 계수는 지금은 바꾸지 않는다.
+      }
+      continue;
+    }
+    if (outOfRange(computePostRatio(rows, e.eventDate, e.adjustmentFactor))) {
+      e.status = "low_confidence";
+      e.lowConfidenceReason = POST_RATIO_OUT_OF_RANGE_REASON;
+      e.holdMetrics = computeHoldMetrics(rows, e.eventDate, e.adjustmentFactor, tradingDayIndex) ?? undefined;
+      held++;
+    } else {
+      newlyApplied++;
+    }
+  }
+  console.log(
+    `보류 규칙(보정 후 전후 종가 비율 ${POST_RATIO_LOWER}~${POST_RATIO_UPPER}): 새로 적용 ${newlyApplied}건, 보류 ${held}건, ` +
+      `기존 적용 ${previouslyApplied.size}종목 중 범위 밖 ${previouslyAppliedOutOfRange}건(계수 유지)`
+  );
+  for (const e of events.filter((x) => x.lowConfidenceReason === POST_RATIO_OUT_OF_RANGE_REASON)) {
+    const m = e.holdMetrics;
+    console.log(
+      `  [보류] ${e.stockCode} ${e.eventDate} 가격비 ${e.priceRatio.toFixed(3)} 주식수비 ${e.sharesRatio.toFixed(3)} ` +
+        `거래정지 ${m?.haltTradingDays ?? "-"}일 재개일 ${m ? m.resumeChangePct.toFixed(1) : "-"}% 후속 ${m?.followChangePct != null ? m.followChangePct.toFixed(1) : "-"}%`
+    );
   }
   const applied = events.filter((e) => e.status === "applied");
   const lowConfidence = events.filter((e) => e.status === "low_confidence");

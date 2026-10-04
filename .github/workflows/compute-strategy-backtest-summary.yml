@@ -22,6 +22,10 @@ on:
         description: "저장할 data_widen_stage 값(비우면 'pit_adjusted' — 화면 미노출. 팀장 확인 후 'full'로 올림)."
         type: string
         default: ""
+      cost_free_dry_run:
+        description: "true면 거래비용을 끄고 계산만 하고 DB에는 저장하지 않는다(전략 자체의 우위 확인용 검증 실행)."
+        type: string
+        default: "false"
 
 jobs:
   compute:
@@ -73,6 +77,7 @@ jobs:
         run: npm run batch:strategy-backtest-summary
         env:
           DATA_WIDEN_STAGE: ${{ inputs.data_widen_stage }}
+          COST_FREE_DRY_RUN: ${{ inputs.cost_free_dry_run }}
           # 전종목(수천 개) 시점별 유니버스라 Node 기본 힙(약 4GB)으로는 부족할 수 있어 넉넉히 준다.
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

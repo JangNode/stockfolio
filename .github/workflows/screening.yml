@@ -85,3 +85,12 @@ jobs:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 방금 저장한 최신 거래일 기준으로 분할·병합 이벤트를 증분 탐지해 이벤트 테이블에 바로 등록한다(전체
+      # 재스캔은 주간 장기 백테스트 워크플로가 맡는다). 다음 날 추적/모의투자가 조정계수를 즉시 반영한다.
+      - name: Scan latest price adjustment events
+        run: npm run scan:latest-price-adjustment
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -5,7 +5,7 @@
  * scripts/screen-all-stocks.ts의 evaluateTrackingStatus가 만드는 값과 동일하다.
  */
 export interface ScreeningResultStatRow {
-  status: "active" | "stopped" | "profited" | "price_unavailable";
+  status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   returnPct: number | null;
   matchedAt: string;
 }

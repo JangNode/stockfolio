@@ -60,7 +60,7 @@ const MIN_CLOSED_SAMPLES_FOR_RELIABLE_STATS = 10;
 // reversal_breakout(v1)/reversal_breakout_v2, 전략 성과 비교 섹션 조회용 최소 필드.
 interface ScreeningComparisonRow {
   strategy_id: string;
-  status: "active" | "stopped" | "profited" | "price_unavailable";
+  status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   return_pct: number;
   matched_at: string;
 }

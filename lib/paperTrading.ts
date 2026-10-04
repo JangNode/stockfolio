@@ -53,7 +53,7 @@ function formatMoney(value: number, market: Market): string {
 // (scripts/screen-all-stocks.ts updateActiveTracking 참고) — currentPrice는 마지막
 // 확인된 값에서 멈춰 있다.
 export interface UnderlyingScreeningStatus {
-  status: "active" | "stopped" | "profited" | "price_unavailable";
+  status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   currentPrice: number;
   priceFetchFailureCount: number;
 }
@@ -258,6 +258,11 @@ export function evaluateExit(
   // 기록하게 된다(2026-09-20 확인). 가격이 다시 확인될 때까지 모든 강제청산을
   // 보류한다 — 화면에는 이 상태를 별도로 노출한다.
   if (underlying.status === "price_unavailable") {
+    return null;
+  }
+  // 확정된 액면조정 이벤트 없이 가격제한폭을 넘는 변동이 감지된 상태 — 같은 이유로 강제청산을 보류한다
+  // (이벤트가 확정되면 원본 행이 active로 복귀하며 자동 해제).
+  if (underlying.status === "price_anomaly") {
     return null;
   }
 

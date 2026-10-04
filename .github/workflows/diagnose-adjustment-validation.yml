@@ -16,8 +16,12 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Diagnose
-        run: npm run diagnose:corporate-action-impact
+        run: |
+          npm run diagnose:corporate-action-guard
+          npm run scan:latest-price-adjustment
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          INCREMENTAL_SCAN_DRY_RUN: "true"

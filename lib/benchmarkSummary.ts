@@ -107,6 +107,8 @@ export function simulateUniverseMonthlyRebalance(
   // 리밸런싱 사이에는 포트폴리오 전체 수익률 배수만큼 변한다) — 정규화(값/합계)한
   // 게 "현재 보유 비중"이다. 상장폐지 종목은 시세가 없어 값이 동결된다.
   let values = new Map<string, number>();
+  // 보유 종목별 마지막으로 관측한 종가(거래정지 구간을 건너뛴 변동 계산용).
+  let lastCloseByCode = new Map<string, number>();
   const dailyReturnsPct: number[] = [];
 
   for (let i = 0; i < datesInPeriod.length; i++) {
@@ -119,11 +121,15 @@ export function simulateUniverseMonthlyRebalance(
     if (prevDate && sumBefore > 0) {
       for (const [code, value] of values) {
         const priceMap = priceMapByStock.get(code);
-        const prevClose = priceMap?.get(prevDate);
         const close = priceMap?.get(date);
+        // 직전 거래일 행이 없어도(거래정지일은 저장하지 않는다) 마지막으로 본 종가 기준으로 변동을
+        // 반영한다 — 분할·병합 이벤트는 거래정지 직후에 생겨 직전 달력일 종가가 없는 경우가 대부분이라,
+        // 달력일 기준으로 비교하면 조정 여부와 무관하게 그 변동이 통째로 누락된다.
+        const prevClose = lastCloseByCode.get(code) ?? priceMap?.get(prevDate);
         if (prevClose !== undefined && close !== undefined) {
           values.set(code, value * (close / prevClose));
         }
+        if (close !== undefined) lastCloseByCode.set(code, close);
       }
     }
     const sumAfter = sumValues(values);
@@ -174,6 +180,8 @@ export function simulateUniverseMonthlyRebalance(
         costDrag = turnover * (buyRate + sellRate);
 
         values = targetWeights;
+        lastCloseByCode = new Map<string, number>();
+        for (const code of universeToday) lastCloseByCode.set(code, priceMapByStock.get(code)!.get(date)!);
       }
     }
 

@@ -35,6 +35,7 @@
     "scan:price-adjustment-events": "tsx --conditions=react-server scripts/scan-price-adjustment-events.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
+    "diagnose:adjustment-validation": "tsx --conditions=react-server scripts/diagnose-adjustment-validation.ts",
     "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts"
   },
   "dependencies": {

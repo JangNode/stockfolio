@@ -18,7 +18,6 @@ jobs:
       - name: Diagnose
         run: |
           npm run diagnose:corporate-action-guard
-          npm run scan:latest-price-adjustment
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

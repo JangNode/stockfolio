@@ -8,7 +8,7 @@ import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStora
 import { adjustPrice, describeFactor, getCumulativeFactor } from "@/lib/corporateActionGuard";
 import { evaluateTrackingStatus } from "@/lib/backtest";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
-import { getDailyPrice } from "@/lib/stockDailyPricesStorage";
+import { downloadYearPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 
 interface Row {
   id: string;
@@ -62,22 +62,21 @@ async function main(): Promise<void> {
   if (e3) throw new Error(e3.message);
   console.log("\n[2] 이벤트 있는 종목 — 가상 진입(이벤트 전 거래일 종가) 후 이벤트일 평가: 보정 전 / 후 수익률");
   const evAdj = await loadAppliedAdjustmentsForCodes((evs ?? []).map((e) => e.stock_code));
+  // 소형주는 hot 표에 없으므로(좁은 기준) 올해 Parquet(전 종목)에서 읽는다.
+  const rows2026 = await downloadYearPrices(2026);
+  const byCode2026 = new Map<string, StockDailyPriceRow[]>();
+  for (const r of rows2026) (byCode2026.get(r.stockCode) ?? byCode2026.set(r.stockCode, []).get(r.stockCode)!).push(r);
   let shown = 0;
   for (const e of evs ?? []) {
     if (shown >= 5) break;
-    const eventDay = await getDailyPrice(e.stock_code, e.event_date);
-    if (!eventDay) continue;
-    // 직전 거래일 종가: 이벤트일 하루 전부터 최대 10일 거슬러 찾는다.
-    let prev = null as Awaited<ReturnType<typeof getDailyPrice>>;
-    for (let back = 1; back <= 10 && !prev; back++) {
-      const d = new Date(e.event_date + "T00:00:00Z");
-      d.setUTCDate(d.getUTCDate() - back);
-      prev = await getDailyPrice(e.stock_code, d.toISOString().slice(0, 10));
-    }
-    if (!prev) continue;
-    const factor = getCumulativeFactor(e.stock_code, prev.tradeDate, e.event_date, evAdj);
-    const rawRet = computeCostAdjustedReturnPct(prev.closePrice, eventDay.closePrice, e.event_date, "KR") * 100;
-    const adjRet = computeCostAdjustedReturnPct(adjustPrice(prev.closePrice, factor), eventDay.closePrice, e.event_date, "KR") * 100;
+    const series = (byCode2026.get(e.stock_code) ?? []).sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    const i = series.findIndex((r) => r.tradeDate >= e.event_date);
+    if (i < 1) continue;
+    const prev = series[i - 1];
+    const eventDay = series[i];
+    const factor = getCumulativeFactor(e.stock_code, prev.tradeDate, eventDay.tradeDate, evAdj);
+    const rawRet = computeCostAdjustedReturnPct(prev.closePrice, eventDay.closePrice, eventDay.tradeDate, "KR") * 100;
+    const adjRet = computeCostAdjustedReturnPct(adjustPrice(prev.closePrice, factor), eventDay.closePrice, eventDay.tradeDate, "KR") * 100;
     console.log(`  ${e.stock_code} ${e.event_date} ${describeFactor(factor)} | 진입가 ${prev.closePrice} → 평가가 ${eventDay.closePrice} | 전 ${rawRet.toFixed(1)}% / 후 ${adjRet.toFixed(1)}%`);
     shown++;
   }

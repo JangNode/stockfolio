@@ -14,7 +14,7 @@ on:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,6 +31,7 @@ jobs:
       - name: Diagnose widen backfill small-cap quality
         run: npm run diagnose:widen-backfill-quality-check
         env:
+          NODE_OPTIONS: --max-old-space-size=12288
           YEARS: ${{ inputs.years }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

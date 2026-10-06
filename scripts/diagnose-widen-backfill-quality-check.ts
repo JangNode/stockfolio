@@ -1,118 +1,111 @@
-/**
- * 디스포저블 진단: 전종목 확장 재백필(#413) 2015~2026 확장 각 단계 후 소형주
- * 데이터 품질을 확인한다. 대형주 표본 대조(diagnose-widen-backfill-safety-check.ts)는
- * 이미 마쳤으므로, 새로 늘어난 소형주 쪽 통계만 본다. 쓰기 없음(순수 조회).
- *
- * 확인 항목:
- * 1. 연도별 종목 수 / 행 수 / 거래일당 평균 종목 수
- * 2. 필드별 결측률(종가, 거래량, 거래대금, 상장주식수) — NaN/undefined만 결측으로 집계
- * 3. 거래정지일(거래량=0) 비율
- * 4. 중복 행(같은 종목·날짜) 개수
- * 5. 이 연도에서 사라진 종목(다음 연도 데이터가 없는 종목) 수 + 샘플 3개, 마지막 거래일
- * 6. 전일 종가 대비 ±30% 초과 변동 행 수(권리 이벤트 후보, 개수만 기록)
- *
- * 실행: YEARS="2024,2025,2026" npm run diagnose:widen-backfill-quality-check
- */
+// 임시 운영 스크립트(2010~2014 수집): MODE=backup | verify | classify. 읽기 외 쓰기는 backup 모드의 Storage 복사뿐.
+import { parquetReadObjects } from "hyparquet";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { downloadYearPrices, loadAllStockSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+import { buildTradingDayIndex, detectAdjustmentEvents } from "@/lib/priceAdjustment";
 
-import { downloadYearPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
+const MODE = process.env.YEARS ?? "";
+const BUCKET = "stock-daily-prices";
+const pct = (a: number, b: number) => (b === 0 ? "-" : ((a / b) * 100).toFixed(2) + "%");
 
-function isMissing(value: number | undefined | null): boolean {
-  return value === undefined || value === null || !Number.isFinite(value);
+async function backup() {
+  for (const y of [2011, 2012, 2013, 2014]) {
+    const { error } = await supabaseAdmin.storage.from(BUCKET).copy(`${y}.parquet`, `backup-pre2015/${y}.parquet`);
+    console.log(y, error ? `복사 실패: ${error.message}` : "복사 완료");
+  }
+  const { data } = await supabaseAdmin.storage.from(BUCKET).list("backup-pre2015", { limit: 20 });
+  let total = 0;
+  for (const f of data ?? []) { const s = (f.metadata as { size?: number })?.size ?? 0; total += s; console.log("backup-pre2015/" + f.name, Math.round(s / 1024), "KB"); }
+  console.log("백업 파일 수", (data ?? []).length, "합계", (total / 1048576).toFixed(2), "MB");
+  const { data: orig } = await supabaseAdmin.storage.from(BUCKET).list("", { limit: 50 });
+  for (const y of [2011, 2012, 2013, 2014]) { const f = (orig ?? []).find((e) => e.name === `${y}.parquet`); console.log("원본", y, Math.round(((f?.metadata as { size?: number })?.size ?? 0) / 1024), "KB"); }
 }
 
-async function checkYear(year: number, nextYearCodes: Set<string> | null): Promise<Set<string>> {
-  const rows = await downloadYearPrices(year);
-  console.log(`\n=== ${year}년 ===`);
-
-  if (rows.length === 0) {
-    console.log("행 없음");
-    return new Set();
-  }
-
-  const codes = new Set(rows.map((r) => r.stockCode));
-  const tradeDates = new Set(rows.map((r) => r.tradeDate));
-  console.log(`종목 수: ${codes.size}, 행 수: ${rows.length}, 거래일수: ${tradeDates.size}, 거래일당 평균 종목 수: ${(rows.length / tradeDates.size).toFixed(1)}`);
-
-  let missingClose = 0;
-  let missingVolume = 0;
-  let missingTradingValue = 0;
-  let missingListedShares = 0;
-  let haltedVolumeZero = 0;
-  for (const r of rows) {
-    if (isMissing(r.closePrice)) missingClose++;
-    if (isMissing(r.volume)) missingVolume++;
-    else if (r.volume === 0) haltedVolumeZero++;
-    if (isMissing(r.tradingValue)) missingTradingValue++;
-    if (isMissing(r.listedShares)) missingListedShares++;
-  }
-  const pct = (n: number) => `${((n / rows.length) * 100).toFixed(3)}%`;
-  console.log(
-    `결측률 — 종가: ${pct(missingClose)}, 거래량: ${pct(missingVolume)}, 거래대금: ${pct(missingTradingValue)}, 상장주식수: ${pct(missingListedShares)}`
-  );
-  console.log(`거래량=0(거래정지 후보): ${haltedVolumeZero}건 (${pct(haltedVolumeZero)}) — 별도 처리 없이 그대로 저장됨`);
-
-  const seen = new Map<string, number>();
-  for (const r of rows) {
-    const key = `${r.stockCode}:${r.tradeDate}`;
-    seen.set(key, (seen.get(key) ?? 0) + 1);
-  }
-  const duplicateKeys = Array.from(seen.values()).filter((n) => n > 1).length;
-  console.log(`중복 행(같은 종목·날짜) 키 개수: ${duplicateKeys}`);
-
-  if (nextYearCodes) {
-    const disappeared: { code: string; lastDate: string }[] = [];
-    const lastDateByCode = new Map<string, string>();
-    for (const r of rows) {
-      const cur = lastDateByCode.get(r.stockCode);
-      if (!cur || r.tradeDate > cur) lastDateByCode.set(r.stockCode, r.tradeDate);
-    }
-    for (const [code, lastDate] of lastDateByCode) {
-      if (!nextYearCodes.has(code)) disappeared.push({ code, lastDate });
-    }
-    console.log(`${year}년에만 있고 다음 해엔 없는 종목(상장폐지 후보): ${disappeared.length}개`);
-    for (const sample of disappeared.slice(0, 3)) {
-      console.log(`  샘플: ${sample.code}, 마지막 거래일 ${sample.lastDate}`);
-    }
-  } else {
-    console.log("상장폐지 후보 확인 생략(다음 해 데이터 없음 — 범위의 마지막 연도)");
-  }
-
-  const byCode = new Map<string, StockDailyPriceRow[]>();
-  for (const r of rows) {
-    const arr = byCode.get(r.stockCode);
-    if (arr) arr.push(r);
-    else byCode.set(r.stockCode, [r]);
-  }
-  let bigSwingCount = 0;
-  for (const codeRows of byCode.values()) {
-    codeRows.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
-    for (let i = 1; i < codeRows.length; i++) {
-      const prev = codeRows[i - 1].closePrice;
-      const cur = codeRows[i].closePrice;
-      if (!prev || isMissing(prev) || isMissing(cur)) continue;
-      const changePct = Math.abs((cur - prev) / prev) * 100;
-      if (changePct >= 30) bigSwingCount++;
-    }
-  }
-  console.log(`전일 종가 대비 ±30% 초과 변동 행 수: ${bigSwingCount}건 (권리 이벤트 후보, 다음 단계용 기록만)`);
-
-  return codes;
+async function readBackup(y: number): Promise<StockDailyPriceRow[]> {
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(`backup-pre2015/${y}.parquet`);
+  if (error) throw new Error(error.message);
+  const rows = (await parquetReadObjects({ file: await data.arrayBuffer() })) as Record<string, number & string>[];
+  return rows.map((r) => ({ stockCode: r.stock_code, tradeDate: r.trade_date, closePrice: r.close_price, marketCapEok: r.market_cap_eok, listedShares: r.listed_shares, openPrice: r.open_price ?? 0, volume: r.volume ?? 0, highPrice: r.high_price ?? 0, lowPrice: r.low_price ?? 0, tradingValue: r.trading_value ?? 0 }));
 }
 
-async function main(): Promise<void> {
-  const yearsEnv = process.env.YEARS;
-  if (!yearsEnv) throw new Error('YEARS="2024,2025,2026" 형태로 실행하세요.');
-  const years = yearsEnv.split(",").map((s) => Number(s.trim())).sort((a, b) => a - b);
-
-  let nextYearCodes: Set<string> | null = null;
-  for (let i = years.length - 1; i >= 0; i--) {
-    const year = years[i];
-    const codes = await checkYear(year, nextYearCodes);
-    nextYearCodes = codes;
+async function verify() {
+  console.log("== (a) 연도별 통계/채움률 ==");
+  const byYear = new Map<number, StockDailyPriceRow[]>();
+  for (const y of [2010, 2011, 2012, 2013, 2014, 2015]) {
+    const rows = await downloadYearPrices(y); byYear.set(y, rows);
+    const n = rows.length;
+    console.log(y, JSON.stringify({ rows: n, codes: new Set(rows.map((r) => r.stockCode)).size, days: new Set(rows.map((r) => r.tradeDate)).size,
+      close: pct(rows.filter((r) => r.closePrice > 0).length, n), cap: pct(rows.filter((r) => r.marketCapEok > 0).length, n),
+      shares: pct(rows.filter((r) => r.listedShares > 0).length, n), tradingValue: pct(rows.filter((r) => r.tradingValue > 0).length, n),
+      open: pct(rows.filter((r) => r.openPrice > 0).length, n) }));
   }
+  console.log("== (b) 구판(백업) 대비 겹치는 종목·날짜 종가 일치 ==");
+  for (const y of [2011, 2012, 2013, 2014]) {
+    const old = await readBackup(y);
+    const cur = new Map((byYear.get(y) ?? []).map((r) => [r.stockCode + ":" + r.tradeDate, r]));
+    let cmp = 0, same = 0, capSame = 0, shSame = 0, missing = 0; const bad: string[] = [];
+    for (const o of old) {
+      const c = cur.get(o.stockCode + ":" + o.tradeDate);
+      if (!c) { missing++; continue; }
+      cmp++;
+      if (c.closePrice === o.closePrice) same++; else if (bad.length < 4) bad.push(`${o.stockCode} ${o.tradeDate} 구${o.closePrice} 신${c.closePrice}`);
+      if (Math.abs(c.marketCapEok - o.marketCapEok) < 0.5) capSame++;
+      if (c.listedShares === o.listedShares) shSame++;
+    }
+    console.log(y, JSON.stringify({ oldRows: old.length, compared: cmp, notInNew: missing, closeMatch: pct(same, cmp), capMatch: pct(capSame, cmp), sharesMatch: pct(shSame, cmp), bad }));
+  }
+  console.log("== (c) 상장폐지 종목 마지막 거래일 ==");
+  const all = new Map<string, StockDailyPriceRow[]>();
+  for (const y of [2010, 2011, 2012, 2013, 2014, 2015]) for (const r of byYear.get(y) ?? []) { const l = all.get(r.stockCode); if (l) l.push(r); else all.set(r.stockCode, [r]); }
+  for (const [code, name] of [["012650", "쌍용건설"], ["004940", "외환은행"], ["005280", "부산은행"], ["005270", "대구은행"], ["001300", "제일모직"]]) {
+    const rows = (all.get(code) ?? []).sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    const last = rows.slice(-3).map((r) => `${r.tradeDate} 종가${r.closePrice} 거래량${r.volume} 시총${Math.round(r.marketCapEok)}억 주식수${r.listedShares}`);
+    console.log(code, name, JSON.stringify({ rows: rows.length, first: rows[0]?.tradeDate, last }));
+  }
+  console.log("== (d) 2014-12-30 → 2015-01-02 연속성 ==");
+  const a = new Map((byYear.get(2014) ?? []).filter((r) => r.tradeDate === "2014-12-30").map((r) => [r.stockCode, r]));
+  const b = new Map((byYear.get(2015) ?? []).filter((r) => r.tradeDate === "2015-01-02").map((r) => [r.stockCode, r]));
+  let both = 0, closeBrk = 0, capBrk = 0, shBrk = 0, onlyA = 0, onlyB = 0; const brk: string[] = [];
+  for (const [c, ra] of a) { const rb = b.get(c); if (!rb) { onlyA++; continue; } both++;
+    const cr = rb.closePrice / ra.closePrice, mr = rb.marketCapEok / ra.marketCapEok, sr = rb.listedShares / ra.listedShares;
+    if (Math.abs(cr - 1) > 0.3) closeBrk++; if (mr < 0.7 || mr > 1.3) capBrk++; if (Math.abs(sr - 1) > 0.1) { shBrk++; if (brk.length < 5) brk.push(`${c} 주식수비${sr.toFixed(2)} 종가비${cr.toFixed(2)}`); } }
+  for (const c of b.keys()) if (!a.has(c)) onlyB++;
+  console.log(JSON.stringify({ day2014: a.size, day2015: b.size, both, onlyIn2014: onlyA, onlyIn2015: onlyB, closeJump30: closeBrk, capJump30: capBrk, sharesChange10pct: shBrk, brk }));
 }
 
-main().catch((error) => {
-  console.error("진단 중 오류:", error);
-  process.exit(1);
-});
+async function classify() {
+  const series = await loadAllStockSeriesFromParquet(2010, 2015);
+  const idx = buildTradingDayIndex(series);
+  const events = new Map<string, { status: string; reason?: string }>();
+  let applied = 0, low = 0;
+  for (const rows of series.values()) for (const e of detectAdjustmentEvents(rows, "2010-01-01", idx)) { events.set(e.stockCode + ":" + e.eventDate, { status: e.status, reason: e.lowConfidenceReason }); if (e.status === "applied") applied++; else low++; }
+  console.log("2010-01-01~2015 후보:", events.size, "자동적용", applied, "low_confidence", low);
+  const cls: Record<string, Record<string, number>> = {};
+  const bump = (g: string, k: string) => { (cls[g] ??= {})[k] = (cls[g][k] ?? 0) + 1; };
+  for (const rows of series.values()) for (let i = 1; i < rows.length; i++) {
+    const p = rows[i - 1], c = rows[i];
+    if (!(p.closePrice > 0) || c.tradeDate >= "2015-06-15") continue;
+    const dev = Math.abs(c.closePrice / p.closePrice - 1); if (dev <= 0.155) continue;
+    const g = c.tradeDate >= "2015-01-01" ? "2015H1" : c.tradeDate.slice(0, 4);
+    const ev = events.get(c.stockCode + ":" + c.tradeDate);
+    const sh = p.listedShares > 0 ? c.listedShares / p.listedShares : 1;
+    const sign = Math.sign(c.closePrice - p.closePrice);
+    const streak = [[rows[i - 2], p], [c, rows[i + 1]]].some(([x, y]) => x && y && x.closePrice > 0 && Math.sign(y.closePrice - x.closePrice) === sign && Math.abs(y.closePrice / x.closePrice - 1) >= 0.2);
+    let k: string;
+    if (ev) k = ev.status === "applied" ? "이벤트 자동적용" : `이벤트 low_confidence(${ev.reason ?? "?"})`;
+    else if (sh >= 1.4 || sh <= 1 / 1.4) k = "주식수 변화 동반(이벤트 아님)";
+    else if (dev < 0.3) k = "15~30% 급등락(주식수 변화 없음)";
+    else k = streak ? "30%+ 연속 급등락" : "30%+ 단일일(주식수 변화 없음)";
+    bump(g, k);
+  }
+  for (const [g, m] of Object.entries(cls)) console.log(g, "합계", Object.values(m).reduce((a, b) => a + b, 0), JSON.stringify(m));
+  const u = process.resourceUsage(); console.log("최대 RSS", (u.maxRSS / 1024).toFixed(0), "MB");
+}
+
+async function main() {
+  if (MODE === "backup") return backup();
+  if (MODE === "verify") return verify();
+  if (MODE === "classify") return classify();
+  throw new Error("MODE 필요");
+}
+main().catch((e) => { console.error(e); process.exit(1); });

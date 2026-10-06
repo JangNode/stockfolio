@@ -39,6 +39,7 @@
     "scan:latest-price-adjustment": "tsx --conditions=react-server scripts/scan-latest-price-adjustment.ts",
     "scan:price-adjustment-events": "tsx --conditions=react-server scripts/scan-price-adjustment-events.ts",
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
+    "survey:strategy-removal": "tsx --conditions=react-server scripts/survey-strategy-removal.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
     "diagnose:widen-backfill-quality-check": "tsx --conditions=react-server scripts/diagnose-widen-backfill-quality-check.ts"
   },

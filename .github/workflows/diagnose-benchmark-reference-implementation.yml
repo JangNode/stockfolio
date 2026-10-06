@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Run benchmark reference implementation
-        run: npm run diagnose:benchmark-reference-implementation
+        run: npm run survey:strategy-removal
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

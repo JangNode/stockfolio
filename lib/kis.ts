@@ -566,7 +566,7 @@ interface InquireDailyChartPriceResponse extends KisResponse {
 const CHART_START_DATE = "19900101";
 // MA448까지 계산할 수 있도록 충분한 개수를 목표로 페이지네이션한다.
 const TARGET_CHART_ROWS = 500;
-const MAX_CHART_PAGES = 8;
+const MAX_CHART_PAGES = 40;
 const CHART_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const chartCache = new Map<string, { prices: DailyPrice[]; fetchedAt: number }>();

@@ -28,6 +28,7 @@ const full = (rows: Row[]) => ({
 });
 
 async function main() {
+  if (process.env.YEARS === "kis") return kisOnly();
   console.log("== A. Storage 연도별 파일 크기/내용 ==");
   const { data: files } = await supabaseAdmin.storage.from("stock-daily-prices").list("", { limit: 100 });
   for (const f of files ?? []) console.log(f.name, Math.round(((f.metadata as { size?: number })?.size ?? 0) / 1024), "KB");
@@ -110,3 +111,15 @@ async function main() {
   console.log("2015-06-15 이전 |등락|>15.5% 건수:", JSON.stringify(buckets), "예시:", JSON.stringify(samples));
 }
 main().catch((e) => { console.error(e); process.exit(1); });
+
+async function kisOnly() {
+  const codes: [string, string][] = [["005930","현존"],["035420","현존"],["068270","현존"],["012650","상폐 쌍용건설"],["004940","상폐 외환은행"]];
+  for (const [code, tag] of codes) {
+    try {
+      const t = Date.now();
+      const rows = await getDailyPrices(code, "D", 4000, "batch");
+      const sub = rows.filter((r) => r.date >= "2010-01-01" && r.date <= "2015-12-31");
+      console.log(code, tag, JSON.stringify({ total: rows.length, in2010_2015: sub.length, first: rows[0]?.date, last: rows[rows.length - 1]?.date, sec: Math.round((Date.now() - t) / 100) / 10 }));
+    } catch (e) { console.log(code, tag, "오류:", String(e).slice(0, 160)); }
+  }
+}

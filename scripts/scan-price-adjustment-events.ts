@@ -33,6 +33,13 @@ import {
   SHARES_CHANGE_MIN_RATIO,
 } from "@/lib/priceAdjustmentConfig";
 
+// 실험·검증 옵션(기본값=현재 동작): 스캔 시작일/시세 로드 시작 연도를 환경변수로 앞당길 수 있다
+// (예: 2010-01-01 / 2010 — 2010~2014 구간 탐지). 탐지 규칙·기준값은 그대로다.
+// SCAN_DRY_RUN=true면 stock_price_adjustment_events에 저장하지 않고 분류 결과만 출력한다.
+const SCAN_FROM_DATE = process.env.PRICE_ADJUSTMENT_SCAN_FROM_DATE || PRICE_ADJUSTMENT_SCAN_FROM_DATE;
+const LOAD_FROM_YEAR = Number(process.env.PRICE_ADJUSTMENT_LOAD_FROM_YEAR) || PRICE_ADJUSTMENT_LOAD_FROM_YEAR;
+const SCAN_DRY_RUN = process.env.SCAN_DRY_RUN === "true";
+
 // 알려진 사례(보정 연속성 확인용): 삼성전자 2018-05-04 50:1 분할, 카카오 2021-04-15 5:1 분할.
 const KNOWN_CASES = [
   { code: "005930", date: "2018-05-04", label: "삼성전자 50:1 분할" },
@@ -49,7 +56,7 @@ function countJumps(seriesByCode: Map<string, StockDailyPriceRow[]>): number {
   let count = 0;
   for (const rows of seriesByCode.values()) {
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i].tradeDate >= PRICE_ADJUSTMENT_SCAN_FROM_DATE && isJump(rows[i - 1], rows[i])) count++;
+      if (rows[i].tradeDate >= SCAN_FROM_DATE && isJump(rows[i - 1], rows[i])) count++;
     }
   }
   return count;
@@ -63,7 +70,7 @@ function describeRawAround(rows: StockDailyPriceRow[], date: string): string {
 
 async function main(): Promise<void> {
   const startedMs = Date.now();
-  const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_ADJUSTMENT_LOAD_FROM_YEAR, new Date().getUTCFullYear());
+  const seriesByCode = await loadAllStockSeriesFromParquet(LOAD_FROM_YEAR, new Date().getUTCFullYear());
   console.log(`전 종목 시세 로드: ${seriesByCode.size}종목, ${((Date.now() - startedMs) / 1000).toFixed(0)}초`);
 
   const jumpsBefore = countJumps(seriesByCode);
@@ -77,7 +84,7 @@ async function main(): Promise<void> {
   const events: DetectedAdjustmentEvent[] = [];
   const tradingDayIndex = buildTradingDayIndex(seriesByCode);
   for (const rows of seriesByCode.values()) {
-    events.push(...detectAdjustmentEvents(rows, PRICE_ADJUSTMENT_SCAN_FROM_DATE, tradingDayIndex));
+    events.push(...detectAdjustmentEvents(rows, SCAN_FROM_DATE, tradingDayIndex));
   }
 
   // 보류 규칙: 이미 적용돼 있던 이벤트는 상태·계수를 그대로 두고(범위 밖 개수만 집계), 새로 적용되려는
@@ -131,8 +138,12 @@ async function main(): Promise<void> {
       `(${Array.from(reasonCounts).map(([k, v]) => `${k} ${v}`).join(", ")})`
   );
 
-  await saveAdjustmentEvents(events);
-  console.log("stock_price_adjustment_events 저장 완료");
+  if (SCAN_DRY_RUN) {
+    console.log("SCAN_DRY_RUN=true — stock_price_adjustment_events에 저장하지 않습니다.");
+  } else {
+    await saveAdjustmentEvents(events);
+    console.log("stock_price_adjustment_events 저장 완료");
+  }
 
   // 보정 적용(제자리) 후 재집계.
   const byCode = new Map<string, AppliedAdjustment[]>();
@@ -149,7 +160,7 @@ async function main(): Promise<void> {
 
   const jumpsAfter = countJumps(seriesByCode);
   console.log(
-    `\n일간 ±30% 이상 종목-일 수(${PRICE_ADJUSTMENT_SCAN_FROM_DATE}~): 보정 전 ${jumpsBefore} → 보정 후 ${jumpsAfter} ` +
+    `\n일간 ±30% 이상 종목-일 수(${SCAN_FROM_DATE}~): 보정 전 ${jumpsBefore} → 보정 후 ${jumpsAfter} ` +
       `(감소 ${jumpsBefore - jumpsAfter}건)`
   );
 
@@ -159,7 +170,7 @@ async function main(): Promise<void> {
   let remainingSingle = 0;
   for (const rows of seriesByCode.values()) {
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i].tradeDate < PRICE_ADJUSTMENT_SCAN_FROM_DATE || !isJump(rows[i - 1], rows[i])) continue;
+      if (rows[i].tradeDate < SCAN_FROM_DATE || !isJump(rows[i - 1], rows[i])) continue;
       const sharesRatio = rows[i - 1].listedShares > 0 ? rows[i].listedShares / rows[i - 1].listedShares : 1;
       if (sharesRatio >= SHARES_CHANGE_MIN_RATIO || sharesRatio <= 1 / SHARES_CHANGE_MIN_RATIO) {
         remainingWithShares++;

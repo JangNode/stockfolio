@@ -558,7 +558,11 @@ export default function StrategyManager({ user }: { user: User }) {
               const highForcedLiquidation = summary
                 ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio)
                 : false;
-              const verdict = summary ? benchmarkVerdict(summary.cagr_pct, universeBenchmark?.cagr_pct ?? null) : null;
+              // 신호가 특정 시점 이후에만 가능한 전략은 비교 기간이 벤치마크와 달라 우세/열세 대신 "비교 참고"로 표기한다.
+              const verdict =
+                summary && !signalLimitedFrom
+                  ? benchmarkVerdict(summary.cagr_pct, universeBenchmark?.cagr_pct ?? null)
+                  : null;
               const lowSample = summary
                 ? isLowSampleSize(
                     summary.total_trades,
@@ -567,7 +571,6 @@ export default function StrategyManager({ user }: { user: User }) {
                     STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR
                   )
                 : false;
-              const signalLimitedFrom = STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType];
 
               return (
                 <div key={ruleType} className="rounded-card border border-border bg-surface p-4">
@@ -584,9 +587,14 @@ export default function StrategyManager({ user }: { user: User }) {
                       </span>
                     )}
                     {signalLimitedFrom && (
-                      <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
-                        표본 제한(신호 {signalLimitedFrom} 이후)
-                      </span>
+                      <>
+                        <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                          비교 참고(신호가 {signalLimitedFrom} 이후라 기간이 벤치마크와 다름)
+                        </span>
+                        <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                          표본 제한(신호 {signalLimitedFrom} 이후)
+                        </span>
+                      </>
                     )}
                     {lowSample && (
                       <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">

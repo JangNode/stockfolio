@@ -7,6 +7,7 @@ import { authFetch, authJsonFetcher } from "@/lib/authFetch";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
+import { toInputValue, parseInputValue } from "@/lib/numberInput";
 import { formatPercent } from "@/lib/formatNumber";
 import { CUSTOM_BACKTEST_PERIOD_MONTHS, FUNDAMENTAL_CONDITION_COMPARATORS } from "@/lib/customBacktestRequest";
 import type { BacktestTrade, CustomCompositeParams, CustomFundamentalConditions, FundamentalConditionComparator } from "@/lib/backtest";
@@ -410,6 +411,19 @@ export default function StrategyLab({}: { user: User }) {
       return;
     }
 
+    // 선택한 조건의 숫자 입력칸이 비어 있으면(NaN) 제출하지 않는다.
+    const numericFieldsFilled =
+      (!maCrossEnabled || (!Number.isNaN(maShort) && !Number.isNaN(maLong))) &&
+      (!rsiEnabled || (!Number.isNaN(rsiPeriod) && !Number.isNaN(rsiThreshold))) &&
+      (!volumeEnabled || (!Number.isNaN(volumePeriod) && !Number.isNaN(volumeMultiplier))) &&
+      Object.values(fundamentals ?? {}).every((condition) => !Number.isNaN(condition.value)) &&
+      !Number.isNaN(stopLossPct) &&
+      !Number.isNaN(takeProfitPct);
+    if (!numericFieldsFilled) {
+      setErrorMsg("비어 있는 숫자 입력칸을 채워주세요.");
+      return;
+    }
+
     const rule_params: CustomCompositeParams = {
       ...(maCrossEnabled ? { ma_cross: { short_period: maShort, long_period: maLong } } : {}),
       ...(rsiEnabled ? { rsi: { period: rsiPeriod, threshold: rsiThreshold, direction: rsiDirection } } : {}),
@@ -461,16 +475,16 @@ export default function StrategyLab({}: { user: User }) {
               <input
                 type="number"
                 min={2}
-                value={maShort}
-                onChange={(e) => setMaShort(Number(e.target.value))}
+                value={toInputValue(maShort)}
+                onChange={(e) => setMaShort(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
               일 / 장기
               <input
                 type="number"
                 min={3}
-                value={maLong}
-                onChange={(e) => setMaLong(Number(e.target.value))}
+                value={toInputValue(maLong)}
+                onChange={(e) => setMaLong(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
               일
@@ -486,8 +500,8 @@ export default function StrategyLab({}: { user: User }) {
               <input
                 type="number"
                 min={2}
-                value={rsiPeriod}
-                onChange={(e) => setRsiPeriod(Number(e.target.value))}
+                value={toInputValue(rsiPeriod)}
+                onChange={(e) => setRsiPeriod(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
               일 RSI가
@@ -503,8 +517,8 @@ export default function StrategyLab({}: { user: User }) {
                 type="number"
                 min={0}
                 max={100}
-                value={rsiThreshold}
-                onChange={(e) => setRsiThreshold(Number(e.target.value))}
+                value={toInputValue(rsiThreshold)}
+                onChange={(e) => setRsiThreshold(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
             </div>
@@ -520,8 +534,8 @@ export default function StrategyLab({}: { user: User }) {
               <input
                 type="number"
                 min={2}
-                value={volumePeriod}
-                onChange={(e) => setVolumePeriod(Number(e.target.value))}
+                value={toInputValue(volumePeriod)}
+                onChange={(e) => setVolumePeriod(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
               일 평균 대비
@@ -529,8 +543,8 @@ export default function StrategyLab({}: { user: User }) {
                 type="number"
                 min={1}
                 step={0.1}
-                value={volumeMultiplier}
-                onChange={(e) => setVolumeMultiplier(Number(e.target.value))}
+                value={toInputValue(volumeMultiplier)}
+                onChange={(e) => setVolumeMultiplier(parseInputValue(e.target.value))}
                 className={numberInputClassName}
               />
               배 이상
@@ -579,8 +593,8 @@ export default function StrategyLab({}: { user: User }) {
                       <input
                         type="number"
                         step={key === "peg" || key === "pbr" ? 0.1 : 1}
-                        value={field.value}
-                        onChange={(e) => updateFundamentalField(key, { value: Number(e.target.value) })}
+                        value={toInputValue(field.value)}
+                        onChange={(e) => updateFundamentalField(key, { value: parseInputValue(e.target.value) })}
                         className={numberInputClassName}
                       />
                     </div>
@@ -598,8 +612,8 @@ export default function StrategyLab({}: { user: User }) {
               type="number"
               min={1}
               max={90}
-              value={stopLossPct}
-              onChange={(e) => setStopLossPct(Number(e.target.value))}
+              value={toInputValue(stopLossPct)}
+              onChange={(e) => setStopLossPct(parseInputValue(e.target.value))}
               className={numberInputClassName}
             />
           </div>
@@ -609,8 +623,8 @@ export default function StrategyLab({}: { user: User }) {
               type="number"
               min={1}
               max={500}
-              value={takeProfitPct}
-              onChange={(e) => setTakeProfitPct(Number(e.target.value))}
+              value={toInputValue(takeProfitPct)}
+              onChange={(e) => setTakeProfitPct(parseInputValue(e.target.value))}
               className={numberInputClassName}
             />
           </div>

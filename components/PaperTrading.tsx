@@ -7,8 +7,8 @@ import { authJsonFetcher } from "@/lib/authFetch";
 import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
 import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
-import { formatPrice, formatNumber, type Market } from "@/lib/market";
-import { formatPercent } from "@/lib/formatNumber";
+import { formatNumber, type Market } from "@/lib/market";
+import { formatPercent, formatMoney } from "@/lib/formatNumber";
 import { PAPER_STYLE_LABEL, PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
 import { EXPERIMENTAL_BLEND_STYLE } from "@/lib/experimentalBlendConfig";
 import {
@@ -432,7 +432,7 @@ function OverviewScreen({
             ) : (
               <>
                 <p className="mt-2 tabular-nums text-2xl font-semibold text-ink">
-                  {formatPrice(latest.equity, market)}
+                  {formatMoney(latest.equity, market)}
                 </p>
                 <div className="mt-1 flex gap-4 text-sm">
                   <span className={returnColorClass(latest.cumulative_return_pct)}>
@@ -443,7 +443,7 @@ function OverviewScreen({
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-ink-muted">
-                  현금 {formatPrice(latest.cash, market)} · 보유 {holdingCount}종목
+                  현금 {formatMoney(latest.cash, market)} · 보유 {holdingCount}종목
                 </p>
                 <Sparkline
                   values={styleSnapshots.map((s) => s.equity)}
@@ -599,10 +599,10 @@ function DetailScreen({
                       </td>
                       <td className="py-2 pr-4 tabular-nums text-ink">{formatNumber(h.quantity, market)}</td>
                       <td className="py-2 pr-4 tabular-nums text-ink">
-                        {formatPrice(h.avg_price, market)}
+                        {formatMoney(h.avg_price, market)}
                       </td>
                       <td className="py-2 pr-4 tabular-nums text-ink">
-                        {formatPrice(currentPrice, market)}
+                        {formatMoney(currentPrice, market)}
                       </td>
                       <td className={`py-2 pr-4 font-medium ${returnColorClass(pnlPct)}`}>{signedPct(pnlPct)}</td>
                       <td className="py-2 tabular-nums text-ink-muted">{formatDate(h.opened_at)}</td>
@@ -666,13 +666,12 @@ function TradeItem({
                   {trade.side === "buy" ? "매수" : "매도"}
                 </span>{" "}
                 {trade.stock_name}({trade.stock_code}) {formatNumber(trade.quantity, market)}주 @
-                {formatPrice(trade.price, market)}
+                {formatMoney(trade.price, market)}
               </span>
             </div>
             {trade.side === "sell" && trade.realized_pnl !== null && (
               <span className={`font-medium ${returnColorClass(trade.realized_pnl)}`}>
-                {trade.realized_pnl > 0 ? "+" : ""}
-                {formatPrice(trade.realized_pnl, market)}
+                {formatMoney(trade.realized_pnl, market, { sign: true })}
               </span>
             )}
           </div>

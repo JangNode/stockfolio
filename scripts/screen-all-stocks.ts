@@ -11,6 +11,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isOperatingRuleType } from "@/lib/strategyVersions";
 import { getDailyPrices, getKisCallStats, getStockPrice } from "@/lib/kis";
 import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import {
@@ -30,7 +31,6 @@ import {
 } from "@/lib/reversalBreakout";
 import {
   REVERSAL_BREAKOUT_MIN_HISTORY_ROWS,
-  REVERSAL_MIN_INVERSE_RATIO,
   REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO,
 } from "@/lib/reversalBreakoutConfig";
 import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
@@ -71,7 +71,6 @@ const MARKET_CAP_SCORE_FULL_EOK = 10000;
 // 우선순위로 호출하므로 사용자 요청보다 낮은 한도 안에서 돈다). 여기서는 그 한도를
 // 최대한 채워 쓰도록 여러 종목을 동시에 처리한다 — 아래 BATCH_CONCURRENCY 참고.
 const DAILY_TARGET_ROWS_DEFAULT = 100;
-const MINERVINI_DAILY_TARGET_ROWS = 300;
 
 // 동시에 진행할 최대 종목 수. 실제 처리량은 lib/kis.ts의 토큰버킷(배치 초당 12건)이
 // 최종적으로 제한하므로, 이 값은 "그 12건/초를 항상 채울 만큼만" 있으면 된다 — 너무
@@ -146,7 +145,8 @@ async function loadStrategies(): Promise<StrategyRow[]> {
     .eq("market", "KR");
 
   if (error) throw new Error(`전략 조회 실패: ${error.message}`);
-  return (data ?? []) as StrategyRow[];
+  // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 더 이상 스캔하지 않는다.
+  return ((data ?? []) as StrategyRow[]).filter((strategy) => isOperatingRuleType(strategy.rule_type));
 }
 
 /**
@@ -157,15 +157,9 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
   let target = DAILY_TARGET_ROWS_DEFAULT;
 
   for (const strategy of strategies) {
-    if (strategy.rule_type === "minervini_trend_template") {
-      target = Math.max(target, MINERVINI_DAILY_TARGET_ROWS);
-    } else if (strategy.rule_type === "ma_cross") {
+    if (strategy.rule_type === "ma_cross") {
       target = Math.max(target, strategy.rule_params.long_period + 20);
-    } else if (strategy.rule_type === "custom_composite") {
-      const { ma_cross, rsi, volume_surge } = strategy.rule_params;
-      const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
-      target = Math.max(target, maxPeriod + 20);
-    } else if (strategy.rule_type === "reversal_breakout" || strategy.rule_type === "reversal_breakout_v2") {
+    } else if (strategy.rule_type === "reversal_breakout_v2") {
       target = Math.max(target, REVERSAL_BREAKOUT_MIN_HISTORY_ROWS);
     }
     // peg_lynch는 KIS 일봉을 아예 안 쓰므로(scanFundamentalStrategies가 별도 경로로
@@ -570,88 +564,30 @@ async function runStrategyScan(
   let lowScore = 0;
   let errors = 0;
 
-  // 실험실에서 채택된 custom_composite 전략은 rule_params.fundamentals(시가총액/PER/
-  // PBR/PEG/배당 연속 지급 연수/배당수익률)를 실을 수 있다 — 이 값은 KIS 일봉(prices)엔
-  // 없고 DH 가격 레이어 + 재무 이력을 종목마다 추가 조회해야 판정할 수 있다. 매번
-  // 전종목에 대해 조회하면 비용이 크므로, 이평/RSI/거래량 같은 기술 조건이 하나라도
-  // 같이 지정돼 있으면 그것부터(DB 호출 없이) 먼저 확인해 이미 기술 조건에서 탈락하는
-  // 종목은 펀더멘털 조회를 건너뛴다(AND 조합이므로 기술 조건이 거짓이면 전체도 거짓).
-  // 기술 조건이 전혀 없는(펀더멘털 단독) 전략은 이 사전 필터를 쓸 수 없어 전종목을
-  // 조회한다.
-  const fundamentalConditions =
-    strategy.rule_type === "custom_composite" ? strategy.rule_params.fundamentals : undefined;
-  const needsListedShares = fundamentalConditions?.peg !== undefined;
-  const hasTechnicalConditions =
-    strategy.rule_type === "custom_composite" &&
-    (strategy.rule_params.ma_cross !== undefined ||
-      strategy.rule_params.rsi !== undefined ||
-      strategy.rule_params.volume_surge !== undefined);
-
-  // reversal_breakout/reversal_breakout_v2는 역배열비율 임계값(0.7/0.9)만 다르고 그
-  // 이전 단계(이평선 계산, 역배열 이력, 매집봉, 전환 신호)는 완전히 같다. 두 전략이
-  // 같은 실행에 함께 등록돼 있으면 종목당 이 원시값을 한 번만 계산해 캐시(호출부가
-  // 전략 루프 바깥에서 만들어 넘김)에서 재사용한다.
-  const isReversalBreakoutFamily =
-    strategy.rule_type === "reversal_breakout" || strategy.rule_type === "reversal_breakout_v2";
-  const reversalBreakoutMinInverseRatio =
-    strategy.rule_type === "reversal_breakout_v2" ? REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO : REVERSAL_MIN_INVERSE_RATIO;
+  const isReversalBreakoutFamily = strategy.rule_type === "reversal_breakout_v2";
 
   for (const [stockCode, { name: stockName, prices }] of priceByCode) {
     try {
-      let evalPrices = prices;
       let reversalBreakoutRaw: ReversalBreakoutRawSignal | undefined;
 
       if (isReversalBreakoutFamily) {
         if (!reversalBreakoutRawCache.has(stockCode)) {
-          reversalBreakoutRawCache.set(stockCode, computeReversalBreakoutLatestRawSignal(evalPrices));
+          reversalBreakoutRawCache.set(stockCode, computeReversalBreakoutLatestRawSignal(prices));
         }
         reversalBreakoutRaw = reversalBreakoutRawCache.get(stockCode);
-        if (!matchesReversalBreakoutRaw(reversalBreakoutRaw, reversalBreakoutMinInverseRatio)) continue;
-      } else if (fundamentalConditions && strategy.rule_type === "custom_composite") {
-        if (hasTechnicalConditions) {
-          const technicalOnlyRule: StrategyRule = {
-            rule_type: "custom_composite",
-            rule_params: {
-              ma_cross: strategy.rule_params.ma_cross,
-              rsi: strategy.rule_params.rsi,
-              volume_surge: strategy.rule_params.volume_surge,
-            },
-          };
-          if (!matchesToday(prices, technicalOnlyRule)) continue;
-        }
-
-        const today = prices[prices.length - 1].date;
-        // stock_daily_prices_recent(DH 가격 레이어)는 update-stock-daily-prices-recent.ts가
-        // "오늘"을 빼고 어제까지만 채운다(KRX 정산 데이터가 당일엔 확정 안 됨) — 정확히
-        // 오늘 날짜만 조회하면 구조적으로 항상 못 찾는다(2026-09-02 실데이터로 확인: 이
-        // 조건에 걸리는 종목이 매일 0건). 가장 최근 거래일로 폴백해 시가총액/상장주식수를
-        // 구한다.
-        const [priceRow, fundamentalsData] = await Promise.all([
-          getDailyPriceOnOrBefore(stockCode, today),
-          needsListedShares
-            ? loadFundamentalsSeriesWithListedShares(stockCode)
-            : loadFundamentalsSeries(stockCode).then((series) => ({ series, listedSharesByFiscalYear: undefined })),
-        ]);
-        if (!priceRow) continue; // DH 가격 레이어에 최근 데이터 없음(백필 하한 미달 등) — 판정 불가로 건너뜀
-
-        evalPrices = [
-          ...prices.slice(0, -1),
-          { ...prices[prices.length - 1], marketCapEok: priceRow.marketCapEok, listedShares: priceRow.listedShares },
-        ];
-
-        if (!matchesToday(evalPrices, strategy, fundamentalsData.series, fundamentalsData.listedSharesByFiscalYear)) continue;
+        if (!matchesReversalBreakoutRaw(reversalBreakoutRaw, REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO)) continue;
       } else {
-        if (!matchesToday(evalPrices, strategy)) continue;
+        if (!matchesToday(prices, strategy)) continue;
       }
 
       const key = `${strategy.id}:${stockCode}`;
       if (activeKeys.has(key)) continue; // 이미 추적 중
 
-      const signalPrice = evalPrices[evalPrices.length - 1].close;
-      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(evalPrices, strategy);
+      const signalPrice = prices[prices.length - 1].close;
+      const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
       const marketCapEok = marketCapByCode.get(stockCode) ?? null;
       const score = computeSignalScore(
-        evalPrices,
+        prices,
         strategy,
         marketCapEok === null ? null : marketCapEok / MARKET_CAP_SCORE_FULL_EOK
       );
@@ -661,7 +597,7 @@ async function runStrategyScan(
         continue;
       }
 
-      // reversal_breakout/reversal_breakout_v2는 판단 근거(역배열 지속 비율, 매집봉
+      // reversal_breakout_v2는 판단 근거(역배열 지속 비율, 매집봉
       // 발생일/거래량 배수, 이평 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안 드러나므로
       // DH전략과 같은 이유로 signal_details를 채운다 — 위에서 이미 계산해 캐시해둔 raw를
       // 그대로 펼치기만 하고 재계산하지 않는다(reversalBreakoutRaw는 매칭 시점에 이미

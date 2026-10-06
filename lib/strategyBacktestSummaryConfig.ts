@@ -1,4 +1,4 @@
-import type { MaCrossParams, MinerviniParams, StrategyRuleType } from "@/lib/backtest";
+import type { MaCrossParams, StrategyRuleType } from "@/lib/backtest";
 
 /**
  * "장기 백테스트(2016~오늘)" 캐시 배치(scripts/compute-strategy-backtest-summary.ts)와
@@ -6,17 +6,21 @@ import type { MaCrossParams, MinerviniParams, StrategyRuleType } from "@/lib/bac
  * 없이 이 파일 하나만 보면 값을 감사할 수 있게 한다(RULES.md 2번).
  */
 
-// 장기 백테스트 대상 rule_type. custom_composite는 사용자마다 조건이 다른 실험
-// 전략이라 "대표 전략" 개념이 성립하지 않아 제외한다(2026-09-27 계획 승인). 배치
-// 스크립트와 UI가 같은 목록을 써야 "아직 계산 전" 카드를 빠짐없이 보여줄 수 있어
-// 여기 하나로 모은다.
+// 장기 백테스트 대상 rule_type(운영 전략 3개). 배치 스크립트와 UI가 같은 목록을 써야
+// "아직 계산 전" 카드를 빠짐없이 보여줄 수 있어 여기 하나로 모은다.
 export const STRATEGY_BACKTEST_TARGET_RULE_TYPES = [
   "ma_cross",
-  "minervini_trend_template",
-  "reversal_breakout",
   "reversal_breakout_v2",
   "peg_lynch",
 ] as const satisfies readonly StrategyRuleType[];
+
+// 2026-10 전략 정리로 운영을 종료한 전략. 더 이상 계산하지 않고, DB에 남아 있는 마지막 검증
+// 결과(STRATEGY_BACKTEST_DISPLAY_STAGE 행)를 "종료된 전략" 섹션에서 읽기 전용으로만 보여준다.
+// 라벨·표시 순서는 이 배열이 기준이다. custom_composite는 백테스트 행이 없어 제외했다.
+export const STRATEGY_BACKTEST_ENDED_STRATEGIES = [
+  { ruleType: "minervini_trend_template", label: "미너비니 트렌드 템플릿" },
+  { ruleType: "reversal_breakout", label: "급등주 찾기 v1 (역배열 반등)" },
+] as const;
 
 // 2026-09-24 진단 스크립트(diagnose-strategy-daily-returns.ts 계열)가 쓴 것과 동일한
 // 시작 연도 — peg_lynch 펀더멘털 백필 후보 기준(discoverCandidateStockCodes)과 맞춰
@@ -41,13 +45,11 @@ export const STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO = 0.5;
 // 없어 특히 잘 걸리는 사례 — 2026-09-27 사용자 요청).
 export const STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD = 0.2;
 
-// ma_cross/minervini_trend_template은 strategies 테이블(market='KR')에 활성 행이
-// 없을 때 쓰는 임시 기본값. diagnose-strategy-daily-returns.ts/
-// diagnose-strategy-return-concentration.ts가 2026-09-24 사용자 확인을 받아 쓴 값과
-// 동일하게 유지한다 — 두 전략은 peg_lynch/reversal_breakout과 달리 rule_params가
-// 사용자 개인화 값이라 서버 설정 상수(lib/pegConfig.ts류)가 없다.
+// ma_cross는 strategies 테이블(market='KR')에 활성 행이 없을 때 쓰는 임시 기본값.
+// diagnose-strategy-daily-returns.ts/diagnose-strategy-return-concentration.ts가
+// 2026-09-24 사용자 확인을 받아 쓴 값과 동일하게 유지한다 — peg_lynch/reversal_breakout_v2와
+// 달리 rule_params가 사용자 개인화 값이라 서버 설정 상수(lib/pegConfig.ts류)가 없다.
 export const FALLBACK_MA_CROSS_PARAMS: MaCrossParams = { short_period: 20, long_period: 60 };
-export const FALLBACK_MINERVINI_PARAMS: MinerviniParams = { ma_short: 50, ma_mid: 150, ma_long: 200 };
 
 // strategy_backtest_summary/benchmark_summary 행이 어떤 원자료 확장 단계에서 계산됐는지
 // 구분하는 data_widen_stage 값. 'narrow'(전종목 재백필 전 기존 행), 'partial_2023_2026'

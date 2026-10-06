@@ -70,53 +70,6 @@ export default function Screening({ user }: { user: User }) {
     [strategies, market]
   );
 
-  const selectedStrategy = useMemo(
-    () => marketStrategies.find((s) => s.id === strategyId),
-    [marketStrategies, strategyId]
-  );
-
-  // v1(reversal_breakout)/v2(reversal_breakout_v2) 비교 대시보드·동시 매칭 배지에 쓸
-  // 두 전략의 id. 계정에 둘 다 등록돼 있을 때만 값이 채워진다(마이그레이션이 모든
-  // 계정에 시딩하므로 보통 둘 다 있지만, 사용자가 임의로 지웠을 수도 있다).
-  const reversalBreakoutPair = useMemo(() => {
-    const v1 = marketStrategies.find((s) => s.rule_type === "reversal_breakout");
-    const v2 = marketStrategies.find((s) => s.rule_type === "reversal_breakout_v2");
-    return { v1, v2 };
-  }, [marketStrategies]);
-
-  // 현재 선택된 전략이 v1/v2 중 하나면, 짝 전략에서 추적 중인(active) 종목코드 집합을
-  // 조회해 목록에 "그쪽에서도 매칭됨" 배지를 붙인다.
-  const pairStrategy =
-    selectedStrategy?.rule_type === "reversal_breakout"
-      ? reversalBreakoutPair.v2
-      : selectedStrategy?.rule_type === "reversal_breakout_v2"
-        ? reversalBreakoutPair.v1
-        : undefined;
-  const pairBadgeLabel = selectedStrategy?.rule_type === "reversal_breakout" ? "v2에서도 매칭됨" : "v1에서도 매칭됨";
-
-  const { data: pairActiveCodes } = useSWR(
-    pairStrategy ? ["reversal-breakout-pair-active", pairStrategy.id] : null,
-    async ([, pairStrategyId]: [string, string]) => {
-      const { data, error } = await supabase
-        .from("screening_results")
-        .select("stock_code")
-        .eq("strategy_id", pairStrategyId)
-        .eq("status", "active");
-
-      if (error) throw error;
-      return new Set((data ?? []).map((r) => r.stock_code));
-    }
-  );
-
-  // 전역 시장 전환 시 이전 시장의 전략 선택/종료일 필터가 남아있지 않도록 비운다.
-  // 렌더 도중 이전 값과 비교해 조정한다(리액트가 권장하는 "prop이 바뀌면 상태 리셋" 패턴).
-  const [prevMarket, setPrevMarket] = useState(market);
-  if (market !== prevMarket) {
-    setPrevMarket(market);
-    setStrategyId("");
-    setClosedDate("");
-  }
-
   const { data: lastRun } = useSWR("screening-last-run", async () => {
     const { data, error } = await supabase
       .from("screening_runs")
@@ -299,14 +252,6 @@ export default function Screening({ user }: { user: User }) {
                           <span className="text-xs text-ink-faint">
                             {r.stock_code}
                           </span>
-                          {pairStrategy && pairActiveCodes?.has(r.stock_code) && (
-                            <span
-                              title="v2는 항상 v1의 부분집합이라는 성질이 있지만, active 상태 갱신 타이밍상 완벽히 대칭은 아닐 수 있습니다."
-                              className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-ink-muted dark:bg-white/[.1]"
-                            >
-                              {pairBadgeLabel}
-                            </span>
-                          )}
                         </td>
                         <td className="py-2 pr-4">
                           <ScoreValue score={r.score} />

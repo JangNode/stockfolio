@@ -35,14 +35,12 @@ import type { AppliedAdjustment } from "@/lib/priceAdjustment";
 import { adjustPrice, adjustQuantity, describeFactor, getCumulativeFactor } from "@/lib/corporateActionGuard";
 import { loadStrategyFile, type PaperStrategyConditions } from "@/lib/paperStrategy";
 import { PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
-import { EXPERIMENTAL_BLEND_STYLE, EXPERIMENTAL_BLEND_TARGET_WEIGHTS } from "@/lib/experimentalBlendConfig";
 import type { Market } from "@/lib/market";
 import { determineUsBatchSchedule } from "@/lib/usMarketCalendar";
 import { isKrxTradingDay } from "@/lib/krxTradingCalendar";
 import {
   computeEquity,
   evaluateExit,
-  filterCandidatesByTargetWeight,
   selectBuyCandidates,
   type ScreeningCandidateRow,
   type TradeConditions,
@@ -71,10 +69,8 @@ interface PortfolioRow {
   cash: number;
 }
 
-/** 스타일별로 계좌가 존재해야 할 시장은 다르다(대부분 KR+US지만 실험조합형은 KR
- * 전용 — lib/paperStyles.ts의 PAPER_STYLE_MARKETS 참고). "스타일 x 시장 개수가
- * 정확히 몇 개"라는 단일 숫자로는 이 예외를 표현할 수 없어, 기대되는 (style, market)
- * 조합 집합과 실제 시딩된 집합이 정확히 같은지 비교한다. */
+/** 스타일별로 계좌가 존재해야 할 시장(lib/paperStyles.ts의 PAPER_STYLE_MARKETS) 기준으로, 운영 중인
+ * 스타일의 기대 (style, market) 조합 집합을 만든다. */
 function expectedPortfolioKeys(): Set<string> {
   const keys = new Set<string>();
   for (const style of STYLES) {
@@ -91,8 +87,11 @@ async function loadPortfolios(): Promise<PortfolioRow[]> {
     .select("id, style, market, initial_capital, cash");
   if (error) throw new Error(`가상 계좌 조회 실패: ${error.message}`);
 
+  // 종료된 스타일(custom/experimental_blend 등)의 계좌 행은 DB에 기록으로 남아 있다 — 운영 대상에서는
+  // 제외하고(매매·스냅샷 없음), 운영 중인 스타일의 계좌 구성만 기대와 비교한다.
+  const operating = ((data ?? []) as PortfolioRow[]).filter((p) => (STYLES as readonly string[]).includes(p.style));
   const expected = expectedPortfolioKeys();
-  const actual = new Set((data ?? []).map((p) => `${p.style}:${p.market}`));
+  const actual = new Set(operating.map((p) => `${p.style}:${p.market}`));
   const matches = expected.size === actual.size && [...expected].every((key) => actual.has(key));
   if (!matches) {
     throw new Error(
@@ -100,7 +99,7 @@ async function loadPortfolios(): Promise<PortfolioRow[]> {
         `실제 ${actual.size}개: ${[...actual].sort().join(", ")}). 마이그레이션 시드를 확인하세요.`
     );
   }
-  return data as PortfolioRow[];
+  return operating;
 }
 
 /** 오늘 이 시장의 배치가 이미 실행됐는지 확인한다(같은 날 수동 재실행 시 이중 매매를
@@ -331,36 +330,6 @@ async function loadUnderlyingStatuses(
   return map;
 }
 
-/** "실험조합형" 게이팅에 필요한 rule_type을 얻기 위해, 보유 포지션이 매달린
- * screening_results.strategy_id → strategies.rule_type을 조인한다. 이 스타일의
- * 계좌를 다루는 실행(=KR 배치)에서만 호출한다 — 다른 스타일에는 필요 없는 조회라
- * 불필요한 DB 호출을 늘리지 않는다. */
-async function loadRuleTypeByScreeningResultId(screeningResultIds: string[]): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (screeningResultIds.length === 0) return map;
-
-  const { data: results, error } = await supabaseAdmin
-    .from("screening_results")
-    .select("id, strategy_id")
-    .in("id", screeningResultIds);
-  if (error) throw new Error(`실험조합형 보유 포지션의 rule_type 조회를 위한 스크리닝 결과 조회 실패: ${error.message}`);
-  if (!results || results.length === 0) return map;
-
-  const strategyIds = Array.from(new Set(results.map((r) => r.strategy_id)));
-  const { data: strategies, error: strategiesError } = await supabaseAdmin
-    .from("strategies")
-    .select("id, rule_type")
-    .in("id", strategyIds);
-  if (strategiesError) throw new Error(`실험조합형 보유 포지션의 rule_type 조회 실패: ${strategiesError.message}`);
-
-  const ruleTypeByStrategyId = new Map((strategies ?? []).map((s) => [s.id, s.rule_type]));
-  for (const r of results) {
-    const ruleType = ruleTypeByStrategyId.get(r.strategy_id);
-    if (ruleType) map.set(r.id, ruleType);
-  }
-  return map;
-}
-
 interface RunPortfolioResult {
   buyCount: number;
   sellCount: number;
@@ -372,7 +341,6 @@ async function runPortfolio(
   positions: PositionDbRow[],
   candidates: ScreeningCandidateRow[],
   underlyingByScreeningId: Map<string, UnderlyingScreeningStatus>,
-  ruleTypeByScreeningResultId: Map<string, string>,
   adjustmentsByCode: Map<string, AppliedAdjustment[]>,
   now: Date
 ): Promise<RunPortfolioResult> {
@@ -466,40 +434,10 @@ async function runPortfolio(
   // 한정돼 있다)
   const heldStockCodes = new Set(remainingPositions.map((p) => p.stock_code));
 
-  // "실험조합형"만 매수 시점 고정비중 게이팅을 적용한다(다른 스타일은 후보 풀을 그대로
-  // selectBuyCandidates에 넘긴다). rule_type별 현재 보유비중은 이번 매수 판단 시점
-  // 기준(매도 반영 후, 매수 반영 전)의 잔여 포지션 평가금액으로 계산한다.
-  let candidatesForBuy = candidates;
-  if (style === EXPERIMENTAL_BLEND_STYLE) {
-    const heldValueByRuleType = new Map<string, number>();
-    let remainingHoldingsValue = 0;
-    for (const p of remainingPositions) {
-      const adj = adjusted(p);
-      const price = underlyingByScreeningId.get(p.screening_result_id ?? "")?.currentPrice ?? adj.avgPrice;
-      const value = adj.quantity * price;
-      remainingHoldingsValue += value;
-
-      const ruleType = p.screening_result_id ? ruleTypeByScreeningResultId.get(p.screening_result_id) : undefined;
-      if (ruleType) {
-        heldValueByRuleType.set(ruleType, (heldValueByRuleType.get(ruleType) ?? 0) + value);
-      }
-    }
-    const { equity: equityBeforeBuys } = computeEquity(cash, remainingHoldingsValue);
-
-    candidatesForBuy = filterCandidatesByTargetWeight(
-      candidates,
-      heldValueByRuleType,
-      equityBeforeBuys,
-      EXPERIMENTAL_BLEND_TARGET_WEIGHTS,
-      conditions.entry_conditions.max_positions - remainingPositions.length,
-      conditions.stock_selection_criteria.prefer_higher_return_pct
-    );
-  }
-
   const buyDecisions = selectBuyCandidates(
     style,
     conditions,
-    candidatesForBuy,
+    candidates,
     heldStockCodes,
     remainingPositions.length,
     cash
@@ -697,17 +635,6 @@ async function main(): Promise<void> {
       ? await loadAppliedAdjustmentsForCodes(allPositions.map((p) => p.stock_code))
       : new Map<string, AppliedAdjustment[]>();
 
-  // "실험조합형" 계좌가 이번 실행의 대상 시장에 있을 때만(KR 전용이므로 US 배치에서는
-  // 없음) 게이팅에 필요한 rule_type 조인을 수행한다.
-  const experimentalBlendPortfolio = portfolios.find((p) => p.style === EXPERIMENTAL_BLEND_STYLE);
-  const ruleTypeByScreeningResultId = experimentalBlendPortfolio
-    ? await loadRuleTypeByScreeningResultId(
-        allPositions
-          .filter((p) => p.portfolio_id === experimentalBlendPortfolio.id && p.screening_result_id !== null)
-          .map((p) => p.screening_result_id as string)
-      )
-    : new Map<string, string>();
-
   let totalBuy = 0;
   let totalSell = 0;
   let errorCount = 0;
@@ -725,7 +652,6 @@ async function main(): Promise<void> {
         positions,
         candidates,
         underlyingByScreeningId,
-        ruleTypeByScreeningResultId,
         adjustmentsByCode,
         now
       );

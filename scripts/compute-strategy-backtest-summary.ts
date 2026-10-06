@@ -38,7 +38,6 @@ import {
   type DailyPrice,
   type BacktestTrade,
   type MaCrossParams,
-  type MinerviniParams,
 } from "@/lib/backtest";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import {
@@ -50,7 +49,6 @@ import {
   PIT_MIN_AVG_TRADING_VALUE_WON,
   PIT_LIQUIDITY_SENSITIVITY_WON,
   FALLBACK_MA_CROSS_PARAMS,
-  FALLBACK_MINERVINI_PARAMS,
 } from "@/lib/strategyBacktestSummaryConfig";
 import {
   accumulateStockDailyReturns,
@@ -126,14 +124,12 @@ function toDailyPrice(row: StockDailyPriceRow): DailyPrice {
   };
 }
 
-/** ma_cross/minervini_trend_template은 사용자 개인화 값(rule_params)이라 상수로 고정할
+/** ma_cross는 사용자 개인화 값(rule_params)이라 상수로 고정할
  * 수 없다 — strategies 테이블(market='KR')에 등록된 첫 번째 행을 대표값으로 쓰고,
  * 없으면 lib/strategyBacktestSummaryConfig.ts의 임시 기본값을 쓴다
  * (components/StrategyManager.tsx의 "전략 성과 비교"와 동일한 "대표 전략" 관례 —
  * strategies 테이블엔 is_active 플래그가 없다). */
-async function loadActiveRuleParams(
-  ruleType: "ma_cross" | "minervini_trend_template"
-): Promise<Record<string, unknown> | null> {
+async function loadActiveRuleParams(ruleType: "ma_cross"): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabaseAdmin
     .from("strategies")
     .select("rule_params")
@@ -164,27 +160,16 @@ function createAccumulator(): RuleTypeAccumulator {
 async function main(): Promise<void> {
   console.log(`장기 백테스트(2016~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
 
-  const [maCrossActive, minerviniActive] = await Promise.all([
-    loadActiveRuleParams("ma_cross"),
-    loadActiveRuleParams("minervini_trend_template"),
-  ]);
+  const maCrossActive = await loadActiveRuleParams("ma_cross");
   const maCrossParams = (maCrossActive as unknown as MaCrossParams | null) ?? FALLBACK_MA_CROSS_PARAMS;
-  const minerviniParams = (minerviniActive as unknown as MinerviniParams | null) ?? FALLBACK_MINERVINI_PARAMS;
   console.log(
     maCrossActive
       ? `ma_cross 대표 전략 사용: ${JSON.stringify(maCrossParams)}`
       : `ma_cross 대표 전략 없음 — 기본값 사용: ${JSON.stringify(maCrossParams)}`
   );
-  console.log(
-    minerviniActive
-      ? `minervini_trend_template 대표 전략 사용: ${JSON.stringify(minerviniParams)}`
-      : `minervini_trend_template 대표 전략 없음 — 기본값 사용: ${JSON.stringify(minerviniParams)}`
-  );
 
   const RULES: Record<TargetRuleType, StrategyRule> = {
     ma_cross: { rule_type: "ma_cross", rule_params: maCrossParams },
-    minervini_trend_template: { rule_type: "minervini_trend_template", rule_params: minerviniParams },
-    reversal_breakout: { rule_type: "reversal_breakout", rule_params: {} },
     reversal_breakout_v2: { rule_type: "reversal_breakout_v2", rule_params: {} },
     peg_lynch: { rule_type: "peg_lynch", rule_params: {} },
   };
@@ -227,8 +212,6 @@ async function main(): Promise<void> {
 
   const accumulators: Record<TargetRuleType, RuleTypeAccumulator> = {
     ma_cross: createAccumulator(),
-    minervini_trend_template: createAccumulator(),
-    reversal_breakout: createAccumulator(),
     reversal_breakout_v2: createAccumulator(),
     peg_lynch: createAccumulator(),
   };

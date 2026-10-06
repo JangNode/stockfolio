@@ -37,6 +37,7 @@
     "batch:strategy-backtest-summary": "tsx --conditions=react-server scripts/compute-strategy-backtest-summary.ts",
     "diagnose:benchmark-reference-implementation": "tsx --conditions=react-server scripts/diagnose-benchmark-reference-implementation.ts",
     "probe:dart-fundamentals": "tsx --conditions=react-server scripts/probe-dart-fundamentals.ts",
+    "experiment:ma-cross": "tsx --conditions=react-server scripts/experiment-ma-cross.ts",
     "experiment:peg-lynch": "tsx --conditions=react-server scripts/experiment-peg-lynch.ts",
     "experiment:strategy-variants": "tsx --conditions=react-server scripts/experiment-strategy-variants.ts",
     "diagnose:market-cap-source": "tsx --conditions=react-server scripts/diagnose-market-cap-source.ts",

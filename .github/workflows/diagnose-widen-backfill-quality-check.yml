@@ -9,12 +9,12 @@ on:
       years:
         description: "확인할 연도(쉼표 구분, 최근->과거 순, 예: 2024,2025,2026)"
         type: string
-        required: true
+        required: false
 
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,8 +29,8 @@ jobs:
         run: npm ci
 
       - name: Diagnose widen backfill small-cap quality
-        run: npm run diagnose:widen-backfill-quality-check
+        run: npm run experiment:ma-cross
         env:
-          YEARS: ${{ inputs.years }}
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -110,7 +110,17 @@ async function tvfill() {
   }
 }
 
+async function size() {
+  const { data } = await supabaseAdmin.storage.from(BUCKET).list("", { limit: 100 });
+  let total = 0;
+  for (const f of data ?? []) { const sz = (f.metadata as { size?: number })?.size ?? 0; total += sz; if (sz) console.log(f.name, (sz / 1048576).toFixed(2), "MB"); }
+  console.log("stock-daily-prices 루트 합계", (total / 1048576).toFixed(2), "MB");
+  const { data: bk } = await supabaseAdmin.storage.from(BUCKET).list("backup-pre2015", { limit: 20 });
+  console.log("backup-pre2015 합계", ((bk ?? []).reduce((a, f) => a + ((f.metadata as { size?: number })?.size ?? 0), 0) / 1048576).toFixed(2), "MB");
+}
+
 async function main() {
+  if (MODE === "size") return size();
   if (MODE === "tvfill") return tvfill();
   if (MODE === "backup") return backup();
   if (MODE === "verify") return verify();

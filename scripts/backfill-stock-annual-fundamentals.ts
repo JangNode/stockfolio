@@ -65,6 +65,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import { STOCK_DATA_CANDIDATE_MARKET_CAP_EOK } from "@/lib/stockDataConfig";
+import { parseFundamentalsList, type DartAccountRow } from "@/lib/dartFundamentalsParse";
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DATA_SOURCE = "dart_fundamentals" as const;
@@ -85,9 +86,6 @@ const NO_DATA_RATIO_JUMP_THRESHOLD_PP = 0.2;
 // 재도 안전한 순수 실패 신호다. 0.5%는 위 사건(0.17%)보다는 여유를 두면서, 정상
 // 실행(수백~수천 건 채움)과는 확실히 구분되는 값으로 잡았다 — 역시 조정 대상이다.
 const MIN_FETCHED_RATIO = 0.005;
-
-const NET_INCOME_ACCOUNT_ID = "ifrs-full_ProfitLossAttributableToOwnersOfParent";
-const EQUITY_ACCOUNT_ID = "ifrs-full_EquityAttributableToOwnersOfParent";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -169,13 +167,6 @@ async function getExistingPairs(): Promise<Set<string>> {
   return existing;
 }
 
-interface DartAccountRow {
-  rcept_no: string;
-  sj_div: string;
-  account_id: string;
-  thstrm_amount: string;
-}
-
 interface FetchedFundamentals {
   rceptNo: string;
   rceptDate: string;
@@ -246,26 +237,8 @@ async function fetchFundamentals(
       }
       if (!list) return null;
 
-      const rceptNo = list[0].rcept_no;
-      const netIncomeRow = list.find((r) => r.account_id === NET_INCOME_ACCOUNT_ID);
-      const equityRow = list.find((r) => r.account_id === EQUITY_ACCOUNT_ID);
-
-      // 접속사·지주사가 아니거나 비지배지분이 없는 회사는 "지배기업 소유주지분"이
-      // 별도 항목으로 안 나오고 전체 당기순이익/자본총계 항목만 있을 수 있다 — 이
-      // 경우 전체 값을 그대로 쓴다(비지배지분이 없으니 전체=지배지분).
-      const fallbackNetIncome = list.find((r) => r.sj_div === "IS" && r.account_id === "ifrs-full_ProfitLoss");
-      const fallbackEquity = list.find((r) => r.sj_div === "BS" && r.account_id === "ifrs-full_Equity");
-
-      const netIncomeSource = netIncomeRow ?? fallbackNetIncome;
-      const equitySource = equityRow ?? fallbackEquity;
-
-      return {
-        rceptNo,
-        rceptDate: `${rceptNo.slice(0, 4)}-${rceptNo.slice(4, 6)}-${rceptNo.slice(6, 8)}`,
-        fsDiv,
-        netIncomeParent: netIncomeSource ? Number(netIncomeSource.thstrm_amount) : null,
-        equityParent: equitySource ? Number(equitySource.thstrm_amount) : null,
-      };
+      // 계정 id 표기(ifrs_/ifrs-full_)·폴백 규칙은 lib/dartFundamentalsParse.ts 참고.
+      return { ...parseFundamentalsList(list), fsDiv };
     } catch (error) {
       lastError = error;
       // 지수 백오프(5초, 10초, 20초) — burst rate limit으로 추정되는 "fetch failed"가

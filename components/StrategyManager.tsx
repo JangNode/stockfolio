@@ -558,6 +558,7 @@ export default function StrategyManager({ user }: { user: User }) {
               const highForcedLiquidation = summary
                 ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio)
                 : false;
+              const signalLimitedFrom = STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType];
               // 신호가 특정 시점 이후에만 가능한 전략은 비교 기간이 벤치마크와 달라 우세/열세 대신 "비교 참고"로 표기한다.
               const verdict =
                 summary && !signalLimitedFrom

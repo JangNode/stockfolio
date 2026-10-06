@@ -6,11 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { ScoreValue } from "@/components/ScoreValue";
 import { useMarket } from "@/components/MarketContext";
-import SubTabs, { LAB_PAPER_TRADING_TABS } from "@/components/SubTabs";
 import { formatNumber, type Market } from "@/lib/market";
 import { formatPercent, formatMoney } from "@/lib/formatNumber";
 import { PAPER_STYLE_LABEL, PAPER_STYLE_MARKETS, PAPER_STYLE_ORDER, type PaperStyle } from "@/lib/paperStyles";
-import { EXPERIMENTAL_BLEND_STYLE } from "@/lib/experimentalBlendConfig";
 import {
   toKstDateString as toKstDate,
   todayKstDateString as todayKstDate,
@@ -539,11 +537,6 @@ function DetailScreen({
             {active.label} <span className="text-xs text-ink-faint">v{active.version}</span>
           </p>
           <p className="mt-1 text-xs text-ink-muted">{formatDate(active.created_at)} 생성</p>
-          {style === EXPERIMENTAL_BLEND_STYLE && (
-            <p className="mt-1 text-xs text-est">
-              ⚠ 백테스트 기반 조합이며 라이브 검증 이력이 없습니다.
-            </p>
-          )}
           <p className="mt-3 text-sm text-ink">{active.rationale}</p>
 
           <button
@@ -863,7 +856,8 @@ export default function PaperTrading() {
   const { data: paperRuns } = usePaperRuns();
 
   const portfolios = useMemo(
-    () => (allPortfolios ?? []).filter((p) => p.market === market),
+    // 종료된 스타일(실험조합형·커스텀)의 계좌 행은 DB에 보존돼 있지만 화면에서는 다루지 않는다.
+    () => (allPortfolios ?? []).filter((p) => p.market === market && PAPER_STYLE_ORDER.includes(p.style)),
     [allPortfolios, market]
   );
   const portfolioIds = useMemo(() => new Set(portfolios.map((p) => p.id)), [portfolios]);
@@ -882,8 +876,6 @@ export default function PaperTrading() {
 
   return (
     <div className="w-full max-w-4xl">
-      <SubTabs tabs={LAB_PAPER_TRADING_TABS} />
-
       <div className="mb-6 flex flex-wrap gap-1">
         {SUB_SCREENS.map((s) => (
           <button

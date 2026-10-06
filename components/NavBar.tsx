@@ -5,14 +5,12 @@ import { usePathname } from "next/navigation";
 import { useMarket } from "@/components/MarketContext";
 import { MARKET_LABELS, type Market } from "@/lib/market";
 
-// 백테스트(/backtest)는 "전략 관리"의, AI 모의투자(/paper-trading)는 "실험실"의 하위
-// 화면이라 그 화면으로 이동해도 상위 탭이 계속 활성 상태(색상 강조)로 보이도록 매칭
-// 경로를 더 둔다.
+// 백테스트(/backtest)는 "전략 관리"의 화면이라 그 화면으로 이동해도 상위 탭이 계속 활성 상태(색상 강조)로 보이도록 매칭 경로를 더 둔다.
 const LINKS = [
   { href: "/", label: "관심종목", activePaths: ["/"] },
   { href: "/strategies", label: "전략 관리", activePaths: ["/strategies", "/backtest"] },
   { href: "/screening", label: "스크리닝", activePaths: ["/screening"] },
-  { href: "/paper-trading", label: "실험실", activePaths: ["/lab", "/paper-trading"] },
+  { href: "/paper-trading", label: "AI 모의투자", activePaths: ["/paper-trading"] },
   { href: "/themes", label: "테마", activePaths: ["/themes"] },
   { href: "/market-indicators", label: "시장 지표", activePaths: ["/market-indicators"] },
 ] as const;

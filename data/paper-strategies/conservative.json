@@ -3,7 +3,7 @@
   "rationale": "지난 재생성(10/5, #439) 이후 커밋은 DART 재무제표 파싱 로직을 별도 모듈(lib/dartFundamentalsParse.ts)로 분리하고 테스트를 추가한 리팩터뿐이라, ma_cross/minervini 매칭이나 장기 백테스트 수치에는 영향이 없습니다. 장기 백테스트 배치는 매주 월요일에만 재계산되므로 지난주 보고한 ma_cross/minervini CAGR 역전(-11.9%/-12.7%)에 대한 새 자료는 없고, 그 판단(raw CAGR이 안정형의 손절 3%·익절 8%와는 다른 위험관리 가정을 쓰고 있어 그대로 치환할 수 없음, 구조적 조정은 별도 신중한 검토가 필요)도 그대로 유지됩니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 그대로 유지하고, 다음 주 재계산 결과를 다시 확인하겠습니다.",
   "generated_at": "2026-10-06T05:17:50Z",
   "entry_conditions": {
-    "source_rule_types": ["ma_cross", "minervini_trend_template"],
+    "source_rule_types": ["ma_cross"],
     "min_signal_return_pct": -2,
     "max_signal_return_pct": 9,
     "max_positions": 14,

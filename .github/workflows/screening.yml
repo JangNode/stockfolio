@@ -67,14 +67,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      # 실험실 탭 커스텀 백테스트도 국내/미국 공용 표(custom_backtest_runs)라 하루 한 번만
-      # 정리하면 충분하다 — screening-us.yml에는 중복으로 추가하지 않는다.
-      - name: Clean up old custom backtest results
-        run: npm run cleanup:lab-backtests
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
       # 종목 시세 원자료 hot/cold 분리(lib/stockDailyPricesStorage.ts) — 최근 구간
       # (stock_daily_prices_recent) 하루치만 INSERT하면 되는 가벼운 작업이라 매일 이
       # 워크플로 마지막에 붙인다. 오래된 구간을 Parquet로 옮기는 아카이빙은 별도

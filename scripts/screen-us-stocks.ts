@@ -16,6 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isOperatingRuleType } from "@/lib/strategyVersions";
 import {
   getKisCallStats,
   getOverseasDailyPrices,
@@ -52,7 +53,6 @@ const MARKET_CAP_SCORE_FULL_USD = 5_000_000_000;
 // dailyprice는 페이지당 정확히 몇 건을 주는지 문서로 확인 못 해(lib/kis.ts 주석 참고)
 // 최대 페이지 수로만 상한을 둔다.
 const DAILY_TARGET_ROWS_DEFAULT = 100;
-const MINERVINI_DAILY_TARGET_ROWS = 300;
 
 const BATCH_CONCURRENCY = 10;
 const CALL_RETRY_COUNT = 2;
@@ -111,21 +111,16 @@ async function loadStrategies(): Promise<StrategyRow[]> {
     .eq("market", "US");
 
   if (error) throw new Error(`전략 조회 실패: ${error.message}`);
-  return (data ?? []) as StrategyRow[];
+  // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 더 이상 스캔하지 않는다.
+  return ((data ?? []) as StrategyRow[]).filter((strategy) => isOperatingRuleType(strategy.rule_type));
 }
 
 function computeDailyTargetRows(strategies: StrategyRow[]): number {
   let target = DAILY_TARGET_ROWS_DEFAULT;
 
   for (const strategy of strategies) {
-    if (strategy.rule_type === "minervini_trend_template") {
-      target = Math.max(target, MINERVINI_DAILY_TARGET_ROWS);
-    } else if (strategy.rule_type === "ma_cross") {
+    if (strategy.rule_type === "ma_cross") {
       target = Math.max(target, strategy.rule_params.long_period + 20);
-    } else if (strategy.rule_type === "custom_composite") {
-      const { ma_cross, rsi, volume_surge } = strategy.rule_params;
-      const maxPeriod = Math.max(ma_cross?.long_period ?? 0, rsi?.period ?? 0, volume_surge?.period ?? 0);
-      target = Math.max(target, maxPeriod + 20);
     }
     // peg_lynch는 DART/KRX 기반이라 KR 전용이다 — 이 스크립트는 market="US"
     // 전략만 조회하므로 실제로는 등장하지 않지만, 타입 완전성을 위해 대상에서 제외한다.

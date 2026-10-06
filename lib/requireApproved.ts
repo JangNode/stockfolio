@@ -59,7 +59,7 @@ export async function requireApproved(request: Request): Promise<NextResponse | 
 }
 
 /**
- * 요청자의 user_id가 필요한 라우트(예: 실험실 백테스트 요청)의 공통 접근 제어.
+ * 요청자의 user_id가 필요한 라우트(예: 모의투자 요청)의 공통 접근 제어.
  * 통과하면 사용자 정보를, 막아야 하면 그대로 반환할 응답을 돌려준다.
  */
 export async function requireApprovedUser(request: Request): Promise<ApprovedCheckResult> {

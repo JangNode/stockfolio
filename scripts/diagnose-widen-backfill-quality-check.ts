@@ -38,7 +38,7 @@ async function main() {
     const ds = [...dates].sort();
     console.log(y, JSON.stringify({ rows: rows.length, codes: codes.size, days: dates.size, first: ds[0], last: ds[ds.length - 1],
       withTV: rows.filter((r) => r.tradingValue > 0).length, withVol: rows.filter((r) => r.volume > 0).length, withShr: rows.filter((r) => r.listedShares > 0).length,
-      minCapEok: Math.round(Math.min(...rows.map((r) => r.marketCapEok))) }));
+      minCapEok: Math.round(rows.reduce((m, r) => Math.min(m, r.marketCapEok), Infinity)) }));
   }
 
   console.log("== B. KRX 일별매매정보 표본일 ==");

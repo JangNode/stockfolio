@@ -68,6 +68,35 @@ export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT = "pit_adjusted";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED = "full";
 export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";
 
+// 화면(app/api/strategies/backtest-summary)이 읽는 data_widen_stage. 이 값 한 줄만 바꾸면
+// 되돌릴 수 있다(예: 승격 전 화면은 "narrow"). 2026-10-06 사용자 결정으로 시총 5천억 PIT
+// + 비용 반영 + 액면조정 결과('pit_adjusted_cap5000')를 화면 기본값으로 올렸다. 다른 stage
+// 행은 DB에 그대로 남아 있다(삭제하지 않음). 'narrow'를 가리킬 땐 stage가 비어 있는 기존
+// 행도 함께 읽는다.
+export const STRATEGY_BACKTEST_DISPLAY_STAGE: string = "pit_adjusted_cap5000";
+
+// 화면 상단 벤치마크 카드로 보여줄 benchmark_summary.benchmark_type과 표시명. kospi/kosdaq은
+// 가격지수(배당 미포함), universe_monthly_rebalance는 같은 유니버스·기간의 월간 리밸런싱
+// 동일가중(비용 반영)이라 전략의 "벤치마크 열세/우세" 비교 기준이 된다.
+export const STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE = "universe_monthly_rebalance";
+export const STRATEGY_BACKTEST_BENCHMARK_CARDS = [
+  { type: STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE, label: "유니버스 동일가중 월간 리밸런싱(비용 반영)" },
+  { type: "kospi", label: "KOSPI(가격지수)" },
+  { type: "kosdaq", label: "KOSDAQ(가격지수)" },
+] as const;
+
+// "표본 적음" 배지 기준: 총 거래 수가 (이 값 × 백테스트 기간 연수)보다 적으면 붙인다. 2026-10-06
+// peg_lynch 검증에서 사전 고정한 "연도별 거래 20건 이상"과 같은 값이다(연도별 거래 수는 DB에
+// 저장돼 있지 않아 총 거래 수를 연수로 환산해 비교한다).
+export const STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR = 20;
+
+// 신호가 특정 시점 이후에만 가능한 전략의 안내. peg_lynch: DART 재무제표 API가 FY2015부터만
+// 제공되고(FY2014는 데이터 없음) PEG의 EPS 성장률이 5년 전 동일 연결/별도 기준 값을 요구해서
+// (lib/pegConfig.ts PEG_GROWTH_LOOKBACK_YEARS) 첫 신호가 FY2020 공시(2021-03) 이후다.
+export const STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM: Partial<Record<StrategyRuleType, string>> = {
+  peg_lynch: "2021-03",
+};
+
 // 시점별(point-in-time) 유니버스의 유동성 필터(2026-09-30 팀장 결정): 진입 판단일 직전
 // PIT_LIQUIDITY_LOOKBACK_DAYS 거래일 평균 거래대금(원)이 기준 이상인 종목만 그날 진입
 // 후보로 삼는다. 5억원이 기본, 1억/10억은 벤치마크 민감도로만 계산한다.

@@ -20,7 +20,12 @@ import {
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
   STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO,
   STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD,
+  STRATEGY_BACKTEST_BENCHMARK_CARDS,
+  STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE,
+  STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR,
+  STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM,
 } from "@/lib/strategyBacktestSummaryConfig";
+import { benchmarkVerdict, isLowSampleSize } from "@/lib/strategyBacktestBadges";
 
 export type StrategyRow = StrategyRule & {
   id: string;
@@ -112,8 +117,20 @@ interface StrategyBacktestSummaryRow {
   data_widen_stage: string | null;
 }
 
+interface BenchmarkSummaryRow {
+  benchmark_type: string;
+  period_start_date: string;
+  period_end_date: string;
+  computed_at: string;
+  cagr_pct: number | null;
+  mdd_pct: number | null;
+  cost_included: boolean;
+  data_widen_stage: string | null;
+}
+
 interface StrategyBacktestSummaryResponse {
   summaries: StrategyBacktestSummaryRow[];
+  benchmarks: BenchmarkSummaryRow[];
 }
 
 function formatMdd(value: number | null): string {
@@ -317,6 +334,16 @@ export default function StrategyManager({ user }: { user: User }) {
     return map;
   }, [backtestSummaryData]);
 
+  const benchmarkByType = useMemo(
+    () => new Map((backtestSummaryData?.benchmarks ?? []).map((b) => [b.benchmark_type, b])),
+    [backtestSummaryData]
+  );
+  const universeBenchmark = benchmarkByType.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE) ?? null;
+  // 새 기본 stage에 행이 없는 전략(계산 전/누락)은 카드 대신 "재정비 중"으로 두고 이름을 알려준다.
+  const missingBacktestRuleTypes = STRATEGY_BACKTEST_TARGET_RULE_TYPES.filter(
+    (ruleType) => !backtestSummaryByRuleType.has(ruleType)
+  );
+
   return (
     <div className="w-full max-w-4xl">
       <SubTabs tabs={STRATEGY_BACKTEST_TABS} />
@@ -466,15 +493,57 @@ export default function StrategyManager({ user }: { user: User }) {
         <h3 className="text-sm font-medium text-ink">
           장기 백테스트({STRATEGY_BACKTEST_WINDOW_START_YEAR}~오늘)
         </h3>
-        <p className="mt-1 mb-3 text-xs text-ink-muted">
-          실계좌 스크리닝 추적(위 전략 성과 비교)과 달리, {STRATEGY_BACKTEST_WINDOW_START_YEAR}년부터 오늘까지
-          전체 종목 풀을 대상으로 매주 한 번 재계산하는 결과입니다. 최근 장세에 좌우되지 않는 장기 성과를 보려면
-          이 섹션을 참고하세요.
+        <p className="mt-1 mb-2 text-xs text-ink-muted">
+          실계좌 스크리닝 추적(위 전략 성과 비교)과 달리, {STRATEGY_BACKTEST_WINDOW_START_YEAR}년부터의 장기 성과를
+          과거 시점 기준으로 다시 계산한 결과입니다.
         </p>
-        {market !== "US" && backtestSummaryData?.summaries.some((s) => s.data_widen_stage !== "full") && (
-          <p className="mb-3 rounded-card bg-est-soft px-3 py-2 text-xs text-est">
-            데이터 재정비 중, 수치는 변경될 수 있음
+        <div className="mb-3 space-y-1 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
+          <p>
+            <span className="font-medium text-ink">유니버스</span>: 시총 5천억 이상(당시 기준), 상장폐지 종목 포함,
+            비용(수수료·세금·슬리피지) 반영, 액면분할·병합 보정
           </p>
+          <p>
+            <span className="font-medium text-ink">한계</span>: 전략 수익률은 보유한 날의 평균이고 벤치마크는 전액
+            투자라 단순 비교에는 한계가 있습니다. 슬리피지는 소형주에 낙관적일 수 있습니다. 과거 성과가 미래를
+            보장하지 않습니다.
+          </p>
+        </div>
+        {market !== "US" && missingBacktestRuleTypes.length > 0 && (
+          <p className="mb-3 rounded-card bg-est-soft px-3 py-2 text-xs text-est">
+            재정비 중: {missingBacktestRuleTypes.map((ruleType) => RULE_TYPE_LABELS[ruleType]).join(", ")}
+          </p>
+        )}
+        {market !== "US" && (
+          <div className="mb-4">
+            <h4 className="mb-2 text-xs font-medium text-ink-muted">벤치마크(같은 기간)</h4>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {STRATEGY_BACKTEST_BENCHMARK_CARDS.map(({ type, label }) => {
+                const benchmark = benchmarkByType.get(type);
+                return (
+                  <div key={type} className="rounded-card border border-border bg-surface p-3">
+                    <p className="text-xs font-medium text-ink">{label}</p>
+                    {benchmark ? (
+                      <dl className="mt-2 space-y-1 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <dt className="text-xs text-ink-muted">CAGR(연환산)</dt>
+                          <dd className="tabular-nums text-ink">{formatPct(benchmark.cagr_pct)}</dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <dt className="text-xs text-ink-muted">MDD</dt>
+                          <dd className="tabular-nums text-ink">{formatMdd(benchmark.mdd_pct)}</dd>
+                        </div>
+                        <p className="text-[10px] text-ink-faint">
+                          {benchmark.period_start_date} ~ {benchmark.period_end_date}
+                        </p>
+                      </dl>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-muted">재정비 중</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {market === "US" ? (
@@ -489,11 +558,50 @@ export default function StrategyManager({ user }: { user: User }) {
               const highForcedLiquidation = summary
                 ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio)
                 : false;
+              const signalLimitedFrom = STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType];
+              // 신호가 특정 시점 이후에만 가능한 전략은 비교 기간이 벤치마크와 달라 우세/열세 대신 "비교 참고"로 표기한다.
+              const verdict =
+                summary && !signalLimitedFrom
+                  ? benchmarkVerdict(summary.cagr_pct, universeBenchmark?.cagr_pct ?? null)
+                  : null;
+              const lowSample = summary
+                ? isLowSampleSize(
+                    summary.total_trades,
+                    summary.period_start_date,
+                    summary.period_end_date,
+                    STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR
+                  )
+                : false;
 
               return (
                 <div key={ruleType} className="rounded-card border border-border bg-surface p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
+                    {verdict === "behind" && (
+                      <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                        벤치마크 열세(검증 결과)
+                      </span>
+                    )}
+                    {verdict === "ahead" && (
+                      <span className="rounded-full border border-border bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-ink-muted">
+                        벤치마크 우세
+                      </span>
+                    )}
+                    {signalLimitedFrom && (
+                      <>
+                        <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                          비교 참고(신호가 {signalLimitedFrom} 이후라 기간이 벤치마크와 다름)
+                        </span>
+                        <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                          표본 제한(신호 {signalLimitedFrom} 이후)
+                        </span>
+                      </>
+                    )}
+                    {lowSample && (
+                      <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
+                        표본 적음
+                      </span>
+                    )}
                     {concentrationWarning && (
                       <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
                         소수 종목 의존
@@ -564,9 +672,7 @@ export default function StrategyManager({ user }: { user: User }) {
                       </div>
                     </dl>
                   ) : (
-                    <p className="mt-3 text-xs text-ink-muted">
-                      아직 계산 전입니다(다음 주 배치 후 표시됩니다).
-                    </p>
+                    <p className="mt-3 text-xs text-ink-muted">재정비 중</p>
                   )}
                 </div>
               );

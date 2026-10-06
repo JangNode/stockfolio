@@ -76,6 +76,17 @@ const DATA_WIDEN_STAGE = process.env.DATA_WIDEN_STAGE || STRATEGY_BACKTEST_DATA_
 const COST_FREE_DRY_RUN = process.env.COST_FREE_DRY_RUN === "true";
 const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
 const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
+// 시총 유니버스(2026-10-06 화면 기본 결과로 승격): 0이면 사용 안 함(기본, 기존 동작). 양수면 그날(as-of) 저장된
+// 시총(억)이 이 값 이상인 종목만 진입·벤치마크 편입 후보로 삼는다(유동성 5억 필터와 병행). 이때 유동성
+// 민감도(1억/10억) 벤치마크는 계산하지 않는다. 결과 stage는 DATA_WIDEN_STAGE로 구분해 저장한다
+// (주간 워크플로가 5000 + pit_adjusted_cap5000으로 한 번 더 실행한다).
+const MIN_MARKET_CAP_EOK = Number(process.env.UNIVERSE_MIN_MARKET_CAP_EOK) || 0;
+// 시총 필터를 켠 결과가 필터 없는 기본 stage에 섞여 저장되지 않게 막는다.
+if (MIN_MARKET_CAP_EOK > 0 && DATA_WIDEN_STAGE === STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT) {
+  throw new Error(`UNIVERSE_MIN_MARKET_CAP_EOK를 쓰려면 DATA_WIDEN_STAGE를 기본값(${STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT})과 다르게 지정해야 합니다.`);
+}
+const LIQUIDITY_SENSITIVITIES = MIN_MARKET_CAP_EOK > 0 ? [] : PIT_LIQUIDITY_SENSITIVITY_WON;
+const capOk = (row: StockDailyPriceRow): boolean => MIN_MARKET_CAP_EOK === 0 || row.marketCapEok >= MIN_MARKET_CAP_EOK;
 const PERIOD_START_DATE = `${STRATEGY_BACKTEST_WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
@@ -197,13 +208,18 @@ async function main(): Promise<void> {
   const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR, appliedAdjustments);
   const universe = Array.from(seriesByCode.keys());
   console.log(
+    MIN_MARKET_CAP_EOK > 0
+      ? `시총 유니버스: 그날(as-of) 저장 시총 ${MIN_MARKET_CAP_EOK}억 이상 + 유동성 ${PIT_MIN_AVG_TRADING_VALUE_WON / 1e8}억 이상, stage=${DATA_WIDEN_STAGE}, ${COST_LABEL}`
+      : "시총 필터 없음(기본 유니버스: 유동성 기준만)"
+  );
+  console.log(
     `전체 종목(시세 존재 이력): ${universe.length}개 — 시점별 유동성(직전 ${PIT_LIQUIDITY_LOOKBACK_DAYS}거래일 평균 ` +
       `거래대금 ${PIT_MIN_AVG_TRADING_VALUE_WON / 1e8}억원 이상)으로 진입 후보를 걸러냄. ` +
       `로드 완료 ${((Date.now() - startedMs) / 1000).toFixed(0)}초, heap ${(process.memoryUsage().heapUsed / 1048576).toFixed(0)}MB`
   );
   const lowestThresholdWon = Math.min(
     PIT_MIN_AVG_TRADING_VALUE_WON,
-    ...PIT_LIQUIDITY_SENSITIVITY_WON.map((s) => s.minAvgTradingValueWon)
+    ...LIQUIDITY_SENSITIVITIES.map((s) => s.minAvgTradingValueWon)
   );
   // 리밸런싱 날짜별 종목의 직전 20거래일 평균 거래대금(벤치마크 유니버스 필터용).
   const liquidityAtRebalance = new Map<string, Map<string, number>>();
@@ -235,7 +251,7 @@ async function main(): Promise<void> {
       const liquidity = new Map<string, number>();
       for (const d of rebalanceDates) {
         const i = indexByDate.get(d);
-        if (i !== undefined && Number.isFinite(avgTradingValue[i])) liquidity.set(d, avgTradingValue[i]);
+        if (i !== undefined && Number.isFinite(avgTradingValue[i]) && capOk(priceRows[i])) liquidity.set(d, avgTradingValue[i]);
       }
       liquidityAtRebalance.set(stockCode, liquidity);
       pricesByStock.set(
@@ -247,7 +263,7 @@ async function main(): Promise<void> {
       // 건너뛴다(어차피 진입 불가) — 벤치마크용 시세/유동성은 위에서 이미 보관했다.
       let everEligible = false;
       for (let i = 0; i < prices.length; i++) {
-        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= lowestThresholdWon) {
+        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= lowestThresholdWon && capOk(priceRows[i])) {
           everEligible = true;
           break;
         }
@@ -255,7 +271,7 @@ async function main(): Promise<void> {
       if (!everEligible) return;
       let everEligibleMain = false;
       for (let i = 0; i < prices.length; i++) {
-        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON) {
+        if (prices[i].date >= PERIOD_START_DATE && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON && capOk(priceRows[i])) {
           everEligibleMain = true;
           break;
         }
@@ -263,7 +279,7 @@ async function main(): Promise<void> {
       if (everEligibleMain) everEligibleCount++;
       const entryAllowed = (date: string): boolean => {
         const i = indexByDate.get(date);
-        return i !== undefined && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON;
+        return i !== undefined && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON && capOk(priceRows[i]);
       };
 
       let fundamentals: FundamentalsSeries | undefined;
@@ -320,7 +336,7 @@ async function main(): Promise<void> {
   });
 
   // 월별(리밸런싱 시점) 편입 종목 수 = 그날 시세가 있고 유동성 조건을 넘는 종목 수.
-  for (const thresholdWon of [PIT_MIN_AVG_TRADING_VALUE_WON, ...PIT_LIQUIDITY_SENSITIVITY_WON.map((s) => s.minAvgTradingValueWon)]) {
+  for (const thresholdWon of [PIT_MIN_AVG_TRADING_VALUE_WON, ...LIQUIDITY_SENSITIVITIES.map((s) => s.minAvgTradingValueWon)]) {
     const counts = rebalanceDates.map((d) => {
       let n = 0;
       for (const liquidity of liquidityAtRebalance.values()) {
@@ -439,7 +455,7 @@ async function main(): Promise<void> {
       costIncluded: INCLUDE_COSTS,
     },
     // 유동성 기준 민감도(1억/10억) — 벤치마크에서만 계산한다.
-    ...PIT_LIQUIDITY_SENSITIVITY_WON.map(({ label, minAvgTradingValueWon }) => ({
+    ...LIQUIDITY_SENSITIVITIES.map(({ label, minAvgTradingValueWon }) => ({
       benchmarkType: `universe_monthly_rebalance_${label}`,
       dailyReturnsPct: simulateUniverseMonthlyRebalance(
         pricesByStock,

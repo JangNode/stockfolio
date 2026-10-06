@@ -457,11 +457,9 @@ async function updateActiveTracking(): Promise<{
 
     const factor = getCumulativeFactor(row.stock_code, d10(row.matched_at), today, adjustmentsByCode);
     const adjustedEntry = adjustPrice(row.entry_price, factor);
-    const status = evaluateTrackingStatus(
-      currentPrice,
-      adjustPrice(row.stop_loss_price, factor),
-      adjustPrice(row.take_profit_price, factor)
-    );
+    const adjustedStopLoss = adjustPrice(row.stop_loss_price, factor);
+    const adjustedTakeProfit = adjustPrice(row.take_profit_price, factor);
+    const status = evaluateTrackingStatus(currentPrice, adjustedStopLoss, adjustedTakeProfit);
     // "지금 판다면" 가정으로 매도측 비용(수수료+슬리피지+세금)까지 반영한 순수익률 —
     // active 상태에서도 실현 시 손익을 그대로 보여주는 게 의도된 설계다.
     const returnPct = computeCostAdjustedReturnPct(adjustedEntry, currentPrice, today, "KR") * 100;
@@ -492,10 +490,10 @@ async function updateActiveTracking(): Promise<{
     updated++;
     if (status === "stopped") {
       stopped++;
-      console.log(`    ✕ 손절 처리: ${row.stock_code} (${currentPrice} ≤ ${row.stop_loss_price})`);
+      console.log(`    ✕ 손절 처리: ${row.stock_code} (${currentPrice} ≤ ${adjustedStopLoss})`);
     } else if (status === "profited") {
       profited++;
-      console.log(`    ✓ 익절 처리: ${row.stock_code} (${currentPrice} ≥ ${row.take_profit_price})`);
+      console.log(`    ✓ 익절 처리: ${row.stock_code} (${currentPrice} ≥ ${adjustedTakeProfit})`);
     }
   }
 

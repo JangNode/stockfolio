@@ -78,7 +78,7 @@ async function classify() {
   const idx = buildTradingDayIndex(series);
   const events = new Map<string, { status: string; reason?: string }>();
   let applied = 0, low = 0;
-  for (const rows of series.values()) for (const e of detectAdjustmentEvents(rows, "2010-01-01", idx)) { events.set(e.stockCode + ":" + e.eventDate, { status: e.status, reason: e.lowConfidenceReason }); if (e.status === "applied") applied++; else low++; }
+  for (const rows of series.values()) for (const e of detectAdjustmentEvents(rows, "2010-01-01", idx)) { events.set(e.stockCode + ":" + e.eventDate, { status: e.status, reason: e.lowConfidenceReason ?? undefined }); if (e.status === "applied") applied++; else low++; }
   console.log("2010-01-01~2015 후보:", events.size, "자동적용", applied, "low_confidence", low);
   const cls: Record<string, Record<string, number>> = {};
   const bump = (g: string, k: string) => { (cls[g] ??= {})[k] = (cls[g][k] ?? 0) + 1; };

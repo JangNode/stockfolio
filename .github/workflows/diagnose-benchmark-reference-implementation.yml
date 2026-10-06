@@ -7,12 +7,16 @@ name: 벤치마크 참조 구현 재실행 (검증, 영구 보존)
 # 다시 돌려 프로덕션 DB 값(benchmark_summary)과 교차검증하는 용도다. 순수
 # 조회+계산(쓰기 없음).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      window_start_year:
+        type: string
+        default: ""
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,7 +31,10 @@ jobs:
         run: npm ci
 
       - name: Run benchmark reference implementation
-        run: npm run diagnose:benchmark-reference-implementation
+        run: npm run batch:strategy-backtest-summary
         env:
+          COST_FREE_DRY_RUN: "true"
+          BACKTEST_WINDOW_START_YEAR: ${{ inputs.window_start_year }}
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

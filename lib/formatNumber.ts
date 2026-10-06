@@ -6,7 +6,7 @@
  * 계산 로직은 건드리지 않고 표시 포맷만 다룬다.
  */
 
-import { formatNumber, type Market } from "@/lib/market";
+import { formatNumber, formatPrice, type Market } from "@/lib/market";
 
 /** 퍼센트를 소수점 digits자리까지 표시한다. 이 앱의 등락률 표시 대부분이 이미
  * 소수 2자리를 쓰고 있어(전수 조사) 기본값을 2로 둔다. sign은 기본 true —
@@ -36,4 +36,17 @@ export function formatMarketCap(eok: number): string {
  * 아니라 수량이라 lib/market.ts의 formatPrice가 아니라 formatNumber를 재사용한다. */
 export function formatShares(value: number, market: Market): string {
   return `${formatNumber(value, market)}주`;
+}
+
+/** 화면에 보여줄 금액. 원화(KR)는 반올림한 정수 + 천 단위 콤마 + "원", 달러(US)는 기존 formatPrice(소수 2자리).
+ * 모의투자 체결가·평단가·평가금액은 슬리피지·수수료 반영이나 평균 계산으로 소수가 생기지만, 원화는 소수 단위가
+ * 없으므로 표시 단계에서만 반올림한다(저장값·계산은 그대로). sign: true면 양수에 "+"를 붙인다(반올림 후 기준). */
+export function formatMoney(value: number, market: Market, options: { sign?: boolean } = {}): string {
+  if (market !== "KR") {
+    const text = formatPrice(value, market);
+    return options.sign && value > 0 ? `+${text}` : text;
+  }
+  const rounded = Math.round(value) || 0; // -0 → 0
+  const prefix = options.sign && rounded > 0 ? "+" : "";
+  return `${prefix}${rounded.toLocaleString("ko-KR")}원`;
 }

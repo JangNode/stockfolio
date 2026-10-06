@@ -124,8 +124,7 @@ async function main(): Promise<void> {
     }
     toSave.push(e);
   }
-  // 검증용: INCREMENTAL_SCAN_DRY_RUN=true면 저장하지 않고 결과만 출력한다(진단 종료 후 제거 예정).
-  if (process.env.INCREMENTAL_SCAN_DRY_RUN !== "true") await saveAdjustmentEvents(toSave);
+  await saveAdjustmentEvents(toSave);
 
   const appliedNow = toSave.filter((e) => e.status === "applied");
   console.log(

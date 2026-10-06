@@ -102,7 +102,16 @@ async function classify() {
   const u = process.resourceUsage(); console.log("최대 RSS", (u.maxRSS / 1024).toFixed(0), "MB");
 }
 
+async function tvfill() {
+  for (let y = 2015; y <= 2026; y++) {
+    const rows = await downloadYearPrices(y); const n = rows.length;
+    console.log(y, JSON.stringify({ rows: n, tradingValue: pct(rows.filter((r) => r.tradingValue > 0).length, n), codes: new Set(rows.map((r) => r.stockCode)).size,
+      topCapMissingTV: pct(rows.filter((r) => r.marketCapEok >= 5000 && !(r.tradingValue > 0)).length, rows.filter((r) => r.marketCapEok >= 5000).length) }));
+  }
+}
+
 async function main() {
+  if (MODE === "tvfill") return tvfill();
   if (MODE === "backup") return backup();
   if (MODE === "verify") return verify();
   if (MODE === "classify") return classify();

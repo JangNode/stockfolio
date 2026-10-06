@@ -82,3 +82,17 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 화면이 기본으로 읽는 stage(lib/strategyBacktestSummaryConfig.ts의 STRATEGY_BACKTEST_DISPLAY_STAGE =
+      # pit_adjusted_cap5000)를 매주 갱신한다: 시총 5천억 PIT + 비용 반영 + 액면조정. 위 스텝(기존
+      # pit_adjusted)과 같은 코드·데이터로 유니버스 시총 기준만 다르게 한 번 더 실행하며, 두 스텝 모두
+      # 새 행을 추가 저장한다(기존 행 삭제·수정 없음).
+      - name: Compute strategy backtest summary (market cap 5000 eok PIT, display stage)
+        run: npm run batch:strategy-backtest-summary
+        env:
+          DATA_WIDEN_STAGE: pit_adjusted_cap5000
+          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
+          COST_FREE_DRY_RUN: ${{ inputs.cost_free_dry_run }}
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

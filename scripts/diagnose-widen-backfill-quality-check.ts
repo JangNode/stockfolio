@@ -1,118 +1,55 @@
-/**
- * 디스포저블 진단: 전종목 확장 재백필(#413) 2015~2026 확장 각 단계 후 소형주
- * 데이터 품질을 확인한다. 대형주 표본 대조(diagnose-widen-backfill-safety-check.ts)는
- * 이미 마쳤으므로, 새로 늘어난 소형주 쪽 통계만 본다. 쓰기 없음(순수 조회).
- *
- * 확인 항목:
- * 1. 연도별 종목 수 / 행 수 / 거래일당 평균 종목 수
- * 2. 필드별 결측률(종가, 거래량, 거래대금, 상장주식수) — NaN/undefined만 결측으로 집계
- * 3. 거래정지일(거래량=0) 비율
- * 4. 중복 행(같은 종목·날짜) 개수
- * 5. 이 연도에서 사라진 종목(다음 연도 데이터가 없는 종목) 수 + 샘플 3개, 마지막 거래일
- * 6. 전일 종가 대비 ±30% 초과 변동 행 수(권리 이벤트 후보, 개수만 기록)
- *
- * 실행: YEARS="2024,2025,2026" npm run diagnose:widen-backfill-quality-check
- */
+// 임시 읽기 전용 검증(추적 조회 페이지네이션 PR): 실제 수정 함수를 호출해 전체 조회 여부를 확인한다. 쓰기 없음.
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadKrTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
+import { fetchAllRows } from "@/lib/supabasePagination";
 
-import { downloadYearPrices, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
-
-function isMissing(value: number | undefined | null): boolean {
-  return value === undefined || value === null || !Number.isFinite(value);
+async function exactCount(build: (q: any) => any): Promise<number> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const { count, error } = await build(supabaseAdmin.from("screening_results").select("*", { count: "exact", head: true }));
+  if (error) throw new Error(error.message);
+  return count as number;
 }
 
-async function checkYear(year: number, nextYearCodes: Set<string> | null): Promise<Set<string>> {
-  const rows = await downloadYearPrices(year);
-  console.log(`\n=== ${year}년 ===`);
+async function main() {
+  console.log("== A. KR 추적 대상 ==");
+  const oldQ = await supabaseAdmin.from("screening_results").select("id, stock_code, status").in("status", ["active", "price_anomaly"]).eq("market", "KR");
+  const oldRows = oldQ.data ?? [];
+  console.log("수정 전 방식(range 없음) 반환 행:", oldRows.length, "/ 종목코드", new Set(oldRows.map((r) => r.stock_code)).size);
+  const exactKr = await exactCount((q) => q.in("status", ["active", "price_anomaly"]).eq("market", "KR"));
+  const t0 = Date.now();
+  const rows = await loadKrTrackingRows();
+  console.log("수정 후 loadKrTrackingRows:", rows.length, "건 / 종목코드", new Set(rows.map((r) => r.stock_code)).size, "개 / DB 정확 건수", exactKr, "/ 일치", rows.length === exactKr, "/ id 중복", rows.length - new Set(rows.map((r) => r.id)).size, `/ ${Date.now() - t0}ms`);
+  const byStatus: Record<string, number> = {}; for (const r of rows) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+  console.log("상태별:", JSON.stringify(byStatus));
 
-  if (rows.length === 0) {
-    console.log("행 없음");
-    return new Set();
-  }
+  console.log("== B. 활성 (전략,종목) 키 중복 확인 ==");
+  const oldDup = await supabaseAdmin.from("screening_results").select("strategy_id, stock_code").eq("status", "active");
+  console.log("수정 전 방식 반환 행:", (oldDup.data ?? []).length);
+  const exactActive = await exactCount((q) => q.eq("status", "active"));
+  const keys = await loadActiveStrategyStockKeys();
+  console.log("수정 후 loadActiveStrategyStockKeys():", keys.size, "키 / DB active 행(정확)", exactActive, "/ 일치", keys.size === exactActive);
+  const { data: peg } = await supabaseAdmin.from("strategies").select("id").eq("rule_type", "peg_lynch").eq("market", "KR");
+  const pegIds = (peg ?? []).map((s) => s.id as string);
+  const exactPeg = await exactCount((q) => q.eq("status", "active").in("strategy_id", pegIds));
+  const pegKeys = await loadActiveStrategyStockKeys(pegIds);
+  console.log("펀더멘털(peg_lynch 5행) 한정:", pegKeys.size, "키 / DB 정확", exactPeg, "/ 일치", pegKeys.size === exactPeg);
 
-  const codes = new Set(rows.map((r) => r.stockCode));
-  const tradeDates = new Set(rows.map((r) => r.tradeDate));
-  console.log(`종목 수: ${codes.size}, 행 수: ${rows.length}, 거래일수: ${tradeDates.size}, 거래일당 평균 종목 수: ${(rows.length / tradeDates.size).toFixed(1)}`);
-
-  let missingClose = 0;
-  let missingVolume = 0;
-  let missingTradingValue = 0;
-  let missingListedShares = 0;
-  let haltedVolumeZero = 0;
-  for (const r of rows) {
-    if (isMissing(r.closePrice)) missingClose++;
-    if (isMissing(r.volume)) missingVolume++;
-    else if (r.volume === 0) haltedVolumeZero++;
-    if (isMissing(r.tradingValue)) missingTradingValue++;
-    if (isMissing(r.listedShares)) missingListedShares++;
-  }
-  const pct = (n: number) => `${((n / rows.length) * 100).toFixed(3)}%`;
-  console.log(
-    `결측률 — 종가: ${pct(missingClose)}, 거래량: ${pct(missingVolume)}, 거래대금: ${pct(missingTradingValue)}, 상장주식수: ${pct(missingListedShares)}`
-  );
-  console.log(`거래량=0(거래정지 후보): ${haltedVolumeZero}건 (${pct(haltedVolumeZero)}) — 별도 처리 없이 그대로 저장됨`);
-
-  const seen = new Map<string, number>();
-  for (const r of rows) {
-    const key = `${r.stockCode}:${r.tradeDate}`;
-    seen.set(key, (seen.get(key) ?? 0) + 1);
-  }
-  const duplicateKeys = Array.from(seen.values()).filter((n) => n > 1).length;
-  console.log(`중복 행(같은 종목·날짜) 키 개수: ${duplicateKeys}`);
-
-  if (nextYearCodes) {
-    const disappeared: { code: string; lastDate: string }[] = [];
-    const lastDateByCode = new Map<string, string>();
-    for (const r of rows) {
-      const cur = lastDateByCode.get(r.stockCode);
-      if (!cur || r.tradeDate > cur) lastDateByCode.set(r.stockCode, r.tradeDate);
-    }
-    for (const [code, lastDate] of lastDateByCode) {
-      if (!nextYearCodes.has(code)) disappeared.push({ code, lastDate });
-    }
-    console.log(`${year}년에만 있고 다음 해엔 없는 종목(상장폐지 후보): ${disappeared.length}개`);
-    for (const sample of disappeared.slice(0, 3)) {
-      console.log(`  샘플: ${sample.code}, 마지막 거래일 ${sample.lastDate}`);
-    }
-  } else {
-    console.log("상장폐지 후보 확인 생략(다음 해 데이터 없음 — 범위의 마지막 연도)");
-  }
-
-  const byCode = new Map<string, StockDailyPriceRow[]>();
-  for (const r of rows) {
-    const arr = byCode.get(r.stockCode);
-    if (arr) arr.push(r);
-    else byCode.set(r.stockCode, [r]);
-  }
-  let bigSwingCount = 0;
-  for (const codeRows of byCode.values()) {
-    codeRows.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
-    for (let i = 1; i < codeRows.length; i++) {
-      const prev = codeRows[i - 1].closePrice;
-      const cur = codeRows[i].closePrice;
-      if (!prev || isMissing(prev) || isMissing(cur)) continue;
-      const changePct = Math.abs((cur - prev) / prev) * 100;
-      if (changePct >= 30) bigSwingCount++;
-    }
-  }
-  console.log(`전일 종가 대비 ±30% 초과 변동 행 수: ${bigSwingCount}건 (권리 이벤트 후보, 다음 단계용 기록만)`);
-
-  return codes;
+  console.log("== C. 같은 유형 위험 후보 실측(행 수) ==");
+  const cap = async (label: string, q: PromiseLike<{ data: unknown[] | null }>, exact: number) => { const { data } = await q; console.log(label, "반환", (data ?? []).length, "/ 정확", exact, (data ?? []).length < exact ? "← 잘림" : ""); };
+  const exPaperKr = await exactCount((q) => q.eq("status", "active").eq("market", "KR"));
+  await cap("paper-trade KR 후보(active, KR, range 없음):", supabaseAdmin.from("screening_results").select("id").eq("status", "active").eq("market", "KR"), exPaperKr);
+  const exPaperUs = await exactCount((q) => q.eq("status", "active").eq("market", "US"));
+  await cap("paper-trade/US 추적(active, US, range 없음):", supabaseAdmin.from("screening_results").select("id").eq("status", "active").eq("market", "US"), exPaperUs);
+  const { data: stratRows } = await supabaseAdmin.from("strategies").select("id, rule_type");
+  const opIds = (stratRows ?? []).filter((s) => ["ma_cross", "peg_lynch", "reversal_breakout_v2"].includes(s.rule_type)).map((s) => s.id as string);
+  const exOps = await exactCount((q) => q.in("strategy_id", opIds));
+  await cap("전략 관리 '성과 비교'(운영 전략 id, range(0,4999)):", supabaseAdmin.from("screening_results").select("id").in("strategy_id", opIds).range(0, 4999), exOps);
+  const { count: snaps } = await supabaseAdmin.from("paper_daily_snapshots").select("*", { count: "exact", head: true });
+  console.log("paper_daily_snapshots 행:", snaps, "(하루 +6행, 1,000행 도달까지", Math.ceil((1000 - (snaps ?? 0)) / 6), "일)");
+  const { count: sbs } = await supabaseAdmin.from("strategy_backtest_summary").select("*", { count: "exact", head: true });
+  const { count: bms } = await supabaseAdmin.from("benchmark_summary").select("*", { count: "exact", head: true });
+  console.log("strategy_backtest_summary 행:", sbs, "/ benchmark_summary 행:", bms);
+  const closedByStrategy = await fetchAllRows<{ strategy_id: string }>((from, to) => supabaseAdmin.from("screening_results").select("strategy_id").in("status", ["stopped", "profited"]).in("strategy_id", opIds).order("id").range(from, to));
+  const perStrategy: Record<string, number> = {}; for (const r of closedByStrategy) perStrategy[r.strategy_id] = (perStrategy[r.strategy_id] ?? 0) + 1;
+  console.log("운영 전략별 종료 행 수 최대:", Math.max(...Object.values(perStrategy)));
 }
-
-async function main(): Promise<void> {
-  const yearsEnv = process.env.YEARS;
-  if (!yearsEnv) throw new Error('YEARS="2024,2025,2026" 형태로 실행하세요.');
-  const years = yearsEnv.split(",").map((s) => Number(s.trim())).sort((a, b) => a - b);
-
-  let nextYearCodes: Set<string> | null = null;
-  for (let i = years.length - 1; i >= 0; i--) {
-    const year = years[i];
-    const codes = await checkYear(year, nextYearCodes);
-    nextYearCodes = codes;
-  }
-}
-
-main().catch((error) => {
-  console.error("진단 중 오류:", error);
-  process.exit(1);
-});
+main().catch((e) => { console.error(e); process.exit(1); });

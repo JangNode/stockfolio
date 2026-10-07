@@ -45,9 +45,13 @@ async function main() {
   const srById = new Map(sr.map((r) => [r.id as string, r]));
   const pos = await all("paper_positions", "*");
   console.log("paper_positions(스타일|출처|출처 신호 상태|오늘 가격갱신):", tally(pos, (r) => { const s = r.screening_result_id ? srById.get(r.screening_result_id) : null; return `${styleByPort.get(r.portfolio_id)}|${s ? typeById.get(s.strategy_id) : "신호없음"}|${s ? s.status : "-"}|${s && fresh(s) ? "갱신" : "미갱신"}`; }));
-  const trades = await all("paper_trades", "*", (q) => q.gte("created_at", "2026-10-07T00:00:00Z"));
-  console.log("오늘 paper_trades 키:", Object.keys(trades[0] ?? {}).join(","));
-  for (const t of trades) { const s = t.screening_result_id ? srById.get(t.screening_result_id) : null; console.log(" ", JSON.stringify({ 계좌: styleByPort.get(t.portfolio_id), 방향: t.side ?? t.action, 종목: t.stock_name, 출처: s ? typeById.get(s.strategy_id) : "-", 신호상태: s?.status, 시각: t.created_at })); }
+  const allTrades = await all("paper_trades", "*");
+  const keys = Object.keys(allTrades[0] ?? {});
+  console.log("paper_trades 컬럼:", keys.join(","));
+  const dateKey = keys.find((k) => /traded_at|executed_at|created_at|trade_date|date/.test(k)) ?? keys[0];
+  const trades = allTrades.filter((t) => String(t[dateKey]) >= "2026-10-07").sort((x, y) => String(x[dateKey]).localeCompare(String(y[dateKey])));
+  console.log("오늘 거래 건수:", trades.length, "(기준 컬럼", dateKey + ")");
+  for (const t of trades) { const s = t.screening_result_id ? srById.get(t.screening_result_id) : null; console.log(" ", JSON.stringify({ 계좌: styleByPort.get(t.portfolio_id), 방향: t.side ?? t.action ?? t.trade_type, 종목: t.stock_name, 출처: s ? typeById.get(s.strategy_id) : "-", 신호상태: s?.status, 시각: t[dateKey] })); }
   const { data: act } = await supabaseAdmin.from("paper_strategies").select("style, version, is_active, created_at, entry_conditions").eq("is_active", true);
   for (const a of act ?? []) console.log("활성 전략", a.style, "v" + a.version, a.created_at, "source_rule_types =", JSON.stringify((a.entry_conditions as R)?.source_rule_types));
   const { data: sruns } = await supabaseAdmin.from("screening_runs").select("*").eq("market", "KR").order("finished_at", { ascending: false }).limit(3);

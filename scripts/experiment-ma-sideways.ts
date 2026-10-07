@@ -11,7 +11,7 @@ import { runBacktest, type DailyPrice, type StrategyRule, type MaCrossParams } f
 import { computeSMA } from "@/lib/sma";
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
-import { computeMonthlyRebalanceDates, simulateUniverseMonthlyRebalance, computeIndexDailyReturnsPct } from "@/lib/benchmarkSummary";
+import { computeMonthlyRebalanceDates, simulateUniverseMonthlyRebalance } from "@/lib/benchmarkSummary";
 import { accumulateStockDailyReturns, computeEqualWeightDailyReturns, computeCagrPct, computeCumulativeAndMdd, type DailyStockReturns, type StockContribution } from "@/lib/strategyBacktestSummary";
 import { computeEffectiveBuyPrice, computeEffectiveSellPrice, computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { FALLBACK_MA_CROSS_PARAMS, PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
@@ -134,12 +134,15 @@ async function main(): Promise<void> {
 
   const [kospi, kosdaq] = await Promise.all([getIndexPriceSeries("KOSPI", "2009-01-01", END), getIndexPriceSeries("KOSDAQ", "2009-01-01", END)]);
   console.log(`[지수 데이터] KOSPI ${kospi[0]?.tradeDate}~${kospi[kospi.length - 1]?.tradeDate} (${kospi.length}행), KOSDAQ ${kosdaq[0]?.tradeDate}~${kosdaq[kosdaq.length - 1]?.tradeDate} (${kosdaq.length}행)`);
-  const calendar = kospi.map((p) => p.tradeDate).filter((d) => d >= START && d <= END).sort();
-  const calIndex = new Map(calendar.map((d, i) => [d, i]));
-  const rebalanceDates = computeMonthlyRebalanceDates(calendar);
-
   const adjustments = await loadAppliedAdjustments();
   const seriesByCode = await loadAllStockSeriesFromParquet(2010, new Date().getUTCFullYear(), adjustments);
+  // 거래일 캘린더: 지수 데이터가 2016-01-04부터라 2010~2015를 덮지 못해, 전 종목 거래일의 합집합을 쓴다.
+  const dateSet = new Set<string>();
+  for (const rows of seriesByCode.values()) for (const r of rows) if (r.tradeDate >= START && r.tradeDate <= END) dateSet.add(r.tradeDate);
+  const calendar = Array.from(dateSet).sort();
+  const calIndex = new Map(calendar.map((d, i) => [d, i]));
+  const rebalanceDates = computeMonthlyRebalanceDates(calendar);
+  console.log(`[캘린더] 전 종목 거래일 합집합 ${calendar.length}일 (${calendar[0]}~${calendar[calendar.length - 1]})`);
   console.log(`전 종목 ${seriesByCode.size}개 로드(조정 적용 ${adjustments.size}종목), ${((Date.now() - t0) / 1000).toFixed(0)}초`);
 
   // 2010~2014 low_confidence 이벤트가 있는 종목(점검용)
@@ -169,15 +172,20 @@ async function main(): Promise<void> {
 
   // ===== 벤치마크 =====
   const bench = simulateUniverseMonthlyRebalance(pricesByStock, calendar, START, (c, d) => (liq.get(c)?.get(d) ?? NaN) >= PIT_MIN_AVG_TRADING_VALUE_WON, true);
-  const kospiPct = computeIndexDailyReturnsPct(kospi.filter((p) => p.tradeDate >= START && p.tradeDate <= END));
-  const kospiDates = kospi.filter((p) => p.tradeDate >= START && p.tradeDate <= END).map((p) => p.tradeDate);
-  const kosdaqPct = computeIndexDailyReturnsPct(kosdaq.filter((p) => p.tradeDate >= START && p.tradeDate <= END));
-  const kosdaqDates = kosdaq.filter((p) => p.tradeDate >= START && p.tradeDate <= END).map((p) => p.tradeDate);
+  // 지수 CAGR: 구간 시작 직전 종가 → 구간 마지막 종가. 지수 데이터가 구간 시작을 덮지 못하면 NaN("-").
+  const indexCagr = (series: { tradeDate: string; closePrice: number }[], from: string, to: string): number => {
+    if (series.length === 0 || series[0].tradeDate > from) return NaN;
+    let startClose = NaN, endClose = NaN, endDate = "";
+    for (const p of series) { if (p.tradeDate < from) startClose = p.closePrice; if (p.tradeDate <= to) { endClose = p.closePrice; endDate = p.tradeDate; } }
+    if (Number.isNaN(startClose)) startClose = series[0].closePrice;
+    if (!endDate || endDate < to.slice(0, 4) + "-01-01") return NaN;
+    return computeCagrPct((endClose / startClose - 1) * 100, from, to);
+  };
   const bU: Record<string, { cagr: number; mdd: number }> = {}, bK: Record<string, number> = {}, bQ: Record<string, number> = {};
   for (const p of FULL_PERIODS) {
     bU[p.id] = slice(calendar, bench, p.from, p.to);
-    bK[p.id] = slice(kospiDates, kospiPct, p.from, p.to).cagr;
-    bQ[p.id] = slice(kosdaqDates, kosdaqPct, p.from, p.to).cagr;
+    bK[p.id] = indexCagr(kospi, p.from, p.to);
+    bQ[p.id] = indexCagr(kosdaq, p.from, p.to);
   }
   console.log(`\n[벤치마크 CAGR %] ${FULL_PERIODS.map((p) => `${p.label}: 유니버스 ${f1(bU[p.id].cagr)}(MDD ${f1(bU[p.id].mdd)}) / KOSPI ${f1(bK[p.id])} / KOSDAQ ${f1(bQ[p.id])}`).join(" | ")}`);
 

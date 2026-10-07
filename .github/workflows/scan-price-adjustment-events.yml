@@ -4,7 +4,11 @@ name: 분할·병합 조정계수 스캔
 # 저장한다(신뢰도 높은 것만 배치가 적용). 주간 장기 백테스트 워크플로가 배치 직전에 같은
 # 스크립트를 돌리므로, 이 워크플로는 수동 실행(최초 스캔/재스캔)용이다.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: string
+        default: "true"
 
 jobs:
   scan:
@@ -27,5 +31,9 @@ jobs:
         run: npm run scan:price-adjustment-events
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          PRICE_ADJUSTMENT_SCAN_FROM_DATE: "2010-01-01"
+          PRICE_ADJUSTMENT_LOAD_FROM_YEAR: "2010"
+          PRICE_ADJUSTMENT_SCAN_TO_DATE: "2015-01-01"
+          SCAN_DRY_RUN: ${{ inputs.dry_run }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

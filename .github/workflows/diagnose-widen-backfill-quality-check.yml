@@ -32,6 +32,7 @@ jobs:
         run: npm run diagnose:widen-backfill-quality-check
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           YEARS: ${{ inputs.years }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

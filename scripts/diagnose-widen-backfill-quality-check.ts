@@ -2,7 +2,7 @@
 import { parquetReadObjects } from "hyparquet";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { downloadYearPrices, loadAllStockSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
-import { buildTradingDayIndex, detectAdjustmentEvents } from "@/lib/priceAdjustment";
+import { buildTradingDayIndex, computePostRatio, detectAdjustmentEvents } from "@/lib/priceAdjustment";
 
 const MODE = process.env.YEARS ?? "";
 const BUCKET = "stock-daily-prices";
@@ -119,7 +119,37 @@ async function size() {
   console.log("backup-pre2015 합계", ((bk ?? []).reduce((a, f) => a + ((f.metadata as { size?: number })?.size ?? 0), 0) / 1048576).toFixed(2), "MB");
 }
 
+async function sample() {
+  const { data, error } = await supabaseAdmin.from("stock_price_adjustment_events").select("*").lt("event_date", "2015-01-01").order("event_date");
+  if (error) throw new Error(error.message);
+  const ev = data ?? [];
+  console.log("테이블 event_date<2015-01-01 행:", ev.length, "applied", ev.filter((e) => e.status === "applied").length, "low_confidence", ev.filter((e) => e.status !== "applied").length);
+  const reasons: Record<string, number> = {};
+  for (const e of ev.filter((x) => x.status !== "applied")) reasons[e.low_confidence_reason ?? "?"] = (reasons[e.low_confidence_reason ?? "?"] ?? 0) + 1;
+  console.log("low_confidence 사유:", JSON.stringify(reasons));
+  const { count } = await supabaseAdmin.from("stock_price_adjustment_events").select("*", { count: "exact", head: true }).gte("event_date", "2015-01-01");
+  console.log("테이블 event_date>=2015-01-01 행(기존, 변경 없어야 함):", count);
+  const applied = ev.filter((e) => e.status === "applied");
+  let seed = 20261007; const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  const pick = [...applied]; for (let i = pick.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pick[i], pick[j]] = [pick[j], pick[i]]; }
+  const chosen = pick.slice(0, 15).sort((a, b) => a.event_date.localeCompare(b.event_date));
+  const series = await loadAllStockSeriesFromParquet(2010, 2015);
+  const names = new Map<string, Map<string, string>>();
+  for (const d of new Set(chosen.map((e) => e.event_date as string))) {
+    const m = new Map<string, string>(); const bas = d.replaceAll("-", "");
+    for (const ep of ["stk_bydd_trd", "ksq_bydd_trd"]) { const r = await fetch(`https://data-dbg.krx.co.kr/svc/apis/sto/${ep}?basDd=${bas}`, { headers: { AUTH_KEY: process.env.KRX_API_KEY ?? "" } }); const b = (await r.json()) as { OutBlock_1?: { ISU_CD: string; ISU_NM: string }[] }; for (const x of b.OutBlock_1 ?? []) m.set(x.ISU_CD, x.ISU_NM); }
+    names.set(d, m);
+  }
+  for (const e of chosen) {
+    const rows = series.get(e.stock_code) ?? []; const i = rows.findIndex((r) => r.tradeDate === e.event_date);
+    const p = rows[i - 1], c = rows[i]; const post = computePostRatio(rows, e.event_date, e.adjustment_factor);
+    console.log(JSON.stringify({ 종목: `${names.get(e.event_date)?.get(e.stock_code) ?? "?"}(${e.stock_code})`, 날짜: e.event_date, 가격비: Number(e.price_ratio).toFixed(3), 주식수비: Number(e.shares_ratio).toFixed(3), 계수: Number(e.adjustment_factor).toFixed(4),
+      주식수: `${p?.listedShares}→${c?.listedShares}`, 종가_원가: `${p?.closePrice}→${c?.closePrice}`, 종가_조정후: `${p ? Math.round(p.closePrice * e.adjustment_factor * 100) / 100 : "-"}→${c?.closePrice}`, 연속성비율: post === null ? "-" : post.toFixed(3) }));
+  }
+}
+
 async function main() {
+  if (MODE === "sample") return sample();
   if (MODE === "size") return size();
   if (MODE === "tvfill") return tvfill();
   if (MODE === "backup") return backup();

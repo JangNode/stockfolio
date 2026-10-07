@@ -1,9 +1,9 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(10/5, #439) 이후 커밋은 DART 재무제표 파싱 로직을 별도 모듈(lib/dartFundamentalsParse.ts)로 분리하고 테스트를 추가한 리팩터뿐이라, ma_cross/minervini 매칭이나 장기 백테스트 수치에는 영향이 없습니다. 장기 백테스트 배치는 매주 월요일에만 재계산되므로 지난주 보고한 ma_cross/minervini CAGR 역전(-11.9%/-12.7%)에 대한 새 자료는 없고, 그 판단(raw CAGR이 안정형의 손절 3%·익절 8%와는 다른 위험관리 가정을 쓰고 있어 그대로 치환할 수 없음, 구조적 조정은 별도 신중한 검토가 필요)도 그대로 유지됩니다. 현재 설정(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 그대로 유지하고, 다음 주 재계산 결과를 다시 확인하겠습니다.",
-  "generated_at": "2026-10-06T05:17:50Z",
+  "rationale": "지난 재생성(10/6, #441) 이후 개발팀이 전략 정리를 진행해(#447) minervini_trend_template·급등주찾기v1·custom_composite를 운영 종료하고 ma_cross/급등주v2/peg_lynch 3개만 남겼습니다 — 그 과정에서 이 파일의 source_rule_types도 ma_cross 단독으로 자동 축소됐습니다(minervini_trend_template 제거). 안정형은 14종목 분산이 목표라 신호 출처가 하나만 남으면 후보 풀이 좁아질 수 있어, 같은 시점 승격된 장기 백테스트(시총 5천억 PIT, pit_adjusted_cap5000) 기준 성과가 양호한 peg_lynch(CAGR +7.7%, 승률 77%)를 추가해 ma_cross+peg_lynch 2개 출처로 복원합니다. reversal_breakout_v2는 같은 기준으로 CAGR -22.9%/MDD 97%로 부진해 추가하지 않습니다. 나머지 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)은 변경 근거가 없어 유지합니다.",
+  "generated_at": "2026-10-07T05:14:22Z",
   "entry_conditions": {
-    "source_rule_types": ["ma_cross"],
+    "source_rule_types": ["ma_cross", "peg_lynch"],
     "min_signal_return_pct": -2,
     "max_signal_return_pct": 9,
     "max_positions": 14,

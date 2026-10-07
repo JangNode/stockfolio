@@ -120,9 +120,13 @@ async function size() {
 }
 
 async function sample() {
-  const { data, error } = await supabaseAdmin.from("stock_price_adjustment_events").select("*").lt("event_date", "2015-01-01").order("event_date");
-  if (error) throw new Error(error.message);
-  const ev = data ?? [];
+  const ev: Record<string, any>[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin.from("stock_price_adjustment_events").select("*").lt("event_date", "2015-01-01").order("event_date").order("stock_code").range(from, from + 999);
+    if (error) throw new Error(error.message);
+    ev.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
   console.log("테이블 event_date<2015-01-01 행:", ev.length, "applied", ev.filter((e) => e.status === "applied").length, "low_confidence", ev.filter((e) => e.status !== "applied").length);
   const reasons: Record<string, number> = {};
   for (const e of ev.filter((x) => x.status !== "applied")) reasons[e.low_confidence_reason ?? "?"] = (reasons[e.low_confidence_reason ?? "?"] ?? 0) + 1;

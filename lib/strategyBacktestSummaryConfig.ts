@@ -25,6 +25,13 @@ export const STRATEGY_BACKTEST_ENDED_STRATEGIES = [
 // 2026-09-24 진단 스크립트(diagnose-strategy-daily-returns.ts 계열)가 쓴 것과 동일한
 // 시작 연도 — peg_lynch 펀더멘털 백필 후보 기준(discoverCandidateStockCodes)과 맞춰
 // 그 이후 계속 비교 가능하게 유지한다.
+// 백테스트 시작 연도 앞에서 미리 읽어 둘 시세 연수. 이동평균 448봉(약 2년) 워밍업이 시작일에 이미 끝나 있게 한다
+// (2026-10-07 기본 로드 시작을 2011 → 시작 연도 -2로 조정: 2011~2014 파일이 전종목으로 바뀌며 늘어난 메모리 절감).
+export const STRATEGY_BACKTEST_PRICE_FETCH_LOOKBACK_YEARS = 2;
+
+// KRX 일별매매정보로 받을 수 있는 가장 이른 연도(2010-01-04부터 조회됨, 2009-12-30 이전은 빈 응답 — 2026-10-06 실측).
+export const STOCK_DATA_EARLIEST_YEAR = 2010;
+
 export const STRATEGY_BACKTEST_WINDOW_START_YEAR = 2016;
 
 // 종목별 "자체 복리수익률" 상위 이 개수를 제외한 뒤 재계산해, 소수 종목 의존도를

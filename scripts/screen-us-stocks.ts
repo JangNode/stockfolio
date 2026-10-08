@@ -16,6 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadUsTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { isOperatingRuleType } from "@/lib/strategyVersions";
 import {
   getKisCallStats,
@@ -203,15 +204,6 @@ async function filterByQuote(
   return { survivors, marketCapByCode, excludedCount, fetchErrors };
 }
 
-interface ActiveRow {
-  id: string;
-  stock_code: string;
-  exchange: string | null;
-  entry_price: number;
-  stop_loss_price: number;
-  take_profit_price: number;
-}
-
 async function updateActiveTracking(): Promise<{
   updated: number;
   stopped: number;
@@ -219,15 +211,11 @@ async function updateActiveTracking(): Promise<{
 }> {
   console.log("=== 1단계: 기존 추적 종목 갱신 ===");
 
-  const { data: activeRows, error } = await supabaseAdmin
-    .from("screening_results")
-    .select("id, stock_code, exchange, entry_price, stop_loss_price, take_profit_price")
-    .eq("status", "active")
-    .eq("market", "US");
+  const activeRows = await loadUsTrackingRows().catch((error: Error) => {
+    throw new Error(`추적 종목 조회 실패: ${error.message}`);
+  });
 
-  if (error) throw new Error(`추적 종목 조회 실패: ${error.message}`);
-
-  if (!activeRows || activeRows.length === 0) {
+  if (activeRows.length === 0) {
     console.log("추적 중인 종목이 없습니다.");
     return { updated: 0, stopped: 0, profited: 0 };
   }
@@ -237,7 +225,7 @@ async function updateActiveTracking(): Promise<{
   const priceByCode = new Map<string, number>();
   let completed = 0;
 
-  await runWithConcurrency(activeRows as ActiveRow[], BATCH_CONCURRENCY, async (row) => {
+  await runWithConcurrency(activeRows, BATCH_CONCURRENCY, async (row) => {
     if (!row.exchange) {
       console.error(`    ${row.stock_code} 거래소 코드 누락, 건너뜁니다.`);
       return;
@@ -267,7 +255,7 @@ async function updateActiveTracking(): Promise<{
   let stopped = 0;
   let profited = 0;
 
-  for (const row of activeRows as ActiveRow[]) {
+  for (const row of activeRows) {
     const currentPrice = priceByCode.get(row.stock_code);
     if (currentPrice === undefined) continue;
 
@@ -465,17 +453,9 @@ async function scanAllStocks(
 
   const { priceByCode, fetchErrors } = await collectDailyPrices(finalStocks, dailyTargetRows);
 
-  const { data: existingActive, error: activeError } = await supabaseAdmin
-    .from("screening_results")
-    .select("strategy_id, stock_code")
-    .eq("status", "active")
-    .eq("market", "US");
-
-  if (activeError) throw new Error(`추적 중인 종목 조회 실패: ${activeError.message}`);
-
-  const activeKeys = new Set(
-    (existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`)
-  );
+  const activeKeys = await loadActiveStrategyStockKeys(undefined, "US").catch((error: Error) => {
+    throw new Error(`추적 중인 종목 조회 실패: ${error.message}`);
+  });
 
   console.log(`=== 4단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
 

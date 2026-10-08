@@ -30,6 +30,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadActiveScreeningResults } from "@/lib/screeningActiveRows";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
 import type { AppliedAdjustment } from "@/lib/priceAdjustment";
 import { adjustPrice, adjustQuantity, describeFactor, getCumulativeFactor } from "@/lib/corporateActionGuard";
@@ -219,13 +220,11 @@ async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> 
   // 이번 실행의 대상 시장 스크리닝 결과만 조회한다. 각 후보에 market을 그대로
   // 태그해두는 건 이후 코드가 ScreeningCandidateRow 형태를 그대로 신뢰할 수 있게
   // 하기 위해서다(모든 후보가 이미 같은 시장이라 필터링이 실질적으로 더 필요하진 않다).
-  const { data: results, error } = await supabaseAdmin
-    .from("screening_results")
-    .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange")
-    .eq("status", "active")
-    .eq("market", market);
-  if (error) throw new Error(`스크리닝 결과 조회 실패: ${error.message}`);
-  if (!results || results.length === 0) return [];
+  // 1,000건을 넘어도 전부 읽는다(lib/screeningActiveRows.ts) — 한도에 걸리면 후보 일부가 조용히 빠진다.
+  const results = await loadActiveScreeningResults(market).catch((error: Error) => {
+    throw new Error(`스크리닝 결과 조회 실패: ${error.message}`);
+  });
+  if (results.length === 0) return [];
 
   const strategyIds = Array.from(new Set(results.map((r) => r.strategy_id)));
   const { data: strategies, error: strategiesError } = await supabaseAdmin

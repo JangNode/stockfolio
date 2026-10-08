@@ -16,6 +16,7 @@ import {
 } from "@/lib/screeningResultStats";
 import { formatPercent } from "@/lib/formatNumber";
 import { authJsonFetcher } from "@/lib/authFetch";
+import { fetchAllRows } from "@/lib/supabasePagination";
 import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
@@ -66,10 +67,6 @@ interface ScreeningComparisonRow {
 function formatPct(value: number | null): string {
   return value === null ? "-" : formatPercent(value);
 }
-
-// screening_results 조회 시 Supabase 기본 상한(1000행)에 걸리지 않도록 넉넉히 잡는
-// 상한. 신호가 많은 전략은 1000건에 닿아 기본값으로는 잘린다.
-const SCREENING_RESULTS_FETCH_LIMIT = 4999;
 
 // "장기 백테스트(2016~오늘)" 섹션 — scripts/compute-strategy-backtest-summary.ts가
 // 매주 재계산해 strategy_backtest_summary에 쌓아둔 캐시를 읽는다. 실계좌 스크리닝
@@ -322,14 +319,15 @@ export default function StrategyManager({ user }: { user: User }) {
       ? ["strategy-performance-comparison", comparisonStrategyIds.join(",")]
       : null,
     async () => {
-      const { data, error } = await supabase
-        .from("screening_results")
-        .select("strategy_id, status, return_pct, matched_at")
-        .in("strategy_id", comparisonStrategyIds)
-        .range(0, SCREENING_RESULTS_FETCH_LIMIT);
-
-      if (error) throw error;
-      return data as ScreeningComparisonRow[];
+      // 서버 응답 상한(1,000행)을 넘는 전략도 있어 페이지를 돌며 전부 읽는다.
+      return fetchAllRows<ScreeningComparisonRow>((from, to) =>
+        supabase
+          .from("screening_results")
+          .select("strategy_id, status, return_pct, matched_at")
+          .in("strategy_id", comparisonStrategyIds)
+          .order("id")
+          .range(from, to)
+      );
     }
   );
 

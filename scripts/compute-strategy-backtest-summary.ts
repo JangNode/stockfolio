@@ -375,7 +375,7 @@ async function main(): Promise<void> {
       const sorted = [...scoreSamples].sort((a, b) => a - b);
       const pass = sorted.filter((v) => v > MIN_SCREENING_SCORE).length;
       console.log(`  [ma_cross] 진입 후보 신호 점수(유니버스 통과분, 게이트=${SCORE_GATE}): n=${sorted.length} 최소 ${sorted[0]} 중앙 ${sorted[Math.floor(sorted.length / 2)]} 최대 ${sorted[sorted.length - 1]}, 51점↑ ${pass}건`);
-      for (const [from, to] of [["2016", "2019"], ["2020", "2022"], ["2023", "2026"]]) {
+      for (const [from, to] of [["2010", "2015"], ["2016", "2019"], ["2020", "2022"], ["2023", "2026"]]) {
         const b = acc.trades.filter((t) => t.buyDate.slice(0, 4) >= from && t.buyDate.slice(0, 4) <= to);
         const wins = b.filter((t) => t.returnPct > 0);
         const losses = b.filter((t) => t.returnPct <= 0);

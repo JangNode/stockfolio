@@ -33,6 +33,7 @@ jobs:
           UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
           DATA_WIDEN_STAGE: pit_adjusted_cap5000
           DRY_RUN: "true"
+          BACKTEST_WINDOW_START_YEAR: "2010"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
@@ -43,6 +44,7 @@ jobs:
           UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
           DATA_WIDEN_STAGE: pit_adjusted_cap5000
           DRY_RUN: "true"
+          BACKTEST_WINDOW_START_YEAR: "2010"
           SCORE_GATE: "true"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

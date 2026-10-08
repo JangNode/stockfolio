@@ -4,6 +4,7 @@ import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { fetchAllRows } from "@/lib/supabasePagination";
 import { runBacktest, type DailyPrice } from "@/lib/backtest";
+import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 
 type R = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const q = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : NaN; };
@@ -32,28 +33,42 @@ async function main() {
   const days = Object.keys(dayCount).sort().slice(-20);
   console.log("최근 20일 ma_cross 신규 신호(5/20 규칙) 합:", days.reduce((s, d) => s + dayCount[d], 0), "/", days.length, "일");
 
-  console.log("== B. 200일선 이력 ==");
+  console.log("== B. 200일선 이력 · 화면 2년 백테스트 · 점수 게이트 ==");
   const adj = await loadAppliedAdjustments();
   const series = await loadAllStockSeriesFromParquet(2010, new Date().getUTCFullYear(), adj);
-  const last = "2026-10-06";
+  let last = "";
+  for (const [, rows] of series) { const d = rows[rows.length - 1]?.tradeDate ?? ""; if (d > last) last = d; }
+  console.log("시세 데이터 최신 거래일(parquet):", last);
   const buckets = { cap500: [0, 0, 0], cap5000: [0, 0, 0] }; // [전체, ≥201행, ≥251행]
   const trades24: number[] = [], hold24: number[] = [];
-  let withWindow = 0;
+  const ev = { v2: { n: 0, pass: 0 }, old: { n: 0, pass: 0 } };
+  let withWindow = 0, tradingDays = 0;
+  const start = new Date(last); start.setMonth(start.getMonth() - 24); const sd = start.toISOString().slice(0, 10);
+  const rules = { v2: { rule_type: "ma_cross", rule_params: { short_period: 50, long_period: 200 } }, old: { rule_type: "ma_cross", rule_params: { short_period: 5, long_period: 20 } } } as const;
   for (const [, rows] of series) {
     const lr = rows[rows.length - 1];
     if (!lr || lr.tradeDate < last) continue;
     for (const [k, floor] of [["cap500", 500], ["cap5000", 5000]] as const) {
       if (lr.marketCapEok >= floor) { buckets[k][0]++; if (rows.length >= 201) buckets[k][1]++; if (rows.length >= 251) buckets[k][2]++; }
     }
-    if (lr.marketCapEok >= 500 && rows.length >= 700) {
-      const prices: DailyPrice[] = rows.slice(-700).map((r) => ({ date: r.tradeDate, open: r.openPrice, high: r.highPrice, low: r.lowPrice, close: r.closePrice, volume: r.volume, marketCapEok: r.marketCapEok, listedShares: r.listedShares }));
-      const start = new Date(); start.setMonth(start.getMonth() - 24); const sd = start.toISOString().slice(0, 10);
-      const res = runBacktest(prices, { rule_type: "ma_cross", rule_params: { short_period: 50, long_period: 200 } }, sd, undefined, undefined, { market: "KR" });
-      withWindow++; trades24.push(res.trades.length);
-      for (const t of res.trades) hold24.push((Date.parse(t.sellDate) - Date.parse(t.buyDate)) / 86400000);
+    if (lr.marketCapEok >= 500 && lr.closePrice >= 1000 && rows.length >= 720) {
+      const prices: DailyPrice[] = rows.slice(-720).map((r) => ({ date: r.tradeDate, open: r.openPrice, high: r.highPrice, low: r.lowPrice, close: r.closePrice, volume: r.volume, marketCapEok: r.marketCapEok, listedShares: r.listedShares }));
+      tradingDays = Math.max(tradingDays, prices.filter((p) => p.date >= sd).length);
+      for (const key of ["v2", "old"] as const) {
+        const res = runBacktest(prices, rules[key] as never, sd, undefined, undefined, { market: "KR" });
+        if (key === "v2") { withWindow++; trades24.push(res.trades.length); for (const t of res.trades) hold24.push((Date.parse(t.sellDate) - Date.parse(t.buyDate)) / 86400000); }
+        for (const t of res.trades) {
+          const i = prices.findIndex((p) => p.date === t.buyDate);
+          if (i < 0) continue;
+          ev[key].n++;
+          const score = computeSignalScore(prices.slice(0, i + 1), rules[key] as never, prices[i].marketCapEok ? (prices[i].marketCapEok as number) / 10000 : null);
+          if (score > MIN_SCREENING_SCORE) ev[key].pass++;
+        }
+      }
     }
   }
-  console.log("마지막 거래일(10-06) 상장 종목 중 [전체, 거래일≥201, ≥251] cap≥500억:", JSON.stringify(buckets.cap500), "cap≥5천억:", JSON.stringify(buckets.cap5000));
-  console.log("화면 2년 백테스트(50/200, 700행 확보 시) 종목수", withWindow, "| 종목당 거래 수 평균", (trades24.reduce((a, b) => a + b, 0) / trades24.length).toFixed(2), "중앙값", q(trades24, 0.5), "p90", q(trades24, 0.9), "| 거래 0건 비율", ((trades24.filter((x) => x === 0).length / trades24.length) * 100).toFixed(1) + "%", "| 평균 보유(달력일)", (hold24.reduce((a, b) => a + b, 0) / Math.max(hold24.length, 1)).toFixed(0));
+  console.log("[전체, 거래일≥201, ≥251] cap≥500억:", JSON.stringify(buckets.cap500), "cap≥5천억:", JSON.stringify(buckets.cap5000));
+  console.log("화면 2년 백테스트(50/200, 720행 확보 시) 종목수", withWindow, "| 종목당 거래 수 평균", (trades24.reduce((a, b) => a + b, 0) / trades24.length).toFixed(2), "중앙값", q(trades24, 0.5), "p90", q(trades24, 0.9), "| 거래 0건 비율", ((trades24.filter((x) => x === 0).length / trades24.length) * 100).toFixed(1) + "%", "| 평균 보유(달력일)", (hold24.reduce((a, b) => a + b, 0) / Math.max(hold24.length, 1)).toFixed(0));
+  console.log("최근 24개월(" + tradingDays + "거래일) 골든크로스 신호 수 / 점수 51↑(저장 기준) 통과:", JSON.stringify(ev), "→ 일평균 신규 저장 신호 v2", (ev.v2.pass / tradingDays).toFixed(2), "/ 구 5/20", (ev.old.pass / tradingDays).toFixed(2), "(KR, 시총≥500억·1000원↑ 근사)");
 }
 main().catch((e) => { console.error(e); process.exit(1); });

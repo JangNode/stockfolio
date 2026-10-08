@@ -20,6 +20,7 @@
     "test:format-money": "tsx --test lib/formatMoney.test.ts",
     "test:strategy-versions": "tsx --test lib/strategyVersions.test.ts",
     "test:pagination": "tsx --test lib/supabasePagination.test.ts",
+    "test:ma-cross": "tsx --test lib/maCrossConfig.test.ts",
     "test:backtest-badges": "tsx --test lib/strategyBacktestBadges.test.ts lib/strategyBacktestSelection.test.ts",
     "backfill:stock-annual-fundamentals": "tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts",
     "backfill:stock-dividends": "tsx --conditions=react-server scripts/backfill-stock-dividends.ts",

@@ -37,6 +37,7 @@ import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
+import { applyMaCrossV2, isScoreGateExempt, MA_CROSS_KR_MIN_MARKET_CAP_EOK, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
 import { loadKrTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { adjustPrice, describeFactor, getCumulativeFactor, isPriceAnomaly, weekdaysBetween } from "@/lib/corporateActionGuard";
 import {
@@ -147,7 +148,9 @@ async function loadStrategies(): Promise<StrategyRow[]> {
 
   if (error) throw new Error(`전략 조회 실패: ${error.message}`);
   // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 더 이상 스캔하지 않는다.
-  return ((data ?? []) as StrategyRow[]).filter((strategy) => isOperatingRuleType(strategy.rule_type));
+  return ((data ?? []) as StrategyRow[])
+    .filter((strategy) => isOperatingRuleType(strategy.rule_type))
+    .map(applyMaCrossV2); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다.
 }
 
 /**
@@ -562,6 +565,9 @@ async function runStrategyScan(
       const key = `${strategy.id}:${stockCode}`;
       if (activeKeys.has(key)) continue; // 이미 추적 중
 
+      // ma_cross는 검증 범위(시총 5천억 이상)만 후보로 삼는다. 시총을 모르면(조회 실패) 후보에서 제외한다.
+      if (strategy.rule_type === "ma_cross" && !((marketCapByCode.get(stockCode) ?? 0) >= MA_CROSS_KR_MIN_MARKET_CAP_EOK)) continue;
+
       const signalPrice = prices[prices.length - 1].close;
       const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
       const marketCapEok = marketCapByCode.get(stockCode) ?? null;
@@ -571,7 +577,7 @@ async function runStrategyScan(
         marketCapEok === null ? null : marketCapEok / MARKET_CAP_SCORE_FULL_EOK
       );
 
-      if (score <= MIN_SCREENING_SCORE) {
+      if (score <= MIN_SCREENING_SCORE && !isScoreGateExempt(strategy.rule_type)) {
         lowScore++;
         continue;
       }
@@ -581,10 +587,13 @@ async function runStrategyScan(
       // DH전략과 같은 이유로 signal_details를 채운다 — 위에서 이미 계산해 캐시해둔 raw를
       // 그대로 펼치기만 하고 재계산하지 않는다(reversalBreakoutRaw는 매칭 시점에 이미
       // undefined가 아님이 확인됐다).
+      // ma_cross는 새 규칙(v2)으로 만든 신호라는 표식만 남긴다 — 기존 규칙(5/20) 이력과 구분하는 용도다.
       const signalDetails =
         isReversalBreakoutFamily && reversalBreakoutRaw
           ? buildReversalBreakoutSignalDetailsFromRaw(reversalBreakoutRaw)
-          : undefined;
+          : strategy.rule_type === "ma_cross"
+            ? MA_CROSS_V2_SIGNAL_DETAILS
+            : undefined;
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
         strategy_id: strategy.id,

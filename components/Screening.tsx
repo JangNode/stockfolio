@@ -10,6 +10,7 @@ import { useMarket } from "@/components/MarketContext";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 import { toKstDateString, formatKstDate, formatKstDateTime } from "@/lib/formatKst";
 import { formatPercent } from "@/lib/formatNumber";
+import { isMaCrossV2Signal } from "@/lib/maCrossConfig";
 
 interface ScreeningResultRow {
   id: string;
@@ -24,6 +25,7 @@ interface ScreeningResultRow {
   status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   matched_at: string;
   closed_at: string | null;
+  signal_details: unknown;
 }
 
 type StatusTab = "active" | "closed";
@@ -70,6 +72,11 @@ export default function Screening({ user }: { user: User }) {
     [strategies, market]
   );
 
+  const selectedIsMaCross = useMemo(
+    () => marketStrategies.find((s) => s.id === strategyId)?.rule_type === "ma_cross",
+    [marketStrategies, strategyId]
+  );
+
   const { data: lastRun } = useSWR("screening-last-run", async () => {
     const { data, error } = await supabase
       .from("screening_runs")
@@ -92,7 +99,7 @@ export default function Screening({ user }: { user: User }) {
       let query = supabase
         .from("screening_results")
         .select(
-          "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, score, status, matched_at, closed_at"
+          "id, stock_code, stock_name, entry_price, stop_loss_price, take_profit_price, current_price, return_pct, score, status, matched_at, closed_at, signal_details"
         )
         .eq("strategy_id", sid)
         .eq("market", mkt) // strategy_id가 이미 시장을 유일하게 결정하지만, 방어적으로 한 번 더 검증한다.
@@ -215,6 +222,13 @@ export default function Screening({ user }: { user: User }) {
             )}
           </div>
 
+          {selectedIsMaCross && (
+            <p className="mb-3 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
+              &quot;구 규칙(5/20)&quot; 표시가 붙은 행은 2026-10-08 규칙 교체 전에 만들어진 신호입니다. 기록은 그대로 보존되며
+              손절·익절로 종료될 때까지 목록에 남습니다. 표시가 없는 행이 현재 규칙(50/200)의 신호입니다.
+            </p>
+          )}
+
           {resultsLoading ? (
             <p className="text-sm text-ink-muted">결과를 불러오는 중...</p>
           ) : resultsError ? (
@@ -252,6 +266,14 @@ export default function Screening({ user }: { user: User }) {
                           <span className="text-xs text-ink-faint">
                             {r.stock_code}
                           </span>
+                          {selectedIsMaCross && !isMaCrossV2Signal(r.signal_details) && (
+                            <span
+                              title="2026-10-08 이평선 규칙 교체(5/20 → 50/200) 이전에 만들어진 신호입니다."
+                              className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-ink-muted dark:bg-white/[.1]"
+                            >
+                              구 규칙(5/20)
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 pr-4">
                           <ScoreValue score={r.score} />

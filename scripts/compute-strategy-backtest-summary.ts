@@ -29,6 +29,7 @@ import {
   type StockDailyPriceRow,
 } from "@/lib/stockDailyPricesStorage";
 import { computeTrailingAvgTradingValue, pickListedSharesOnOrBefore } from "@/lib/pitUniverse";
+import { MA_CROSS_V2_PARAMS } from "@/lib/maCrossConfig";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
@@ -37,7 +38,6 @@ import {
   type StrategyRule,
   type DailyPrice,
   type BacktestTrade,
-  type MaCrossParams,
 } from "@/lib/backtest";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import {
@@ -49,10 +49,13 @@ import {
   STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT,
   STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED,
   STRATEGY_BACKTEST_DISPLAY_STAGE,
+  STRATEGY_BACKTEST_EXTENDED_STAGE,
+  STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR,
+  STRATEGY_BACKTEST_EXTENDED_RULE_TYPES,
+  STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS,
   PIT_LIQUIDITY_LOOKBACK_DAYS,
   PIT_MIN_AVG_TRADING_VALUE_WON,
   PIT_LIQUIDITY_SENSITIVITY_WON,
-  FALLBACK_MA_CROSS_PARAMS,
 } from "@/lib/strategyBacktestSummaryConfig";
 import {
   accumulateStockDailyReturns,
@@ -77,6 +80,9 @@ const DATA_WIDEN_STAGE = process.env.DATA_WIDEN_STAGE || STRATEGY_BACKTEST_DATA_
 // true면 거래비용을 끄고 계산하되 DB에는 저장하지 않는다(전략 자체의 우위 확인용 검증 실행, 2026-10-04).
 const COST_FREE_DRY_RUN = process.env.COST_FREE_DRY_RUN === "true";
 const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
+// true면 거래비용은 그대로 반영하되 DB에는 저장하지 않는다(규칙 변경 검증용 — COST_FREE_DRY_RUN은 비용도 끈다).
+const DRY_RUN = process.env.DRY_RUN === "true";
+const NO_WRITE = COST_FREE_DRY_RUN || DRY_RUN;
 const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
 // 시총 유니버스(2026-10-06 화면 기본 결과로 승격): 0이면 사용 안 함(기본, 기존 동작). 양수면 그날(as-of) 저장된
 // 시총(억)이 이 값 이상인 종목만 진입·벤치마크 편입 후보로 삼는다(유동성 5억 필터와 병행). 이때 유동성
@@ -94,13 +100,17 @@ const capOk = (row: StockDailyPriceRow): boolean => MIN_MARKET_CAP_EOK === 0 || 
 // 화면 기본 stage나 승격 stage에 다른 기간 결과가 섞여 저장되지 않도록, 저장하는 실행(비용 반영)이면
 // 별도 DATA_WIDEN_STAGE가 필수다.
 const WINDOW_START_YEAR_OVERRIDE = Number(process.env.BACKTEST_WINDOW_START_YEAR) || 0;
-const WINDOW_START_YEAR = WINDOW_START_YEAR_OVERRIDE || STRATEGY_BACKTEST_WINDOW_START_YEAR;
+// 확장 기간 stage로 저장하는 실행이면 시작 연도와 대상 전략이 확장 설정으로 바뀐다(lib/strategyBacktestSummaryConfig.ts).
+const IS_EXTENDED_STAGE = DATA_WIDEN_STAGE === STRATEGY_BACKTEST_EXTENDED_STAGE;
+const WINDOW_START_YEAR =
+  WINDOW_START_YEAR_OVERRIDE ||
+  (IS_EXTENDED_STAGE ? STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR : STRATEGY_BACKTEST_WINDOW_START_YEAR);
 if (
   WINDOW_START_YEAR_OVERRIDE > 0 &&
-  !COST_FREE_DRY_RUN &&
+  !NO_WRITE &&
   [STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT, STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED, STRATEGY_BACKTEST_DISPLAY_STAGE].includes(DATA_WIDEN_STAGE)
 ) {
-  throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN=true로 실행해야 합니다.");
+  throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN·DRY_RUN=true로 실행해야 합니다.");
 }
 const PERIOD_START_DATE = `${WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
@@ -113,8 +123,11 @@ const PRICE_FETCH_START_YEAR = Math.max(STOCK_DATA_EARLIEST_YEAR, WINDOW_START_Y
 const BATCH_CONCURRENCY = 10;
 const PROGRESS_LOG_INTERVAL = 100;
 
-const TARGET_RULE_TYPES = STRATEGY_BACKTEST_TARGET_RULE_TYPES;
-type TargetRuleType = (typeof TARGET_RULE_TYPES)[number];
+type TargetRuleType = (typeof STRATEGY_BACKTEST_TARGET_RULE_TYPES)[number];
+// 이번 실행이 계산할 전략: 기본은 운영 전략 전부, 확장 기간 stage는 확장 대상만.
+const TARGET_RULE_TYPES: readonly TargetRuleType[] = IS_EXTENDED_STAGE
+  ? STRATEGY_BACKTEST_EXTENDED_RULE_TYPES
+  : STRATEGY_BACKTEST_TARGET_RULE_TYPES;
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let nextIndex = 0;
@@ -141,23 +154,6 @@ function toDailyPrice(row: StockDailyPriceRow): DailyPrice {
   };
 }
 
-/** ma_cross는 사용자 개인화 값(rule_params)이라 상수로 고정할
- * 수 없다 — strategies 테이블(market='KR')에 등록된 첫 번째 행을 대표값으로 쓰고,
- * 없으면 lib/strategyBacktestSummaryConfig.ts의 임시 기본값을 쓴다
- * (components/StrategyManager.tsx의 "전략 성과 비교"와 동일한 "대표 전략" 관례 —
- * strategies 테이블엔 is_active 플래그가 없다). */
-async function loadActiveRuleParams(ruleType: "ma_cross"): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabaseAdmin
-    .from("strategies")
-    .select("rule_params")
-    .eq("rule_type", ruleType)
-    .eq("market", "KR")
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`${ruleType} 대표 전략 조회 실패: ${error.message}`);
-  return (data?.rule_params as Record<string, unknown>) ?? null;
-}
-
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -177,16 +173,10 @@ function createAccumulator(): RuleTypeAccumulator {
 async function main(): Promise<void> {
   console.log(`장기 백테스트(${WINDOW_START_YEAR}~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
 
-  const maCrossActive = await loadActiveRuleParams("ma_cross");
-  const maCrossParams = (maCrossActive as unknown as MaCrossParams | null) ?? FALLBACK_MA_CROSS_PARAMS;
-  console.log(
-    maCrossActive
-      ? `ma_cross 대표 전략 사용: ${JSON.stringify(maCrossParams)}`
-      : `ma_cross 대표 전략 없음 — 기본값 사용: ${JSON.stringify(maCrossParams)}`
-  );
+  console.log(`ma_cross 현행 규칙 사용(lib/maCrossConfig.ts): ${JSON.stringify(MA_CROSS_V2_PARAMS)}`);
 
   const RULES: Record<TargetRuleType, StrategyRule> = {
-    ma_cross: { rule_type: "ma_cross", rule_params: maCrossParams },
+    ma_cross: { rule_type: "ma_cross", rule_params: MA_CROSS_V2_PARAMS },
     reversal_breakout_v2: { rule_type: "reversal_breakout_v2", rule_params: {} },
     peg_lynch: { rule_type: "peg_lynch", rule_params: {} },
   };
@@ -199,9 +189,6 @@ async function main(): Promise<void> {
     getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
     getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
   ]);
-  const rebalanceDates = computeMonthlyRebalanceDates(
-    kospiSeries.map((p) => p.tradeDate).filter((d) => d >= PERIOD_START_DATE).sort()
-  );
 
   // 분할·병합 조정계수(신뢰도 높은 이벤트만)를 배치 전용으로 적용해 읽는다 — 원본 Parquet와 화면용
   // 조회 함수는 원가 그대로다(lib/priceAdjustment.ts).
@@ -209,6 +196,12 @@ async function main(): Promise<void> {
   console.log(`조정계수 적용 대상: ${appliedAdjustments.size}종목`);
   const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR, appliedAdjustments);
   const universe = Array.from(seriesByCode.keys());
+  // 거래일 캘린더는 종목 시세의 거래일 합집합이다(2016~ 기준 코스피 거래일 캘린더 결과와 CAGR·MDD가 일치함을
+  // 2026-10-08 확인). 지수 시세가 2016-01-04부터만 있어 지수 캘린더로는 2010~ 기간을 계산할 수 없다.
+  const stockTradeDates = new Set<string>();
+  for (const rows of seriesByCode.values()) for (const row of rows) if (row.tradeDate >= PERIOD_START_DATE) stockTradeDates.add(row.tradeDate);
+  const universeCalendar = Array.from(stockTradeDates).sort();
+  const rebalanceDates = computeMonthlyRebalanceDates(universeCalendar);
   console.log(
     MIN_MARKET_CAP_EOK > 0
       ? `시총 유니버스: 그날(as-of) 저장 시총 ${MIN_MARKET_CAP_EOK}억 이상 + 유동성 ${PIT_MIN_AVG_TRADING_VALUE_WON / 1e8}억 이상, stage=${DATA_WIDEN_STAGE}, ${COST_LABEL}`
@@ -285,11 +278,14 @@ async function main(): Promise<void> {
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
       try {
-        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, (_code, date) =>
-          pickListedSharesOnOrBefore(priceRows, date, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS)
-        );
-        fundamentals = loaded.series;
-        listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
+        // peg_lynch를 계산하지 않는 실행(확장 기간 stage)은 재무 조회를 생략한다.
+        if (TARGET_RULE_TYPES.includes("peg_lynch")) {
+          const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, (_code, date) =>
+            pickListedSharesOnOrBefore(priceRows, date, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS)
+          );
+          fundamentals = loaded.series;
+          listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
+        }
       } catch (error) {
         // peg_lynch만 영향(재무 조회 실패 시 그 종목은 peg_lynch 판정에서만 제외).
         const message = error instanceof Error ? error.message : String(error);
@@ -396,7 +392,7 @@ async function main(): Promise<void> {
     );
     const top5ExcludeCagrPct = computeCagrPct(top5ExcludeRawReturnPct, PERIOD_START_DATE, TODAY);
 
-    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
+    const { error } = NO_WRITE ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
       rule_type: ruleType,
       market: "KR",
       period_start_date: PERIOD_START_DATE,
@@ -428,7 +424,7 @@ async function main(): Promise<void> {
       `  [${ruleType}] 거래 ${totalTrades}건(종료 ${closedTrades}/강제청산 ${aggregate.forcedLiquidationCount}), ` +
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
         `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
-        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (${COST_LABEL}) — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
+        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (${COST_LABEL}) — ${NO_WRITE ? "저장 안 함" : "저장 완료"}`
     );
   }
 
@@ -436,15 +432,26 @@ async function main(): Promise<void> {
 
   const eligibleAtRebalance = (thresholdWon: number) => (stockCode: string, date: string) =>
     (liquidityAtRebalance.get(stockCode)?.get(date) ?? NaN) >= thresholdWon;
-  const universeCalendar = kospiSeries.map((p) => p.tradeDate);
+
+  const indexFirstDate = kospiSeries.length > 0 ? kospiSeries[0].tradeDate : null;
+  const indexCoversPeriod =
+    indexFirstDate !== null &&
+    Date.parse(indexFirstDate) - Date.parse(PERIOD_START_DATE) <= STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS * 86400000;
+  if (!indexCoversPeriod) {
+    console.log(`  지수 시세 첫 거래일 ${indexFirstDate ?? "없음"} > 백테스트 시작 ${PERIOD_START_DATE} — 코스피/코스닥 벤치마크는 계산하지 않습니다.`);
+  }
 
   const benchmarkInputs: { benchmarkType: string; dailyReturnsPct: number[]; costIncluded: boolean }[] = [
-    { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
-    { benchmarkType: "kosdaq", dailyReturnsPct: computeIndexDailyReturnsPct(kosdaqSeries), costIncluded: false },
+    // 지수 시세가 백테스트 시작일을 덮지 못하면(2010~ 기간) 지수 벤치마크는 만들지 않는다.
+    ...(indexCoversPeriod
+      ? [
+          { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
+          { benchmarkType: "kosdaq", dailyReturnsPct: computeIndexDailyReturnsPct(kosdaqSeries), costIncluded: false },
+        ]
+      : []),
     {
       benchmarkType: "universe_monthly_rebalance",
-      // 코스피 지수 시리즈의 tradeDate를 실제 KRX 거래일 캘린더로 재사용한다
-      // (따로 캘린더를 조회하지 않는다).
+      // 종목 시세의 거래일 합집합 캘린더(universeCalendar)로 리밸런싱한다.
       dailyReturnsPct: simulateUniverseMonthlyRebalance(
         pricesByStock,
         universeCalendar,
@@ -476,7 +483,7 @@ async function main(): Promise<void> {
   });
 
   for (const row of benchmarkRows) {
-    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("benchmark_summary").insert({
+    const { error } = NO_WRITE ? { error: null } : await supabaseAdmin.from("benchmark_summary").insert({
       benchmark_type: row.benchmarkType,
       period_start_date: PERIOD_START_DATE,
       period_end_date: TODAY,
@@ -494,7 +501,7 @@ async function main(): Promise<void> {
 
     console.log(
       `  [${row.benchmarkType}] MDD ${row.mddPct.toFixed(1)}%, CAGR ${row.cagrPct.toFixed(1)}%, ` +
-        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? ` (${COST_LABEL})` : ""} — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
+        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? ` (${COST_LABEL})` : ""} — ${NO_WRITE ? "저장 안 함" : "저장 완료"}`
     );
   }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApproved } from "@/lib/requireApproved";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { STRATEGY_BACKTEST_DISPLAY_STAGE } from "@/lib/strategyBacktestSummaryConfig";
+import { STRATEGY_BACKTEST_DISPLAY_STAGE, STRATEGY_BACKTEST_EXTENDED_STAGE } from "@/lib/strategyBacktestSummaryConfig";
 import { selectLatestBenchmarks, selectLatestSummaries } from "@/lib/strategyBacktestSelection";
 
 interface StrategyBacktestSummaryRow {
@@ -69,8 +69,13 @@ export async function GET(request: Request) {
   // 화면 기본 stage(STRATEGY_BACKTEST_DISPLAY_STAGE) 행만 노출하고 그 안에서 조합별 최신 행을 쓴다.
   // 그 stage에 행이 없는 전략은 응답에서 빠지고, 화면이 "재정비 중"으로 표시한다(다른 stage로
   // 대체하지 않는다). 다른 stage 행은 이력으로 DB에 그대로 남는다.
+  // 확장 기간(2010~) stage 행은 별도 필드로 함께 내려준다(ma_cross 카드의 기간별 두 줄용). 없으면 빈 배열.
+  const summaryRows = (summaryResult.data ?? []) as StrategyBacktestSummaryRow[];
+  const benchmarkRows = (benchmarkResult.data ?? []) as BenchmarkSummaryRow[];
   return NextResponse.json({
-    summaries: selectLatestSummaries((summaryResult.data ?? []) as StrategyBacktestSummaryRow[], STRATEGY_BACKTEST_DISPLAY_STAGE),
-    benchmarks: selectLatestBenchmarks((benchmarkResult.data ?? []) as BenchmarkSummaryRow[], STRATEGY_BACKTEST_DISPLAY_STAGE),
+    summaries: selectLatestSummaries(summaryRows, STRATEGY_BACKTEST_DISPLAY_STAGE),
+    benchmarks: selectLatestBenchmarks(benchmarkRows, STRATEGY_BACKTEST_DISPLAY_STAGE),
+    extendedSummaries: selectLatestSummaries(summaryRows, STRATEGY_BACKTEST_EXTENDED_STAGE),
+    extendedBenchmarks: selectLatestBenchmarks(benchmarkRows, STRATEGY_BACKTEST_EXTENDED_STAGE),
   });
 }

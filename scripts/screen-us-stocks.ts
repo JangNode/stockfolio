@@ -16,6 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { applyMaCrossV2, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
 import { loadUsTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { isOperatingRuleType } from "@/lib/strategyVersions";
 import {
@@ -113,7 +114,9 @@ async function loadStrategies(): Promise<StrategyRow[]> {
 
   if (error) throw new Error(`전략 조회 실패: ${error.message}`);
   // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 더 이상 스캔하지 않는다.
-  return ((data ?? []) as StrategyRow[]).filter((strategy) => isOperatingRuleType(strategy.rule_type));
+  return ((data ?? []) as StrategyRow[])
+    .filter((strategy) => isOperatingRuleType(strategy.rule_type))
+    .map(applyMaCrossV2); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다.
 }
 
 function computeDailyTargetRows(strategies: StrategyRow[]): number {
@@ -371,6 +374,7 @@ async function runStrategyScan(
         marketCapUsd === null ? null : marketCapUsd / MARKET_CAP_SCORE_FULL_USD
       );
 
+      // US는 점수 게이트를 그대로 적용한다(ma_cross 게이트 면제는 KR 전용 — US 50/200은 백테스트 검증이 없다).
       if (score <= MIN_SCREENING_SCORE) {
         lowScore++;
         continue;
@@ -390,6 +394,8 @@ async function runStrategyScan(
         score,
         market: "US",
         exchange,
+        // 새 규칙(v2)으로 만든 신호라는 표식 — 기존 규칙(5/20) 이력과 구분하는 용도다.
+        ...(strategy.rule_type === "ma_cross" ? { signal_details: MA_CROSS_V2_SIGNAL_DETAILS } : {}),
       });
 
       if (insertError) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { runBacktest, type BacktestResult, type DailyPrice, type StrategyRuleType } from "@/lib/backtest";
 import { authFetch } from "@/lib/authFetch";
+import { maCrossBacktestMinRows } from "@/lib/maCrossConfig";
 import { describeStrategy, useStrategies } from "@/components/StrategyManager";
 import { useMarket } from "@/components/MarketContext";
 import { formatPrice } from "@/lib/market";
@@ -162,10 +163,13 @@ export default function Backtest({ user }: { user: User }) {
         // 그 외 전략(이평 교차, 급등주 찾기)은 전부 일봉 기준이므로 항상 KIS 일봉을
         // 가져온다. reversal_breakout_v2는 기본 조회 건수(500건)로는 부족해(최소 507건,
         // 여유를 둔 최소 상수 520건 필요) minRows를 명시적으로 붙인다.
+        // ma_cross는 장기 이평선(200일) 워밍업 + 선택한 기간만큼의 일봉이 필요하다.
         const minRowsQuery =
           selectedStrategy.rule_type === "reversal_breakout_v2"
             ? `&minRows=${REVERSAL_BREAKOUT_MIN_HISTORY_ROWS}`
-            : "";
+            : selectedStrategy.rule_type === "ma_cross"
+              ? `&minRows=${maCrossBacktestMinRows(months)}`
+              : "";
         const historyRes = await authFetch(
           `/api/stock/${resolved.code}/history?period=D&market=${market}${minRowsQuery}`
         );

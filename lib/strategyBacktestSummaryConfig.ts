@@ -1,4 +1,4 @@
-import type { MaCrossParams, StrategyRuleType } from "@/lib/backtest";
+import type { StrategyRuleType } from "@/lib/backtest";
 
 /**
  * "장기 백테스트(2016~오늘)" 캐시 배치(scripts/compute-strategy-backtest-summary.ts)와
@@ -52,12 +52,6 @@ export const STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO = 0.5;
 // 없어 특히 잘 걸리는 사례 — 2026-09-27 사용자 요청).
 export const STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD = 0.2;
 
-// ma_cross는 strategies 테이블(market='KR')에 활성 행이 없을 때 쓰는 임시 기본값.
-// diagnose-strategy-daily-returns.ts/diagnose-strategy-return-concentration.ts가
-// 2026-09-24 사용자 확인을 받아 쓴 값과 동일하게 유지한다 — peg_lynch/reversal_breakout_v2와
-// 달리 rule_params가 사용자 개인화 값이라 서버 설정 상수(lib/pegConfig.ts류)가 없다.
-export const FALLBACK_MA_CROSS_PARAMS: MaCrossParams = { short_period: 20, long_period: 60 };
-
 // strategy_backtest_summary/benchmark_summary 행이 어떤 원자료 확장 단계에서 계산됐는지
 // 구분하는 data_widen_stage 값. 'narrow'(전종목 재백필 전 기존 행), 'partial_2023_2026'
 // (재백필 도중 계산된 중간 상태 행), 'full'(2015~2026 재백필 완료 후 행). 배치는 기본적으로
@@ -83,6 +77,19 @@ export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";
 // 행은 DB에 그대로 남아 있다(삭제하지 않음). 'narrow'를 가리킬 땐 stage가 비어 있는 기존
 // 행도 함께 읽는다.
 export const STRATEGY_BACKTEST_DISPLAY_STAGE: string = "pit_adjusted_cap5000";
+
+// 확장 기간(2010~) 병기 결과(2026-10-08 사용자 결정): ma_cross만 2010년부터 다시 계산해 별도 stage로 저장하고,
+// 화면 API가 기본 stage(2016~)와 함께 내려준다. 시작 연도·대상 전략·stage는 이 세 값이 기준이다.
+// 2010년은 KRX 일별매매정보로 받을 수 있는 가장 이른 연도(STOCK_DATA_EARLIEST_YEAR)이고, 200일선 워밍업 때문에
+// 첫 신호는 2010년 말경부터 나온다. peg_lynch는 재무 데이터가 2016년부터라 확장 대상에서 제외한다.
+export const STRATEGY_BACKTEST_EXTENDED_STAGE = "pit_adjusted_cap5000_from2010";
+export const STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR = 2010;
+export const STRATEGY_BACKTEST_EXTENDED_RULE_TYPES = ["ma_cross"] as const satisfies readonly StrategyRuleType[];
+
+// 코스피/코스닥 지수 시세(beta_price_history)는 2016-01-04부터만 저장돼 있다(2010~2015는 미수집, 2026-10-08 확인).
+// 백테스트 시작일보다 지수 첫 거래일이 이 일수 넘게 늦으면 지수 벤치마크를 계산·저장하지 않는다
+// (짧은 기간의 수익을 긴 기간으로 나눠 과소 계산하는 것을 막는다). 연초 휴장 여유로 7일을 둔다.
+export const STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS = 7;
 
 // 화면 상단 벤치마크 카드로 보여줄 benchmark_summary.benchmark_type과 표시명. kospi/kosdaq은
 // 가격지수(배당 미포함), universe_monthly_rebalance는 같은 유니버스·기간의 월간 리밸런싱

@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(10/6, #441) 이후 개발팀이 전략 정리를 진행해(#447) minervini_trend_template·급등주찾기v1·custom_composite를 운영 종료하고 ma_cross/급등주v2/peg_lynch 3개만 남겼습니다 — 그 과정에서 이 파일의 source_rule_types도 ma_cross 단독으로 자동 축소됐습니다(minervini_trend_template 제거). 안정형은 14종목 분산이 목표라 신호 출처가 하나만 남으면 후보 풀이 좁아질 수 있어, 같은 시점 승격된 장기 백테스트(시총 5천억 PIT, pit_adjusted_cap5000) 기준 성과가 양호한 peg_lynch(CAGR +7.7%, 승률 77%)를 추가해 ma_cross+peg_lynch 2개 출처로 복원합니다. reversal_breakout_v2는 같은 기준으로 CAGR -22.9%/MDD 97%로 부진해 추가하지 않습니다. 나머지 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)은 변경 근거가 없어 유지합니다.",
-  "generated_at": "2026-10-07T05:14:22Z",
+  "rationale": "지난 재생성(10/7, #449) 이후 커밋(#451)은 Supabase 1,000건 조회 상한 때문에 모의투자 매수 후보 조회 등 여러 곳이 암묵적으로 결과를 잘라내던 버그를 페이지네이션으로 고친 것입니다 — 활성 신호가 1,000건을 넘는 날엔 이전에 후보 일부가 누락됐을 수 있는데, 이제는 전수 조회됩니다. source_rule_types나 매칭 로직 자체에는 변화가 없어 ma_cross+peg_lynch 구성과 나머지 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 그대로 유지합니다.",
+  "generated_at": "2026-10-08T05:12:02Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "peg_lynch"],
     "min_signal_return_pct": -2,

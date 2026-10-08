@@ -360,6 +360,9 @@ async function main(): Promise<void> {
     const avgLossPct = lossReturns.length > 0 ? lossReturns.reduce((s, v) => s + v, 0) / lossReturns.length : null;
     const payoffRatio = avgWinPct !== null && avgLossPct !== null && avgLossPct !== 0 ? avgWinPct / Math.abs(avgLossPct) : null;
 
+    const avgHoldDays = acc.trades.reduce((sum, t) => sum + (Date.parse(t.sellDate) - Date.parse(t.buyDate)) / 86400000, 0) / totalTrades;
+    console.log(`  [${ruleType}] 평균 보유(달력일) ${avgHoldDays.toFixed(0)}`);
+
     const dailySeries = computeEqualWeightDailyReturns(acc.dailyReturns);
     const { totalReturnPct, mddPct } = computeCumulativeAndMdd(dailySeries);
     const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, TODAY);

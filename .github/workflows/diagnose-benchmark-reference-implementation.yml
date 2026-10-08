@@ -26,23 +26,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: R0 baseline
-        run: npx tsx --conditions=react-server scripts/diagnose-ma-cross-rule-experiments.ts
+      - name: low_confidence impact investigation (read-only, temp)
+        run: npx tsx --conditions=react-server scripts/diagnose-lowconf-impact.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
-          EXP_R0_ONLY: "true"
-          EXP_CAP_EOK: "5000"
-          EXP_START_YEAR: "2010"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: R0 excluding low_confidence stocks
-        run: npx tsx --conditions=react-server scripts/diagnose-ma-cross-rule-experiments.ts
+      - name: KRX index API availability probe (read-only, a few dates)
+        run: npx tsx --conditions=react-server scripts/diagnose-index-probe.ts
         env:
-          NODE_OPTIONS: --max-old-space-size=12288
-          EXP_R0_ONLY: "true"
-          EXP_EXCLUDE_LOWCONF: "true"
-          EXP_CAP_EOK: "5000"
-          EXP_START_YEAR: "2010"
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}

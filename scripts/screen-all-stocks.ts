@@ -37,6 +37,7 @@ import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
+import { loadKrTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { adjustPrice, describeFactor, getCumulativeFactor, isPriceAnomaly, weekdaysBetween } from "@/lib/corporateActionGuard";
 import {
   loadFundamentalsSeries,
@@ -307,19 +308,6 @@ async function filterByQuote(
 
 const d10 = (iso: string): string => iso.slice(0, 10);
 
-interface ActiveRow {
-  id: string;
-  stock_code: string;
-  status: "active" | "price_anomaly";
-  matched_at: string;
-  entry_price: number;
-  stop_loss_price: number;
-  take_profit_price: number;
-  current_price: number;
-  last_price_fetch_success_at: string;
-  price_fetch_failure_count: number;
-}
-
 /**
  * status=active인 기존 추적 종목의 현재가를 갱신하고, 손절/익절 조건에 걸리면 종료
  * 처리한다. 시세 조회가 실패하는 종목(거래정지/상장폐지 등)은 조용히 건너뛰지 않고
@@ -337,21 +325,12 @@ async function updateActiveTracking(): Promise<{
 }> {
   console.log("=== 1단계: 기존 추적 종목 갱신 ===");
 
-  // market="US" 행은 별도 배치(screen-us-stocks.ts)가 다룬다 — 이 함수가 국내
-  // getStockPrice(6자리 종목코드 전제)로 미국 티커를 조회하면 잘못된 값을 받거나
-  // 실패하므로 반드시 국내 행만 골라야 한다.
-  const { data: activeRows, error } = await supabaseAdmin
-    .from("screening_results")
-    .select(
-      "id, stock_code, status, matched_at, entry_price, stop_loss_price, take_profit_price, current_price, last_price_fetch_success_at, price_fetch_failure_count"
-    )
-    // price_anomaly 행도 매번 다시 평가한다 — 확정된 조정계수 이벤트가 등록되면 자동으로 active로 복귀한다.
-    .in("status", ["active", "price_anomaly"])
-    .eq("market", "KR");
+  // 국내(KR) 행만, 1,000건을 넘어도 전부 읽는다(lib/screeningActiveRows.ts).
+  const activeRows = await loadKrTrackingRows().catch((error: Error) => {
+    throw new Error(`추적 종목 조회 실패: ${error.message}`);
+  });
 
-  if (error) throw new Error(`추적 종목 조회 실패: ${error.message}`);
-
-  if (!activeRows || activeRows.length === 0) {
+  if (activeRows.length === 0) {
     console.log("추적 중인 종목이 없습니다.");
     return { updated: 0, stopped: 0, profited: 0, priceUnavailable: 0 };
   }
@@ -397,7 +376,7 @@ async function updateActiveTracking(): Promise<{
   const today = now.slice(0, 10);
   let priceAnomaly = 0;
 
-  for (const row of activeRows as ActiveRow[]) {
+  for (const row of activeRows) {
     const currentPrice = priceByCode.get(row.stock_code);
 
     if (currentPrice === undefined) {
@@ -699,16 +678,9 @@ async function scanAllStocks(
   // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다. 여러 전략 판정이 공유하는
   // 집합이라, 한 전략에서 새로 매칭된 것도 곧바로 다른 전략 판정에 반영된다(같은 종목을
   // 서로 다른 전략이 중복으로 추적하는 건 막지 않는다 — strategy_id가 다르면 별개 추적).
-  const { data: existingActive, error: activeError } = await supabaseAdmin
-    .from("screening_results")
-    .select("strategy_id, stock_code")
-    .eq("status", "active");
-
-  if (activeError) throw new Error(`추적 중인 종목 조회 실패: ${activeError.message}`);
-
-  const activeKeys = new Set(
-    (existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`)
-  );
+  const activeKeys = await loadActiveStrategyStockKeys().catch((error: Error) => {
+    throw new Error(`추적 중인 종목 조회 실패: ${error.message}`);
+  });
 
   console.log(`=== 4단계: 전략별 판정 (${strategies.length}개 전략, 전략마다 독립적으로 진행) ===`);
 
@@ -824,13 +796,9 @@ async function scanFundamentalStrategies(
 
   const today = todayKstDate();
 
-  const { data: existingActive, error: activeError } = await supabaseAdmin
-    .from("screening_results")
-    .select("strategy_id, stock_code")
-    .eq("status", "active")
-    .in("strategy_id", targets.map((s) => s.id));
-  if (activeError) throw new Error(`추적 중인 종목 조회 실패: ${activeError.message}`);
-  const activeKeys = new Set((existingActive ?? []).map((r) => `${r.strategy_id}:${r.stock_code}`));
+  const activeKeys = await loadActiveStrategyStockKeys(targets.map((s) => s.id)).catch((error: Error) => {
+    throw new Error(`추적 중인 종목 조회 실패: ${error.message}`);
+  });
 
   let matched = 0;
   let errors = 0;

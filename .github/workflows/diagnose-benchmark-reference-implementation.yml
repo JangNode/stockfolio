@@ -26,20 +26,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: ma_cross market-cap criteria experiment (dry run, temp)
-        run: |
-          set +e
-          for cap in 5000 3000 1000 500; do
-            for slip in 0.001 0.003; do
-              echo "=== cap=${cap}억 slippage=${slip}"
-              UNIVERSE_MIN_MARKET_CAP_EOK=$cap EXP_SLIPPAGE_PCT=$slip /usr/bin/time -v npm run batch:strategy-backtest-summary 2>&1 | grep -E "월별 편입|\[ma_cross\]|universe_monthly_rebalance\]|\[kospi\]|\[kosdaq\]|low_confidence|실행 시간|Maximum resident|rror" 
-            done
-          done
+      - name: R0 baseline
+        run: npx tsx --conditions=react-server scripts/diagnose-ma-cross-rule-experiments.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
-          DRY_RUN: "true"
-          BACKTEST_WINDOW_START_YEAR: "2010"
-          EXP_ONLY_MA_CROSS: "true"
-          DATA_WIDEN_STAGE: pit_adjusted_exp
+          EXP_R0_ONLY: "true"
+          EXP_CAP_EOK: "5000"
+          EXP_START_YEAR: "2010"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: R0 excluding low_confidence stocks
+        run: npx tsx --conditions=react-server scripts/diagnose-ma-cross-rule-experiments.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          EXP_R0_ONLY: "true"
+          EXP_EXCLUDE_LOWCONF: "true"
+          EXP_CAP_EOK: "5000"
+          EXP_START_YEAR: "2010"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

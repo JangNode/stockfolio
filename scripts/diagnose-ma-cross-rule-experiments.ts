@@ -9,6 +9,8 @@ import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { loadAllStockSeriesFromParquet, type StockDailyPriceRow } from "@/lib/stockDailyPricesStorage";
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
 import { MA_CROSS_V2_PARAMS } from "@/lib/maCrossConfig";
 import {
   STRATEGY_BACKTEST_PRICE_FETCH_LOOKBACK_YEARS,
@@ -58,7 +60,9 @@ function parseCombo(spec: string): Variant {
   return v;
 }
 
-const VARIANTS: Variant[] = process.env.EXP_COMBO
+const VARIANTS: Variant[] = process.env.EXP_R0_ONLY === "true"
+  ? [{ name: "R0 (50/200)" }]
+  : process.env.EXP_COMBO
   ? [{ name: "R0 (50/200)" }, parseCombo(process.env.EXP_COMBO)]
   : [
       { name: "R0 (50/200)" },
@@ -131,10 +135,29 @@ async function main(): Promise<void> {
   const seriesByCode = await loadAllStockSeriesFromParquet(FETCH_START, CURRENT_YEAR, adjustments);
   console.log(`종목 ${seriesByCode.size}개 로드, heap ${(process.memoryUsage().heapUsed / 1048576).toFixed(0)}MB`);
 
+  // 지수 데이터(beta_price_history) 실제 시작일 확인
+  for (const m of ["KOSPI", "KOSDAQ"] as const) {
+    const idx = await getIndexPriceSeries(m, "1990-01-01", TODAY);
+    console.log(`[지수] ${m}: ${idx.length}행, ${idx[0]?.tradeDate} ~ ${idx[idx.length - 1]?.tradeDate}`);
+  }
+  let excluded = new Set<string>();
+  if (process.env.EXP_EXCLUDE_LOWCONF === "true") {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabaseAdmin.from("stock_price_adjustment_events").select("stock_code").eq("status", "low_confidence").order("stock_code").range(from, from + 999);
+      if (error) throw new Error(error.message);
+      for (const r of data ?? []) excluded.add((r as { stock_code: string }).stock_code);
+      if (!data || data.length < 1000) break;
+    }
+    console.log(`low_confidence 이벤트 보유 종목 ${excluded.size}개 전체 제외`);
+  }
   const accs = VARIANTS.map(() => newAcc());
+  const recentCutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+  const recentDates = new Set<string>();
   const { short_period, long_period } = MA_CROSS_V2_PARAMS;
 
   for (const [code, rows] of seriesByCode) {
+    if (excluded.has(code)) continue;
+    for (const r of rows) if (r.tradeDate >= recentCutoff) recentDates.add(r.tradeDate);
     const prices: DailyPrice[] = rows.map((r: StockDailyPriceRow) => ({
       date: r.tradeDate, open: r.openPrice, high: r.highPrice, low: r.lowPrice, close: r.closePrice,
       volume: r.volume, marketCapEok: r.marketCapEok, listedShares: r.listedShares,
@@ -272,6 +295,8 @@ async function main(): Promise<void> {
         `손익비 ${(aw / Math.abs(al || 1)).toFixed(2)} | 평균보유(달력일) ${holdDays.toFixed(0)} | 구간별 거래당평균 ${buckets}`
     );
   });
+  const r0t = accs[0].trades.filter((x) => x.buyDate >= recentCutoff);
+  console.log(`[신규 신호 빈도] R0 최근 24개월(${recentCutoff}~) 진입 ${r0t.length}건 / 거래일 ${recentDates.size}일 = 하루 평균 ${(r0t.length / Math.max(recentDates.size, 1)).toFixed(2)}건 (시총 ${CAP_EOK}억·유동성 5억 PIT)`);
   console.log("완료");
 }
 

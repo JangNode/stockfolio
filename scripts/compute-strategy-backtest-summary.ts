@@ -22,6 +22,7 @@
  * 필요 환경변수: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
+import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS,
@@ -78,6 +79,8 @@ const COST_FREE_DRY_RUN = process.env.COST_FREE_DRY_RUN === "true";
 const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
 // true면 거래비용은 그대로 반영하되 DB에는 저장하지 않는다(규칙 변경 검증용 — COST_FREE_DRY_RUN은 비용도 끈다).
 const DRY_RUN = process.env.DRY_RUN === "true";
+const SCORE_GATE = process.env.SCORE_GATE === "true";
+const scoreSamples: number[] = [];
 const NO_WRITE = COST_FREE_DRY_RUN || DRY_RUN;
 const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
 // 시총 유니버스(2026-10-06 화면 기본 결과로 승격): 0이면 사용 안 함(기본, 기존 동작). 양수면 그날(as-of) 저장된
@@ -260,6 +263,14 @@ async function main(): Promise<void> {
         const i = indexByDate.get(date);
         return i !== undefined && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON && capOk(priceRows[i]);
       };
+      // [임시 검증] ma_cross 진입일 점수(신호일까지의 시세 + 그날 시총만 사용) 게이트
+      const gatedEntryAllowed = (date: string): boolean => {
+        if (!entryAllowed(date)) return false;
+        const i = indexByDate.get(date)!;
+        const score = computeSignalScore(prices.slice(0, i + 1), RULES.ma_cross, priceRows[i].marketCapEok / 10000);
+        scoreSamples.push(score);
+        return !SCORE_GATE || score > MIN_SCREENING_SCORE;
+      };
 
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
@@ -285,7 +296,7 @@ async function main(): Promise<void> {
           PERIOD_START_DATE,
           needsFundamentals ? fundamentals : undefined,
           needsFundamentals ? listedSharesByFiscalYear : undefined,
-          { market: "KR", entryAllowed, includeTransactionCosts: INCLUDE_COSTS }
+          { market: "KR", entryAllowed: ruleType === "ma_cross" ? gatedEntryAllowed : entryAllowed, includeTransactionCosts: INCLUDE_COSTS }
         );
         if (result.insufficientData || result.trades.length === 0) continue;
 
@@ -360,6 +371,20 @@ async function main(): Promise<void> {
     const avgLossPct = lossReturns.length > 0 ? lossReturns.reduce((s, v) => s + v, 0) / lossReturns.length : null;
     const payoffRatio = avgWinPct !== null && avgLossPct !== null && avgLossPct !== 0 ? avgWinPct / Math.abs(avgLossPct) : null;
 
+    if (ruleType === "ma_cross") {
+      const sorted = [...scoreSamples].sort((a, b) => a - b);
+      const pass = sorted.filter((v) => v > MIN_SCREENING_SCORE).length;
+      console.log(`  [ma_cross] 진입 후보 신호 점수(유니버스 통과분, 게이트=${SCORE_GATE}): n=${sorted.length} 최소 ${sorted[0]} 중앙 ${sorted[Math.floor(sorted.length / 2)]} 최대 ${sorted[sorted.length - 1]}, 51점↑ ${pass}건`);
+      for (const [from, to] of [["2016", "2019"], ["2020", "2022"], ["2023", "2026"]]) {
+        const b = acc.trades.filter((t) => t.buyDate.slice(0, 4) >= from && t.buyDate.slice(0, 4) <= to);
+        const wins = b.filter((t) => t.returnPct > 0);
+        const losses = b.filter((t) => t.returnPct <= 0);
+        const aw = wins.reduce((x, t) => x + t.returnPct, 0) / Math.max(wins.length, 1) * 100;
+        const al = losses.reduce((x, t) => x + t.returnPct, 0) / Math.max(losses.length, 1) * 100;
+        const avg = b.reduce((x, t) => x + t.returnPct, 0) / Math.max(b.length, 1) * 100;
+        console.log(`  [ma_cross] 구간 ${from}~${to}(진입일 기준): 거래 ${b.length}, 승률 ${(wins.length / Math.max(b.length, 1) * 100).toFixed(1)}%, 평균 ${avg.toFixed(1)}%, 손익비 ${(aw / Math.abs(al || 1)).toFixed(2)}`);
+      }
+    }
     const avgHoldDays = acc.trades.reduce((sum, t) => sum + (Date.parse(t.sellDate) - Date.parse(t.buyDate)) / 86400000, 0) / totalTrades;
     console.log(`  [${ruleType}] 평균 보유(달력일) ${avgHoldDays.toFixed(0)}`);
 

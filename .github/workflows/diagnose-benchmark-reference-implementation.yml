@@ -36,12 +36,13 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: Run batch dry run (cost free)
+      - name: Run batch dry run (cost included, score gate)
         run: npm run batch:strategy-backtest-summary
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
           DATA_WIDEN_STAGE: pit_adjusted_cap5000
-          COST_FREE_DRY_RUN: "true"
+          DRY_RUN: "true"
+          SCORE_GATE: "true"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

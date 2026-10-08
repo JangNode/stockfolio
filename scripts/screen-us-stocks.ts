@@ -16,7 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { applyMaCrossV2, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
+import { applyMaCrossV2, isScoreGateExempt, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
 import { loadUsTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { isOperatingRuleType } from "@/lib/strategyVersions";
 import {
@@ -374,7 +374,7 @@ async function runStrategyScan(
         marketCapUsd === null ? null : marketCapUsd / MARKET_CAP_SCORE_FULL_USD
       );
 
-      if (score <= MIN_SCREENING_SCORE) {
+      if (score <= MIN_SCREENING_SCORE && !isScoreGateExempt(strategy.rule_type)) {
         lowScore++;
         continue;
       }

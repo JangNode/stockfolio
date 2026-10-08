@@ -27,6 +27,21 @@ export function isMaCrossV2Signal(signalDetails: unknown): boolean {
   );
 }
 
+/**
+ * KR 스크리닝·모의투자 후보의 시총 하한(억원). 검증(백테스트)이 시총 5천억 PIT 유니버스에서 이뤄졌으므로 그 범위만 후보로 삼는다
+ * (2026-10-08 결정). 이 하한으로 하루 평균 신규 신호는 약 5.2건(시총 500억 이상)에서 약 1.3건으로 줄어든다. US는 적용하지 않는다.
+ */
+export const MA_CROSS_KR_MIN_MARKET_CAP_EOK = 5000;
+
+/**
+ * ma_cross는 점수 게이트(MIN_SCREENING_SCORE)를 적용하지 않는다. 50/200 골든크로스 당일은 이평선 격차가 거의 0이라 점수 상한이
+ * 약 60점이어서 게이트(51점 이상)를 통과하는 신호가 1.4%뿐이고, 게이트를 켜면 검증한 규칙이 아닌 다른 규칙(CAGR -7.7%, 2016~)이 된다.
+ * 다른 전략의 게이트는 그대로다. 점수 자체는 계산해 저장한다.
+ */
+export function isScoreGateExempt(ruleType: string): boolean {
+  return ruleType === "ma_cross";
+}
+
 /** DB에서 읽은 전략 행에 현행 ma_cross 규칙을 적용한다(다른 전략은 그대로). */
 export function applyMaCrossV2<T extends StrategyRule>(strategy: T): T {
   return strategy.rule_type === "ma_cross" ? { ...strategy, rule_params: { ...MA_CROSS_V2_PARAMS } } : strategy;

@@ -37,7 +37,7 @@ import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
-import { applyMaCrossV2, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
+import { applyMaCrossV2, isScoreGateExempt, MA_CROSS_KR_MIN_MARKET_CAP_EOK, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
 import { loadKrTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { adjustPrice, describeFactor, getCumulativeFactor, isPriceAnomaly, weekdaysBetween } from "@/lib/corporateActionGuard";
 import {
@@ -565,6 +565,9 @@ async function runStrategyScan(
       const key = `${strategy.id}:${stockCode}`;
       if (activeKeys.has(key)) continue; // 이미 추적 중
 
+      // ma_cross는 검증 범위(시총 5천억 이상)만 후보로 삼는다. 시총을 모르면(조회 실패) 후보에서 제외한다.
+      if (strategy.rule_type === "ma_cross" && !((marketCapByCode.get(stockCode) ?? 0) >= MA_CROSS_KR_MIN_MARKET_CAP_EOK)) continue;
+
       const signalPrice = prices[prices.length - 1].close;
       const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
       const marketCapEok = marketCapByCode.get(stockCode) ?? null;
@@ -574,7 +577,7 @@ async function runStrategyScan(
         marketCapEok === null ? null : marketCapEok / MARKET_CAP_SCORE_FULL_EOK
       );
 
-      if (score <= MIN_SCREENING_SCORE) {
+      if (score <= MIN_SCREENING_SCORE && !isScoreGateExempt(strategy.rule_type)) {
         lowScore++;
         continue;
       }

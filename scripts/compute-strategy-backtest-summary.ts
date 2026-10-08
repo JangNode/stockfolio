@@ -49,6 +49,10 @@ import {
   STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT,
   STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED,
   STRATEGY_BACKTEST_DISPLAY_STAGE,
+  STRATEGY_BACKTEST_EXTENDED_STAGE,
+  STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR,
+  STRATEGY_BACKTEST_EXTENDED_RULE_TYPES,
+  STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS,
   PIT_LIQUIDITY_LOOKBACK_DAYS,
   PIT_MIN_AVG_TRADING_VALUE_WON,
   PIT_LIQUIDITY_SENSITIVITY_WON,
@@ -96,7 +100,11 @@ const capOk = (row: StockDailyPriceRow): boolean => MIN_MARKET_CAP_EOK === 0 || 
 // 화면 기본 stage나 승격 stage에 다른 기간 결과가 섞여 저장되지 않도록, 저장하는 실행(비용 반영)이면
 // 별도 DATA_WIDEN_STAGE가 필수다.
 const WINDOW_START_YEAR_OVERRIDE = Number(process.env.BACKTEST_WINDOW_START_YEAR) || 0;
-const WINDOW_START_YEAR = WINDOW_START_YEAR_OVERRIDE || STRATEGY_BACKTEST_WINDOW_START_YEAR;
+// 확장 기간 stage로 저장하는 실행이면 시작 연도와 대상 전략이 확장 설정으로 바뀐다(lib/strategyBacktestSummaryConfig.ts).
+const IS_EXTENDED_STAGE = DATA_WIDEN_STAGE === STRATEGY_BACKTEST_EXTENDED_STAGE;
+const WINDOW_START_YEAR =
+  WINDOW_START_YEAR_OVERRIDE ||
+  (IS_EXTENDED_STAGE ? STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR : STRATEGY_BACKTEST_WINDOW_START_YEAR);
 if (
   WINDOW_START_YEAR_OVERRIDE > 0 &&
   !NO_WRITE &&
@@ -115,8 +123,11 @@ const PRICE_FETCH_START_YEAR = Math.max(STOCK_DATA_EARLIEST_YEAR, WINDOW_START_Y
 const BATCH_CONCURRENCY = 10;
 const PROGRESS_LOG_INTERVAL = 100;
 
-const TARGET_RULE_TYPES = STRATEGY_BACKTEST_TARGET_RULE_TYPES;
-type TargetRuleType = (typeof TARGET_RULE_TYPES)[number];
+type TargetRuleType = (typeof STRATEGY_BACKTEST_TARGET_RULE_TYPES)[number];
+// 이번 실행이 계산할 전략: 기본은 운영 전략 전부, 확장 기간 stage는 확장 대상만.
+const TARGET_RULE_TYPES: readonly TargetRuleType[] = IS_EXTENDED_STAGE
+  ? STRATEGY_BACKTEST_EXTENDED_RULE_TYPES
+  : STRATEGY_BACKTEST_TARGET_RULE_TYPES;
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let nextIndex = 0;
@@ -178,9 +189,6 @@ async function main(): Promise<void> {
     getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
     getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
   ]);
-  const rebalanceDates = computeMonthlyRebalanceDates(
-    kospiSeries.map((p) => p.tradeDate).filter((d) => d >= PERIOD_START_DATE).sort()
-  );
 
   // 분할·병합 조정계수(신뢰도 높은 이벤트만)를 배치 전용으로 적용해 읽는다 — 원본 Parquet와 화면용
   // 조회 함수는 원가 그대로다(lib/priceAdjustment.ts).
@@ -188,6 +196,12 @@ async function main(): Promise<void> {
   console.log(`조정계수 적용 대상: ${appliedAdjustments.size}종목`);
   const seriesByCode = await loadAllStockSeriesFromParquet(PRICE_FETCH_START_YEAR, CURRENT_YEAR, appliedAdjustments);
   const universe = Array.from(seriesByCode.keys());
+  // 거래일 캘린더는 종목 시세의 거래일 합집합이다(2016~ 기준 코스피 거래일 캘린더 결과와 CAGR·MDD가 일치함을
+  // 2026-10-08 확인). 지수 시세가 2016-01-04부터만 있어 지수 캘린더로는 2010~ 기간을 계산할 수 없다.
+  const stockTradeDates = new Set<string>();
+  for (const rows of seriesByCode.values()) for (const row of rows) if (row.tradeDate >= PERIOD_START_DATE) stockTradeDates.add(row.tradeDate);
+  const universeCalendar = Array.from(stockTradeDates).sort();
+  const rebalanceDates = computeMonthlyRebalanceDates(universeCalendar);
   console.log(
     MIN_MARKET_CAP_EOK > 0
       ? `시총 유니버스: 그날(as-of) 저장 시총 ${MIN_MARKET_CAP_EOK}억 이상 + 유동성 ${PIT_MIN_AVG_TRADING_VALUE_WON / 1e8}억 이상, stage=${DATA_WIDEN_STAGE}, ${COST_LABEL}`
@@ -264,11 +278,14 @@ async function main(): Promise<void> {
       let fundamentals: FundamentalsSeries | undefined;
       let listedSharesByFiscalYear: ListedSharesByFiscalYear | undefined;
       try {
-        const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, (_code, date) =>
-          pickListedSharesOnOrBefore(priceRows, date, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS)
-        );
-        fundamentals = loaded.series;
-        listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
+        // peg_lynch를 계산하지 않는 실행(확장 기간 stage)은 재무 조회를 생략한다.
+        if (TARGET_RULE_TYPES.includes("peg_lynch")) {
+          const loaded = await loadFundamentalsSeriesWithListedShares(stockCode, (_code, date) =>
+            pickListedSharesOnOrBefore(priceRows, date, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS)
+          );
+          fundamentals = loaded.series;
+          listedSharesByFiscalYear = loaded.listedSharesByFiscalYear;
+        }
       } catch (error) {
         // peg_lynch만 영향(재무 조회 실패 시 그 종목은 peg_lynch 판정에서만 제외).
         const message = error instanceof Error ? error.message : String(error);
@@ -415,15 +432,26 @@ async function main(): Promise<void> {
 
   const eligibleAtRebalance = (thresholdWon: number) => (stockCode: string, date: string) =>
     (liquidityAtRebalance.get(stockCode)?.get(date) ?? NaN) >= thresholdWon;
-  const universeCalendar = kospiSeries.map((p) => p.tradeDate);
+
+  const indexFirstDate = kospiSeries.length > 0 ? kospiSeries[0].tradeDate : null;
+  const indexCoversPeriod =
+    indexFirstDate !== null &&
+    Date.parse(indexFirstDate) - Date.parse(PERIOD_START_DATE) <= STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS * 86400000;
+  if (!indexCoversPeriod) {
+    console.log(`  지수 시세 첫 거래일 ${indexFirstDate ?? "없음"} > 백테스트 시작 ${PERIOD_START_DATE} — 코스피/코스닥 벤치마크는 계산하지 않습니다.`);
+  }
 
   const benchmarkInputs: { benchmarkType: string; dailyReturnsPct: number[]; costIncluded: boolean }[] = [
-    { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
-    { benchmarkType: "kosdaq", dailyReturnsPct: computeIndexDailyReturnsPct(kosdaqSeries), costIncluded: false },
+    // 지수 시세가 백테스트 시작일을 덮지 못하면(2010~ 기간) 지수 벤치마크는 만들지 않는다.
+    ...(indexCoversPeriod
+      ? [
+          { benchmarkType: "kospi", dailyReturnsPct: computeIndexDailyReturnsPct(kospiSeries), costIncluded: false },
+          { benchmarkType: "kosdaq", dailyReturnsPct: computeIndexDailyReturnsPct(kosdaqSeries), costIncluded: false },
+        ]
+      : []),
     {
       benchmarkType: "universe_monthly_rebalance",
-      // 코스피 지수 시리즈의 tradeDate를 실제 KRX 거래일 캘린더로 재사용한다
-      // (따로 캘린더를 조회하지 않는다).
+      // 종목 시세의 거래일 합집합 캘린더(universeCalendar)로 리밸런싱한다.
       dailyReturnsPct: simulateUniverseMonthlyRebalance(
         pricesByStock,
         universeCalendar,

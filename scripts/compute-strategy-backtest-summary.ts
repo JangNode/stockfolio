@@ -81,6 +81,8 @@ const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
 const DRY_RUN = process.env.DRY_RUN === "true";
 const SCORE_GATE = process.env.SCORE_GATE === "true";
 const scoreSamples: number[] = [];
+const eligibleCodes = new Set<string>();
+const tradedCodes = new Set<string>();
 const NO_WRITE = COST_FREE_DRY_RUN || DRY_RUN;
 const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
 // 시총 유니버스(2026-10-06 화면 기본 결과로 승격): 0이면 사용 안 함(기본, 기존 동작). 양수면 그날(as-of) 저장된
@@ -258,7 +260,7 @@ async function main(): Promise<void> {
           break;
         }
       }
-      if (everEligibleMain) everEligibleCount++;
+      if (everEligibleMain) { everEligibleCount++; eligibleCodes.add(stockCode); }
       const entryAllowed = (date: string): boolean => {
         const i = indexByDate.get(date);
         return i !== undefined && avgTradingValue[i] >= PIT_MIN_AVG_TRADING_VALUE_WON && capOk(priceRows[i]);
@@ -287,6 +289,7 @@ async function main(): Promise<void> {
       }
 
       for (const ruleType of TARGET_RULE_TYPES) {
+        if (process.env.EXP_ONLY_MA_CROSS === "true" && ruleType !== "ma_cross") continue;
         const needsFundamentals = ruleType === "peg_lynch";
         if (needsFundamentals && !fundamentals) continue;
 
@@ -302,6 +305,7 @@ async function main(): Promise<void> {
 
         const acc = accumulators[ruleType];
         acc.trades.push(...result.trades);
+        if (ruleType === "ma_cross") tradedCodes.add(stockCode);
         accumulateStockDailyReturns(
           acc.dailyReturns,
           acc.contributions,
@@ -339,6 +343,23 @@ async function main(): Promise<void> {
     console.log(
       `월별 편입 종목 수(유동성 ${thresholdWon / 1e8}억원, ${counts.length}개 리밸런싱 시점): ` +
         `최소 ${Math.min(...counts)} / 평균 ${avg.toFixed(0)} / 최대 ${Math.max(...counts)}`
+    );
+  }
+
+  {
+    // [임시 검증] 조정계수가 적용되지 않은(low_confidence) 이벤트가 있는 종목이 유니버스/거래에 얼마나 섞였는지
+    const lowCodes = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabaseAdmin.from("stock_price_adjustment_events").select("stock_code").eq("status", "low_confidence").order("stock_code").range(from, from + 999);
+      if (error) throw new Error(error.message);
+      for (const r of data ?? []) lowCodes.add((r as { stock_code: string }).stock_code);
+      if (!data || data.length < 1000) break;
+    }
+    const lowInEligible = [...eligibleCodes].filter((c) => lowCodes.has(c)).length;
+    const lowInTraded = [...tradedCodes].filter((c) => lowCodes.has(c)).length;
+    console.log(
+      `[low_confidence] 전체 ${lowCodes.size}종목 | 유니버스(한 번이라도 진입 가능) ${eligibleCodes.size}종목 중 ${lowInEligible}종목(${((lowInEligible / Math.max(eligibleCodes.size, 1)) * 100).toFixed(1)}%) | ` +
+        `ma_cross 거래 발생 ${tradedCodes.size}종목 중 ${lowInTraded}종목(${((lowInTraded / Math.max(tradedCodes.size, 1)) * 100).toFixed(1)}%)`
     );
   }
 

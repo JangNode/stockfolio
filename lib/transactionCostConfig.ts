@@ -1,7 +1,7 @@
 // 매매 비용 기준값(RULES.md 2번 — 매직넘버 금지, 이 파일 하나로 감사 가능하게).
 // 수수료·슬리피지는 2026-09-29 사용자 지정값(진단용으로 쓴 값을 그대로 승격).
 export const FEE_PCT_PER_SIDE = 0.00015; // 매수·매도 각 0.015%(거래대금 기준)
-export const SLIPPAGE_PCT_PER_SIDE = 0.001; // 매수·매도 각 0.1%(불리한 방향)
+export const SLIPPAGE_PCT_PER_SIDE = Number(process.env.EXP_SLIPPAGE_PCT) || 0.001; // [임시 실험] 환경변수로 덮어쓰기 — // 매수·매도 각 0.1%(불리한 방향)
 
 export interface SecuritiesTaxRateStep {
   effectiveFrom: string; // YYYY-MM-DD, 이 날짜(포함)부터 적용(시행일 기준, 연초가 아닌 경우 있음)

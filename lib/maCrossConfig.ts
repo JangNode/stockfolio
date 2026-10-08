@@ -34,9 +34,10 @@ export function isMaCrossV2Signal(signalDetails: unknown): boolean {
 export const MA_CROSS_KR_MIN_MARKET_CAP_EOK = 5000;
 
 /**
- * ma_cross는 점수 게이트(MIN_SCREENING_SCORE)를 적용하지 않는다. 50/200 골든크로스 당일은 이평선 격차가 거의 0이라 점수 상한이
+ * KR ma_cross는 점수 게이트(MIN_SCREENING_SCORE)를 적용하지 않는다. 50/200 골든크로스 당일은 이평선 격차가 거의 0이라 점수 상한이
  * 약 60점이어서 게이트(51점 이상)를 통과하는 신호가 1.4%뿐이고, 게이트를 켜면 검증한 규칙이 아닌 다른 규칙(CAGR -7.7%, 2016~)이 된다.
- * 다른 전략의 게이트는 그대로다. 점수 자체는 계산해 저장한다.
+ * 면제는 KR 스크리닝(scripts/screen-all-stocks.ts)에만 쓴다 — US는 백테스트 검증이 없어 기존 게이트를 유지한다. 다른 전략의 게이트도
+ * 그대로다. 점수 자체는 계산해 저장한다.
  */
 export function isScoreGateExempt(ruleType: string): boolean {
   return ruleType === "ma_cross";

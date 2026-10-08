@@ -222,6 +222,13 @@ export default function Screening({ user }: { user: User }) {
             )}
           </div>
 
+          {selectedIsMaCross && (
+            <p className="mb-3 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
+              &quot;구 규칙(5/20)&quot; 표시가 붙은 행은 2026-10-08 규칙 교체 전에 만들어진 신호입니다. 기록은 그대로 보존되며
+              손절·익절로 종료될 때까지 목록에 남습니다. 표시가 없는 행이 현재 규칙(50/200)의 신호입니다.
+            </p>
+          )}
+
           {resultsLoading ? (
             <p className="text-sm text-ink-muted">결과를 불러오는 중...</p>
           ) : resultsError ? (

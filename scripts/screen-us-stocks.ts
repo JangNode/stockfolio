@@ -16,7 +16,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { applyMaCrossV2, isScoreGateExempt, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
+import { applyMaCrossV2, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
 import { loadUsTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
 import { isOperatingRuleType } from "@/lib/strategyVersions";
 import {
@@ -374,7 +374,8 @@ async function runStrategyScan(
         marketCapUsd === null ? null : marketCapUsd / MARKET_CAP_SCORE_FULL_USD
       );
 
-      if (score <= MIN_SCREENING_SCORE && !isScoreGateExempt(strategy.rule_type)) {
+      // US는 점수 게이트를 그대로 적용한다(ma_cross 게이트 면제는 KR 전용 — US 50/200은 백테스트 검증이 없다).
+      if (score <= MIN_SCREENING_SCORE) {
         lowScore++;
         continue;
       }

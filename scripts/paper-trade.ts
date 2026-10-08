@@ -30,6 +30,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isMaCrossV2Signal } from "@/lib/maCrossConfig";
 import { loadActiveScreeningResults } from "@/lib/screeningActiveRows";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
 import type { AppliedAdjustment } from "@/lib/priceAdjustment";
@@ -237,6 +238,9 @@ async function loadCandidates(market: Market): Promise<ScreeningCandidateRow[]> 
 
   const mapped = results
     .filter((r) => ruleTypeById.has(r.strategy_id))
+    // 이평선(ma_cross)은 규칙을 교체했다(5/20 → 50/200) — 구 규칙으로 만든 활성 신호는 신규 매수 후보에서 뺀다.
+    // 이미 보유 중인 포지션의 청산은 그대로다(원 신호 추적·청산 조건은 변경 없음).
+    .filter((r) => ruleTypeById.get(r.strategy_id) !== "ma_cross" || isMaCrossV2Signal(r.signal_details))
     .map((r) => ({
       screeningResultId: r.id,
       stockCode: r.stock_code,

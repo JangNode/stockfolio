@@ -1,4 +1,4 @@
-import type { MaCrossParams, StrategyRuleType } from "@/lib/backtest";
+import type { StrategyRuleType } from "@/lib/backtest";
 
 /**
  * "장기 백테스트(2016~오늘)" 캐시 배치(scripts/compute-strategy-backtest-summary.ts)와
@@ -51,12 +51,6 @@ export const STRATEGY_BACKTEST_CONCENTRATION_WARNING_RATIO = 0.5;
 // 있는 다른 전략과 직접 비교하면 오해할 수 있다(peg_lynch가 max_holding_days가
 // 없어 특히 잘 걸리는 사례 — 2026-09-27 사용자 요청).
 export const STRATEGY_BACKTEST_HIGH_FORCED_LIQUIDATION_RATIO_THRESHOLD = 0.2;
-
-// ma_cross는 strategies 테이블(market='KR')에 활성 행이 없을 때 쓰는 임시 기본값.
-// diagnose-strategy-daily-returns.ts/diagnose-strategy-return-concentration.ts가
-// 2026-09-24 사용자 확인을 받아 쓴 값과 동일하게 유지한다 — peg_lynch/reversal_breakout_v2와
-// 달리 rule_params가 사용자 개인화 값이라 서버 설정 상수(lib/pegConfig.ts류)가 없다.
-export const FALLBACK_MA_CROSS_PARAMS: MaCrossParams = { short_period: 20, long_period: 60 };
 
 // strategy_backtest_summary/benchmark_summary 행이 어떤 원자료 확장 단계에서 계산됐는지
 // 구분하는 data_widen_stage 값. 'narrow'(전종목 재백필 전 기존 행), 'partial_2023_2026'

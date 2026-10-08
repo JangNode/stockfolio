@@ -29,6 +29,7 @@ import {
   type StockDailyPriceRow,
 } from "@/lib/stockDailyPricesStorage";
 import { computeTrailingAvgTradingValue, pickListedSharesOnOrBefore } from "@/lib/pitUniverse";
+import { MA_CROSS_V2_PARAMS } from "@/lib/maCrossConfig";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
@@ -37,7 +38,6 @@ import {
   type StrategyRule,
   type DailyPrice,
   type BacktestTrade,
-  type MaCrossParams,
 } from "@/lib/backtest";
 import type { ListedSharesByFiscalYear } from "@/lib/pegRatio";
 import {
@@ -52,7 +52,6 @@ import {
   PIT_LIQUIDITY_LOOKBACK_DAYS,
   PIT_MIN_AVG_TRADING_VALUE_WON,
   PIT_LIQUIDITY_SENSITIVITY_WON,
-  FALLBACK_MA_CROSS_PARAMS,
 } from "@/lib/strategyBacktestSummaryConfig";
 import {
   accumulateStockDailyReturns,
@@ -77,6 +76,9 @@ const DATA_WIDEN_STAGE = process.env.DATA_WIDEN_STAGE || STRATEGY_BACKTEST_DATA_
 // true면 거래비용을 끄고 계산하되 DB에는 저장하지 않는다(전략 자체의 우위 확인용 검증 실행, 2026-10-04).
 const COST_FREE_DRY_RUN = process.env.COST_FREE_DRY_RUN === "true";
 const INCLUDE_COSTS = !COST_FREE_DRY_RUN;
+// true면 거래비용은 그대로 반영하되 DB에는 저장하지 않는다(규칙 변경 검증용 — COST_FREE_DRY_RUN은 비용도 끈다).
+const DRY_RUN = process.env.DRY_RUN === "true";
+const NO_WRITE = COST_FREE_DRY_RUN || DRY_RUN;
 const COST_LABEL = INCLUDE_COSTS ? "비용 반영" : "비용 미반영";
 // 시총 유니버스(2026-10-06 화면 기본 결과로 승격): 0이면 사용 안 함(기본, 기존 동작). 양수면 그날(as-of) 저장된
 // 시총(억)이 이 값 이상인 종목만 진입·벤치마크 편입 후보로 삼는다(유동성 5억 필터와 병행). 이때 유동성
@@ -97,10 +99,10 @@ const WINDOW_START_YEAR_OVERRIDE = Number(process.env.BACKTEST_WINDOW_START_YEAR
 const WINDOW_START_YEAR = WINDOW_START_YEAR_OVERRIDE || STRATEGY_BACKTEST_WINDOW_START_YEAR;
 if (
   WINDOW_START_YEAR_OVERRIDE > 0 &&
-  !COST_FREE_DRY_RUN &&
+  !NO_WRITE &&
   [STRATEGY_BACKTEST_DATA_WIDEN_STAGE_DEFAULT, STRATEGY_BACKTEST_DATA_WIDEN_STAGE_PUBLISHED, STRATEGY_BACKTEST_DISPLAY_STAGE].includes(DATA_WIDEN_STAGE)
 ) {
-  throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN=true로 실행해야 합니다.");
+  throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN·DRY_RUN=true로 실행해야 합니다.");
 }
 const PERIOD_START_DATE = `${WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
@@ -141,23 +143,6 @@ function toDailyPrice(row: StockDailyPriceRow): DailyPrice {
   };
 }
 
-/** ma_cross는 사용자 개인화 값(rule_params)이라 상수로 고정할
- * 수 없다 — strategies 테이블(market='KR')에 등록된 첫 번째 행을 대표값으로 쓰고,
- * 없으면 lib/strategyBacktestSummaryConfig.ts의 임시 기본값을 쓴다
- * (components/StrategyManager.tsx의 "전략 성과 비교"와 동일한 "대표 전략" 관례 —
- * strategies 테이블엔 is_active 플래그가 없다). */
-async function loadActiveRuleParams(ruleType: "ma_cross"): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabaseAdmin
-    .from("strategies")
-    .select("rule_params")
-    .eq("rule_type", ruleType)
-    .eq("market", "KR")
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`${ruleType} 대표 전략 조회 실패: ${error.message}`);
-  return (data?.rule_params as Record<string, unknown>) ?? null;
-}
-
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -177,16 +162,10 @@ function createAccumulator(): RuleTypeAccumulator {
 async function main(): Promise<void> {
   console.log(`장기 백테스트(${WINDOW_START_YEAR}~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
 
-  const maCrossActive = await loadActiveRuleParams("ma_cross");
-  const maCrossParams = (maCrossActive as unknown as MaCrossParams | null) ?? FALLBACK_MA_CROSS_PARAMS;
-  console.log(
-    maCrossActive
-      ? `ma_cross 대표 전략 사용: ${JSON.stringify(maCrossParams)}`
-      : `ma_cross 대표 전략 없음 — 기본값 사용: ${JSON.stringify(maCrossParams)}`
-  );
+  console.log(`ma_cross 현행 규칙 사용(lib/maCrossConfig.ts): ${JSON.stringify(MA_CROSS_V2_PARAMS)}`);
 
   const RULES: Record<TargetRuleType, StrategyRule> = {
-    ma_cross: { rule_type: "ma_cross", rule_params: maCrossParams },
+    ma_cross: { rule_type: "ma_cross", rule_params: MA_CROSS_V2_PARAMS },
     reversal_breakout_v2: { rule_type: "reversal_breakout_v2", rule_params: {} },
     peg_lynch: { rule_type: "peg_lynch", rule_params: {} },
   };
@@ -396,7 +375,7 @@ async function main(): Promise<void> {
     );
     const top5ExcludeCagrPct = computeCagrPct(top5ExcludeRawReturnPct, PERIOD_START_DATE, TODAY);
 
-    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
+    const { error } = NO_WRITE ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
       rule_type: ruleType,
       market: "KR",
       period_start_date: PERIOD_START_DATE,
@@ -428,7 +407,7 @@ async function main(): Promise<void> {
       `  [${ruleType}] 거래 ${totalTrades}건(종료 ${closedTrades}/강제청산 ${aggregate.forcedLiquidationCount}), ` +
         `승률 ${(aggregate.winRate * 100).toFixed(1)}%, 평균 ${avgReturnPct.toFixed(1)}%, 중앙값 ${medianReturnPct.toFixed(1)}%, ` +
         `MDD ${mddPct.toFixed(1)}%, CAGR ${cagrPct.toFixed(1)}%, 상위5제외 CAGR ${top5ExcludeCagrPct.toFixed(1)}%, ` +
-        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (${COST_LABEL}) — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
+        `손익비 ${payoffRatio !== null ? `${payoffRatio.toFixed(2)}:1` : "-"} (${COST_LABEL}) — ${NO_WRITE ? "저장 안 함" : "저장 완료"}`
     );
   }
 
@@ -476,7 +455,7 @@ async function main(): Promise<void> {
   });
 
   for (const row of benchmarkRows) {
-    const { error } = COST_FREE_DRY_RUN ? { error: null } : await supabaseAdmin.from("benchmark_summary").insert({
+    const { error } = NO_WRITE ? { error: null } : await supabaseAdmin.from("benchmark_summary").insert({
       benchmark_type: row.benchmarkType,
       period_start_date: PERIOD_START_DATE,
       period_end_date: TODAY,
@@ -494,7 +473,7 @@ async function main(): Promise<void> {
 
     console.log(
       `  [${row.benchmarkType}] MDD ${row.mddPct.toFixed(1)}%, CAGR ${row.cagrPct.toFixed(1)}%, ` +
-        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? ` (${COST_LABEL})` : ""} — ${COST_FREE_DRY_RUN ? "저장 안 함" : "저장 완료"}`
+        `칼마 ${row.calmarRatio.toFixed(2)}${row.costIncluded ? ` (${COST_LABEL})` : ""} — ${NO_WRITE ? "저장 안 함" : "저장 완료"}`
     );
   }
 

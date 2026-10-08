@@ -82,13 +82,14 @@ export interface ActiveScreeningResultRow {
   current_price: number;
   market: string;
   exchange: string | null;
+  signal_details: unknown;
 }
 
 export async function loadActiveScreeningResults(market: Market): Promise<ActiveScreeningResultRow[]> {
   return fetchAllRows<ActiveScreeningResultRow>((from, to) =>
     supabaseAdmin
       .from("screening_results")
-      .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange")
+      .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange, signal_details")
       .eq("status", "active")
       .eq("market", market)
       .order("id")

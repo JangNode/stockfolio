@@ -17,6 +17,7 @@ import {
 import { formatPercent } from "@/lib/formatNumber";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { fetchAllRows } from "@/lib/supabasePagination";
+import { applyMaCrossV2, isMaCrossV2Signal, MA_CROSS_V2_LABEL } from "@/lib/maCrossConfig";
 import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
@@ -38,14 +39,14 @@ export type StrategyRow = StrategyRule & {
 };
 
 const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
-  ma_cross: "이평선 골든/데드크로스",
+  ma_cross: MA_CROSS_V2_LABEL,
   peg_lynch: "피터린치 PEG전략",
   reversal_breakout_v2: "급등주 찾기 v2 (역배열 반등 - 강화)",
 };
 
 const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
   ma_cross:
-    "단기 이동평균선이 장기 이동평균선을 아래에서 위로 뚫고 올라가는 골든크로스가 발생하면 매수 신호로, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호로 판단합니다.",
+    "단기(50일) 이동평균선이 장기(200일) 이동평균선을 아래에서 위로 뚫고 올라가는 골든크로스가 발생하면 매수 신호로, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호로 판단합니다. 2026-10-08 기존 5/20 규칙을 이 규칙으로 교체했습니다(그 이전 신호는 구 규칙 이력으로 따로 구분되며, 성과 비교에는 새 규칙 신호만 집계합니다).",
   peg_lynch:
     "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
   reversal_breakout_v2:
@@ -62,6 +63,7 @@ interface ScreeningComparisonRow {
   status: "active" | "stopped" | "profited" | "price_unavailable" | "price_anomaly";
   return_pct: number;
   matched_at: string;
+  signal_details: unknown;
 }
 
 function formatPct(value: number | null): string {
@@ -158,7 +160,9 @@ export function useStrategies(user: User) {
 
     if (error) throw error;
     // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 화면에는 내보내지 않는다.
-    return (data as StrategyRow[]).filter((strategy) => isOperatingRuleType(strategy.rule_type));
+    return (data as StrategyRow[])
+      .filter((strategy) => isOperatingRuleType(strategy.rule_type))
+      .map(applyMaCrossV2); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다.
   });
 }
 
@@ -323,7 +327,7 @@ export default function StrategyManager({ user }: { user: User }) {
       return fetchAllRows<ScreeningComparisonRow>((from, to) =>
         supabase
           .from("screening_results")
-          .select("strategy_id, status, return_pct, matched_at")
+          .select("strategy_id, status, return_pct, matched_at, signal_details")
           .in("strategy_id", comparisonStrategyIds)
           .order("id")
           .range(from, to)
@@ -339,6 +343,8 @@ export default function StrategyManager({ user }: { user: User }) {
     for (const row of strategyComparisonRows) {
       const ruleType = ruleTypeById.get(row.strategy_id);
       if (!ruleType) continue;
+      // 이평선은 규칙을 교체했으므로(구 5/20 → 50/200) 새 규칙으로 만든 신호만 성과에 집계한다.
+      if (ruleType === "ma_cross" && !isMaCrossV2Signal(row.signal_details)) continue;
       const rows = rowsByRuleType.get(ruleType) ?? [];
       rows.push({ status: row.status, returnPct: row.return_pct, matchedAt: row.matched_at });
       rowsByRuleType.set(ruleType, rows);

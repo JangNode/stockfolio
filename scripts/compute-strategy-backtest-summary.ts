@@ -112,7 +112,8 @@ if (
 ) {
   throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN·DRY_RUN=true로 실행해야 합니다.");
 }
-const PERIOD_START_DATE = `${WINDOW_START_YEAR}-01-01`;
+const PERIOD_START_DATE = process.env.EXP_PERIOD_START_DATE || `${WINDOW_START_YEAR}-01-01`; // [임시 조사]
+const END_DATE = process.env.EXP_PERIOD_END_DATE || TODAY; // [임시 조사]
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
 // 동일 여유).
@@ -186,8 +187,8 @@ async function main(): Promise<void> {
   // 후보로 삼는다(lib/pitUniverse.ts). 5개 전략과 벤치마크가 같은 기준을 공유한다.
   const startedMs = Date.now();
   const [kospiSeries, kosdaqSeries] = await Promise.all([
-    getIndexPriceSeries("KOSPI", PERIOD_START_DATE, TODAY),
-    getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, TODAY),
+    getIndexPriceSeries("KOSPI", PERIOD_START_DATE, END_DATE),
+    getIndexPriceSeries("KOSDAQ", PERIOD_START_DATE, END_DATE),
   ]);
 
   // 분할·병합 조정계수(신뢰도 높은 이벤트만)를 배치 전용으로 적용해 읽는다 — 원본 Parquet와 화면용
@@ -199,7 +200,7 @@ async function main(): Promise<void> {
   // 거래일 캘린더는 종목 시세의 거래일 합집합이다(2016~ 기준 코스피 거래일 캘린더 결과와 CAGR·MDD가 일치함을
   // 2026-10-08 확인). 지수 시세가 2016-01-04부터만 있어 지수 캘린더로는 2010~ 기간을 계산할 수 없다.
   const stockTradeDates = new Set<string>();
-  for (const rows of seriesByCode.values()) for (const row of rows) if (row.tradeDate >= PERIOD_START_DATE) stockTradeDates.add(row.tradeDate);
+  for (const rows of seriesByCode.values()) for (const row of rows) if (row.tradeDate >= PERIOD_START_DATE && row.tradeDate <= END_DATE) stockTradeDates.add(row.tradeDate);
   const universeCalendar = Array.from(stockTradeDates).sort();
   const rebalanceDates = computeMonthlyRebalanceDates(universeCalendar);
   console.log(
@@ -348,6 +349,13 @@ async function main(): Promise<void> {
     );
   }
 
+  for (const rt of TARGET_RULE_TYPES) {
+    const a = accumulators[rt];
+    a.trades = a.trades.filter((t) => t.buyDate <= END_DATE);
+    for (const d of Array.from(a.dailyReturns.keys())) if (d > END_DATE) a.dailyReturns.delete(d);
+    const firstBuy = a.trades.map((t) => t.buyDate).sort()[0];
+    console.log(`[probe] ${rt}: 기간 ${PERIOD_START_DATE}~${END_DATE}, 거래 ${a.trades.length}건, 첫 매수일 ${firstBuy ?? "-"}`);
+  }
   console.log("\n=== rule_type별 요약 계산 및 저장 ===");
   for (const ruleType of TARGET_RULE_TYPES) {
     const acc = accumulators[ruleType];
@@ -379,7 +387,7 @@ async function main(): Promise<void> {
 
     const dailySeries = computeEqualWeightDailyReturns(acc.dailyReturns);
     const { totalReturnPct, mddPct } = computeCumulativeAndMdd(dailySeries);
-    const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, TODAY);
+    const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, END_DATE);
 
     // top5_exclude_return_pct는 cagr_pct와 같은 스케일(연환산)로 저장한다 — 그래야
     // "상위 5개 제외 시 연환산 수익률이 얼마나 바뀌는지"를 UI에서 바로 비교할 수
@@ -390,7 +398,7 @@ async function main(): Promise<void> {
       acc.contributions,
       STRATEGY_BACKTEST_TOP_EXCLUDE_COUNT
     );
-    const top5ExcludeCagrPct = computeCagrPct(top5ExcludeRawReturnPct, PERIOD_START_DATE, TODAY);
+    const top5ExcludeCagrPct = computeCagrPct(top5ExcludeRawReturnPct, PERIOD_START_DATE, END_DATE);
 
     const { error } = NO_WRITE ? { error: null } : await supabaseAdmin.from("strategy_backtest_summary").insert({
       rule_type: ruleType,
@@ -477,7 +485,7 @@ async function main(): Promise<void> {
 
   const benchmarkRows = benchmarkInputs.map(({ benchmarkType, dailyReturnsPct, costIncluded }) => {
     const { totalReturnPct, mddPct } = computeCumulativeAndMdd(dailyReturnsPct);
-    const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, TODAY);
+    const cagrPct = computeCagrPct(totalReturnPct, PERIOD_START_DATE, END_DATE);
     const calmarRatio = computeCalmarRatio(cagrPct, mddPct);
     return { benchmarkType, cagrPct, mddPct, calmarRatio, costIncluded };
   });

@@ -26,12 +26,49 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: baseline (2010-)
-        run: npm run batch:strategy-backtest-summary 2>&1 | grep -E "probe|ma_cross\\]|peg_lynch\\]|reversal_breakout_v2\\]|universe_monthly|kospi\\]|kosdaq\\]|rror"
+      - name: "A peg first signal 2021-03-10 to today"
+        run: echo "=== A peg first signal 2021-03-10 to today ===" && npm run batch:strategy-backtest-summary 2>&1 | grep -E "probe|ma_cross\\]|peg_lynch\\]|reversal_breakout_v2\\]|universe_monthly|kospi\\]|kosdaq\\]|rror"
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           DRY_RUN: "true"
           UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
           DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
+          EXP_PERIOD_START_DATE: "2021-03-10"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: "B v2 2010-01-01 to 2018-12-31"
+        run: echo "=== B v2 2010-01-01 to 2018-12-31 ===" && npm run batch:strategy-backtest-summary 2>&1 | grep -E "probe|ma_cross\\]|peg_lynch\\]|reversal_breakout_v2\\]|universe_monthly|kospi\\]|kosdaq\\]|rror"
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          DRY_RUN: "true"
+          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
+          DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
+          EXP_PERIOD_START_DATE: "2010-01-01"
+          EXP_PERIOD_END_DATE: "2018-12-31"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: "C v2 2019-01-01 to today"
+        run: echo "=== C v2 2019-01-01 to today ===" && npm run batch:strategy-backtest-summary 2>&1 | grep -E "probe|ma_cross\\]|peg_lynch\\]|reversal_breakout_v2\\]|universe_monthly|kospi\\]|kosdaq\\]|rror"
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          DRY_RUN: "true"
+          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
+          DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
+          EXP_PERIOD_START_DATE: "2019-01-01"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: "D v2 2011-10-27 to 2018-12-31"
+        run: echo "=== D v2 2011-10-27 to 2018-12-31 ===" && npm run batch:strategy-backtest-summary 2>&1 | grep -E "probe|ma_cross\\]|peg_lynch\\]|reversal_breakout_v2\\]|universe_monthly|kospi\\]|kosdaq\\]|rror"
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          DRY_RUN: "true"
+          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
+          DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
+          EXP_PERIOD_START_DATE: "2011-10-27"
+          EXP_PERIOD_END_DATE: "2018-12-31"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+

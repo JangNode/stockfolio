@@ -24,7 +24,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getLatestIndexPriceDate, upsertIndexPrices } from "@/lib/betaPriceHistoryStorage";
+import { getIndexPriceSeries, getLatestIndexPriceDate, upsertIndexPrices } from "@/lib/betaPriceHistoryStorage";
 import { BETA_LOOKBACK_YEARS } from "@/lib/betaConfig";
 import type { KrxMarket } from "@/lib/stockMaster";
 
@@ -123,9 +123,102 @@ async function recordCheckpoint(
   if (error) console.error(`체크포인트 저장 실패: ${error.message}`);
 }
 
+// 과거 구간 추가 백필 옵션(기본 동작은 변경 없음): BACKFILL_START_DATE·BACKFILL_END_DATE(YYYY-MM-DD, 둘 다 필수)를 주면
+// 그 범위의 평일만 대상으로 삼고, 이미 저장된 (시장, 날짜)는 건너뛰어 없는 날짜만 추가한다(기존 행 덮어쓰기 금지).
+// BACKFILL_DRY_RUN=true면 호출 수·저장 예정 행 수를 계산하고 소수 표본 날짜(DRY_RUN_SAMPLE_DAYS개)만 조회할 뿐 저장하지 않는다.
+// 이 모드에서는 체크포인트(stock_data_backfill_runs)를 기록하지 않는다 — 최신 날짜 이어받기 로직과 무관한 일회성 작업이다.
+const DRY_RUN_SAMPLE_DAYS = 6;
+
+async function runRangeBackfill(apiKey: string, startDate: string, endDate: string, dryRun: boolean): Promise<void> {
+  const markets: KrxMarket[] = ["KOSPI", "KOSDAQ"];
+  const existing = new Map<KrxMarket, Set<string>>();
+  for (const market of markets) {
+    const series = await getIndexPriceSeries(market, startDate, endDate);
+    existing.set(market, new Set(series.map((p) => p.tradeDate)));
+  }
+  const weekdays = weekdaysBetween(startDate, endDate);
+  const missingByDate = new Map<string, KrxMarket[]>();
+  for (const d of weekdays) {
+    const missing = markets.filter((m) => !existing.get(m)!.has(d));
+    if (missing.length > 0) missingByDate.set(d, missing);
+  }
+  const targetDates = Array.from(missingByDate.keys());
+  const plannedCalls = targetDates.reduce((sum, d) => sum + missingByDate.get(d)!.length, 0);
+  console.log(
+    `지수 과거 구간 백필 계획: ${startDate} ~ ${endDate} 평일 ${weekdays.length}일, 이미 저장됨 ` +
+      markets.map((m) => `${m} ${existing.get(m)!.size}행`).join(" / ") +
+      ` → 조회 대상 ${targetDates.length}일, 호출 ${plannedCalls}회 (동시성 ${CONCURRENCY}, 호출 간격 ${THROTTLE_DELAY_MS}ms 이상, 예상 ${Math.ceil((plannedCalls * (THROTTLE_DELAY_MS + 400)) / 60000)}분)`
+  );
+
+  if (dryRun) {
+    const step = Math.max(1, Math.floor(targetDates.length / DRY_RUN_SAMPLE_DAYS));
+    const sample = targetDates.filter((_, i) => i % step === 0).slice(0, DRY_RUN_SAMPLE_DAYS);
+    let hits = 0;
+    for (const dateKey of sample) {
+      const basDd = toBasDd(dateKey);
+      const parts: string[] = [];
+      for (const market of missingByDate.get(dateKey)!) {
+        const rows = await fetchKrxIndexDaily(market, basDd, apiKey);
+        const matched = rows.find((row) => row.IDX_NM === INDEX_ENDPOINTS[market].exactName);
+        const ok = !!matched && !!matched.CLSPRC_IDX && matched.CLSPRC_IDX !== "-";
+        if (ok) hits++;
+        parts.push(`${market} ${ok ? matched!.CLSPRC_IDX : "없음(휴장 추정)"}`);
+      }
+      console.log(`  표본 ${dateKey}: ${parts.join(", ")}`);
+    }
+    const sampleCalls = sample.reduce((s, d) => s + missingByDate.get(d)!.length, 0);
+    const hitRate = sampleCalls > 0 ? hits / sampleCalls : 0;
+    console.log(
+      `DRY-RUN(저장 안 함): 표본 ${sample.length}일 ${sampleCalls}회 호출 중 값 ${hits}건(${(hitRate * 100).toFixed(0)}%) → ` +
+        `저장 예정 행 수 추정 약 ${Math.round(plannedCalls * hitRate)}행 (휴장일은 값이 없어 저장되지 않음)`
+    );
+    return;
+  }
+
+  const rows: { market: KrxMarket; tradeDate: string; closePrice: number }[] = [];
+  let errors = 0;
+  let completed = 0;
+  await runWithConcurrency(targetDates, CONCURRENCY, async (dateKey) => {
+    const basDd = toBasDd(dateKey);
+    try {
+      for (const market of missingByDate.get(dateKey)!) {
+        const indexRows = await fetchKrxIndexDaily(market, basDd, apiKey);
+        const matched = indexRows.find((row) => row.IDX_NM === INDEX_ENDPOINTS[market].exactName);
+        if (matched && matched.CLSPRC_IDX && matched.CLSPRC_IDX !== "-") {
+          rows.push({ market, tradeDate: dateKey, closePrice: Number(matched.CLSPRC_IDX) });
+        }
+      }
+    } catch (error) {
+      errors++;
+      console.error(`  ${dateKey} 실패: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      completed++;
+      if (completed % 100 === 0 || completed === targetDates.length) {
+        console.log(`진행: ${completed}/${targetDates.length}일 (누적 ${rows.length}행, 실패 ${errors})`);
+      }
+    }
+  });
+
+  // 일부 날짜가 실패했더라도 성공한 행은 저장한다(없는 행만 추가하므로 재실행으로 이어서 채울 수 있다).
+  await upsertIndexPrices(rows, { insertOnly: true });
+  console.log(`지수 과거 구간 백필 완료: ${rows.length}행 추가 저장(실패 ${errors}일). 실패가 있으면 같은 범위로 다시 실행하면 없는 날짜만 이어서 채운다.`);
+  if (errors > 0) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
   const apiKey = process.env.KRX_API_KEY;
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
+
+  const rangeStart = process.env.BACKFILL_START_DATE;
+  const rangeEnd = process.env.BACKFILL_END_DATE;
+  if (rangeStart || rangeEnd) {
+    if (!rangeStart || !rangeEnd) throw new Error("BACKFILL_START_DATE와 BACKFILL_END_DATE는 함께 지정해야 합니다.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rangeStart) || !/^\d{4}-\d{2}-\d{2}$/.test(rangeEnd) || rangeStart > rangeEnd) {
+      throw new Error("BACKFILL_START_DATE/BACKFILL_END_DATE는 YYYY-MM-DD 형식이고 시작일이 종료일보다 늦을 수 없습니다.");
+    }
+    await runRangeBackfill(apiKey, rangeStart, rangeEnd, process.env.BACKFILL_DRY_RUN === "true");
+    return;
+  }
 
   const startedAt = new Date();
   // 오늘 데이터는 장 마감/정산 전일 수 있어 어제까지만 대상으로 한다.

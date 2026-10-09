@@ -26,13 +26,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: pre-snapshot + dry-run
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          npx tsx --conditions=react-server scripts/diagnose-index-backfill-verify.ts
-          BACKFILL_START_DATE=2010-01-04 BACKFILL_END_DATE=2015-12-31 BACKFILL_DRY_RUN=true npm run backfill:index-daily-prices
+      - name: backfill index prices 2010-01-04..2015-12-31 (insert only)
+        id: backfill
+        run: BACKFILL_START_DATE=2010-01-04 BACKFILL_END_DATE=2015-12-31 npm run backfill:index-daily-prices
         env:
           NODE_OPTIONS: --max-old-space-size=4096
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: post-verify (read-only)
+        if: ${{ always() }}
+        run: VERIFY_PRE=true npx tsx --conditions=react-server scripts/diagnose-index-backfill-verify.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

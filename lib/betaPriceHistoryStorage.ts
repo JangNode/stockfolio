@@ -37,11 +37,14 @@ export async function getLatestIndexPriceDate(market: KrxMarket): Promise<string
 }
 
 export async function upsertIndexPrices(
-  rows: { market: KrxMarket; tradeDate: string; closePrice: number }[]
+  rows: { market: KrxMarket; tradeDate: string; closePrice: number }[],
+  // true면 이미 있는 (시장, 날짜) 행은 건드리지 않고 없는 행만 추가한다(과거 구간 추가 백필용, 기본 동작은 덮어쓰기).
+  options?: { insertOnly?: boolean }
 ): Promise<void> {
   if (rows.length === 0) return;
   const { error } = await supabaseAdmin.from(TABLE).upsert(
-    rows.map((r) => ({ market: r.market, trade_date: r.tradeDate, close_price: r.closePrice }))
+    rows.map((r) => ({ market: r.market, trade_date: r.tradeDate, close_price: r.closePrice })),
+    options?.insertOnly ? { onConflict: "market,trade_date", ignoreDuplicates: true } : undefined
   );
   if (error) throw new Error(`지수 시세 저장 실패: ${error.message}`);
 }

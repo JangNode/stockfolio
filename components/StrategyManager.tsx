@@ -28,7 +28,6 @@ import {
   STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE,
   STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR,
   STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM,
-  STRATEGY_BACKTEST_EXTENDED_RULE_TYPES,
   STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR,
 } from "@/lib/strategyBacktestSummaryConfig";
 import { benchmarkVerdict, isLowSampleSize } from "@/lib/strategyBacktestBadges";
@@ -182,86 +181,6 @@ function MetricRow({ label, title, children }: { label: string; title?: string; 
   );
 }
 
-/** 기간별 두 줄 비교(ma_cross): 기본 기간(2016~)과 확장 기간(2010~)의 전략 결과를 같은 벤치마크 열과 나란히 보여준다.
- * 2010~ 줄은 코스피·코스닥 지수 시세가 2016년부터만 있어 지수 열을 비워 두고 사유를 적는다. */
-function PeriodComparisonTable({
-  baseSummary,
-  baseBenchmarks,
-  extendedSummary,
-  extendedBenchmarks,
-}: {
-  baseSummary: StrategyBacktestSummaryRow | undefined;
-  baseBenchmarks: Map<string, BenchmarkSummaryRow>;
-  extendedSummary: StrategyBacktestSummaryRow | undefined;
-  extendedBenchmarks: Map<string, BenchmarkSummaryRow>;
-}) {
-  const rows = [
-    { key: "base", title: `${STRATEGY_BACKTEST_WINDOW_START_YEAR}~오늘`, summary: baseSummary, benchmarks: baseBenchmarks },
-    {
-      key: "extended",
-      title: `${STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR}~오늘`,
-      summary: extendedSummary,
-      benchmarks: extendedBenchmarks,
-    },
-  ];
-  return (
-    <div className="mt-3 border-t border-border pt-3">
-      <p className="mb-1 text-xs font-medium text-ink-muted">기간별 결과 · 벤치마크 대비</p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs tabular-nums">
-          <thead>
-            <tr className="text-ink-muted">
-              <th className="py-1 pr-2 text-left font-normal">기간</th>
-              <th className="px-2 py-1 text-right font-normal">전략 CAGR</th>
-              <th className="px-2 py-1 text-right font-normal">MDD</th>
-              <th className="px-2 py-1 text-right font-normal">동일가중</th>
-              <th className="px-2 py-1 text-right font-normal">KOSPI</th>
-              <th className="py-1 pl-2 text-right font-normal">KOSDAQ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ key, title, summary, benchmarks }) => {
-              const universe = benchmarks.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE);
-              const kospi = benchmarks.get("kospi");
-              const kosdaq = benchmarks.get("kosdaq");
-              const indexMissing = summary !== undefined && !kospi && !kosdaq;
-              return (
-                <tr key={key} className="border-t border-border text-ink">
-                  <td className="py-1 pr-2 text-left">{title}</td>
-                  {summary ? (
-                    <>
-                      <td className="px-2 py-1 text-right">{formatPct(summary.cagr_pct)}</td>
-                      <td className="px-2 py-1 text-right">{formatMdd(summary.mdd_pct)}</td>
-                      <td className="px-2 py-1 text-right">{universe ? formatPct(universe.cagr_pct) : "-"}</td>
-                      {indexMissing ? (
-                        <td colSpan={2} className="py-1 pl-2 text-right text-ink-faint">
-                          지수 데이터 {STRATEGY_BACKTEST_WINDOW_START_YEAR}~만 있음
-                        </td>
-                      ) : (
-                        <>
-                          <td className="px-2 py-1 text-right">{kospi ? formatPct(kospi.cagr_pct) : "-"}</td>
-                          <td className="py-1 pl-2 text-right">{kosdaq ? formatPct(kosdaq.cagr_pct) : "-"}</td>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <td colSpan={5} className="py-1 pl-2 text-right text-ink-muted">
-                      계산 전
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-        모든 수치는 과거 데이터에 맞춘 값(in-sample)입니다. 2010~ 줄은 첫 신호가 2010년 말경부터 나옵니다.
-      </p>
-    </div>
-  );
-}
-
 /** 장기 백테스트 요약 카드. 운영 전략과 종료된 전략(ended)이 같은 형식을 쓴다 — 종료된 전략은
  * "종료됨" 라벨과 갱신 중단 안내, 마지막 계산 기준일을 함께 보여주는 읽기 전용 카드다. */
 function BacktestSummaryCard({
@@ -270,15 +189,12 @@ function BacktestSummaryCard({
   universeCagrPct,
   signalLimitedFrom,
   ended = false,
-  periodComparison,
 }: {
   label: string;
   summary: StrategyBacktestSummaryRow | undefined;
   universeCagrPct: number | null;
   signalLimitedFrom?: string;
   ended?: boolean;
-  // 있으면 카드 아래에 기간별 두 줄(2016~/2010~) 비교를 붙인다(ma_cross).
-  periodComparison?: React.ComponentProps<typeof PeriodComparisonTable>;
 }) {
   const concentrationWarning = summary ? isConcentrationWarning(summary.cagr_pct, summary.top5_exclude_return_pct) : false;
   const highForcedLiquidation = summary ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio) : false;
@@ -378,7 +294,6 @@ function BacktestSummaryCard({
       ) : (
         <p className="mt-3 text-xs text-ink-muted">{ended ? "저장된 검증 결과가 없습니다" : "재정비 중"}</p>
       )}
-      {periodComparison && <PeriodComparisonTable {...periodComparison} />}
     </div>
   );
 }
@@ -454,33 +369,34 @@ export default function StrategyManager({ user }: { user: User }) {
     authJsonFetcher
   );
 
-  const backtestSummaryByRuleType = useMemo(() => {
+  // 화면 기준은 2010~ stage(STRATEGY_BACKTEST_EXTENDED_STAGE) 하나다. 운영 전략 카드와 벤치마크는 이 stage만 쓴다.
+  const summaryByRuleType = useMemo(() => {
     const map = new Map<string, StrategyBacktestSummaryRow>();
-    for (const row of backtestSummaryData?.summaries ?? []) {
+    for (const row of backtestSummaryData?.extendedSummaries ?? []) {
       if (row.market === "KR") map.set(row.rule_type, row);
     }
     return map;
   }, [backtestSummaryData]);
 
   const benchmarkByType = useMemo(
-    () => new Map((backtestSummaryData?.benchmarks ?? []).map((b) => [b.benchmark_type, b])),
-    [backtestSummaryData]
-  );
-  const universeBenchmark = benchmarkByType.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE) ?? null;
-  const extendedSummaryByRuleType = useMemo(
-    () =>
-      new Map(
-        (backtestSummaryData?.extendedSummaries ?? []).filter((r) => r.market === "KR").map((r) => [r.rule_type, r])
-      ),
-    [backtestSummaryData]
-  );
-  const extendedBenchmarkByType = useMemo(
     () => new Map((backtestSummaryData?.extendedBenchmarks ?? []).map((b) => [b.benchmark_type, b])),
     [backtestSummaryData]
   );
+  const universeBenchmark = benchmarkByType.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE) ?? null;
+
+  // 종료된 전략은 운영 종료 시점의 마지막 값(2016~ stage)을 그대로 보여준다. 2016~ stage 행은 DB에 남아 있고 화면에서는 여기서만 읽는다.
+  const endedSummaryByRuleType = useMemo(() => {
+    const map = new Map<string, StrategyBacktestSummaryRow>();
+    for (const row of backtestSummaryData?.summaries ?? []) {
+      if (row.market === "KR") map.set(row.rule_type, row);
+    }
+    return map;
+  }, [backtestSummaryData]);
+  const endedUniverseBenchmark =
+    (backtestSummaryData?.benchmarks ?? []).find((b) => b.benchmark_type === STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE) ?? null;
   // 새 기본 stage에 행이 없는 전략(계산 전/누락)은 카드 대신 "재정비 중"으로 두고 이름을 알려준다.
   const missingBacktestRuleTypes = STRATEGY_BACKTEST_TARGET_RULE_TYPES.filter(
-    (ruleType) => !backtestSummaryByRuleType.has(ruleType)
+    (ruleType) => !summaryByRuleType.has(ruleType)
   );
 
   return (
@@ -543,14 +459,11 @@ export default function StrategyManager({ user }: { user: User }) {
 
       <div className="mb-6 rounded-card border border-border bg-surface p-4">
         <h3 className="text-sm font-medium text-ink">
-          장기 백테스트({STRATEGY_BACKTEST_WINDOW_START_YEAR}~오늘
-          {STRATEGY_BACKTEST_EXTENDED_RULE_TYPES.length > 0 &&
-            `, ${STRATEGY_BACKTEST_EXTENDED_RULE_TYPES.map((t) => RULE_TYPE_LABELS[t]).join("·")}은 ${STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR}~도 병기`}
-          )
+          장기 백테스트({STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR}~오늘)
         </h3>
         <p className="mt-1 mb-2 text-xs text-ink-muted">
-          실계좌 스크리닝 추적(위 전략 성과 비교)과 달리, {STRATEGY_BACKTEST_WINDOW_START_YEAR}년부터의 장기 성과를
-          과거 시점 기준으로 다시 계산한 결과입니다.
+          실계좌 스크리닝 추적(위 전략 성과 비교)과 달리, {STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR}년부터의 장기 성과를
+          과거 시점 기준으로 다시 계산한 결과입니다. ma_cross는 200일선 워밍업 때문에 첫 신호가 2010년 말경부터 나옵니다.
         </p>
         <div className="mb-3 space-y-1 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
           <p>
@@ -610,19 +523,9 @@ export default function StrategyManager({ user }: { user: User }) {
                 <BacktestSummaryCard
                   key={ruleType}
                   label={RULE_TYPE_LABELS[ruleType]}
-                  summary={backtestSummaryByRuleType.get(ruleType)}
+                  summary={summaryByRuleType.get(ruleType)}
                   universeCagrPct={universeBenchmark?.cagr_pct ?? null}
                   signalLimitedFrom={STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType]}
-                  periodComparison={
-                    (STRATEGY_BACKTEST_EXTENDED_RULE_TYPES as readonly string[]).includes(ruleType)
-                      ? {
-                          baseSummary: backtestSummaryByRuleType.get(ruleType),
-                          baseBenchmarks: benchmarkByType,
-                          extendedSummary: extendedSummaryByRuleType.get(ruleType),
-                          extendedBenchmarks: extendedBenchmarkByType,
-                        }
-                      : undefined
-                  }
                 />
               );
             })}
@@ -635,7 +538,8 @@ export default function StrategyManager({ user }: { user: User }) {
           <h3 className="text-sm font-medium text-ink">종료된 전략 (마지막 검증 결과)</h3>
           <p className="mt-1 mb-3 text-xs text-ink-muted">
             운영을 종료한 전략입니다. 더 이상 갱신되지 않으며, 종료 시점에 저장된 마지막 장기 백테스트 결과만
-            읽기 전용으로 보여줍니다.
+            읽기 전용으로 보여줍니다. 위 운영 전략({STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR}~)과 기간이 다르며(
+            {STRATEGY_BACKTEST_WINDOW_START_YEAR}~ 기준), 각 카드의 기준 기간과 벤치마크 비교도 그 기간 기준입니다.
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {STRATEGY_BACKTEST_ENDED_STRATEGIES.map(({ ruleType, label }) => (
@@ -643,8 +547,8 @@ export default function StrategyManager({ user }: { user: User }) {
                 key={ruleType}
                 ended
                 label={label}
-                summary={backtestSummaryByRuleType.get(ruleType)}
-                universeCagrPct={universeBenchmark?.cagr_pct ?? null}
+                summary={endedSummaryByRuleType.get(ruleType)}
+                universeCagrPct={endedUniverseBenchmark?.cagr_pct ?? null}
               />
             ))}
           </div>

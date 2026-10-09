@@ -78,15 +78,17 @@ export const STRATEGY_BACKTEST_DATA_WIDEN_STAGE_FALLBACK = "narrow";
 // 행도 함께 읽는다.
 export const STRATEGY_BACKTEST_DISPLAY_STAGE: string = "pit_adjusted_cap5000";
 
-// 확장 기간(2010~) 병기 결과(2026-10-08 사용자 결정): ma_cross만 2010년부터 다시 계산해 별도 stage로 저장하고,
-// 화면 API가 기본 stage(2016~)와 함께 내려준다. 시작 연도·대상 전략·stage는 이 세 값이 기준이다.
-// 2010년은 KRX 일별매매정보로 받을 수 있는 가장 이른 연도(STOCK_DATA_EARLIEST_YEAR)이고, 200일선 워밍업 때문에
-// 첫 신호는 2010년 말경부터 나온다. peg_lynch는 재무 데이터가 2016년부터라 확장 대상에서 제외한다.
+// 화면 기준 기간(2010~) stage: 운영 전략 전부를 2010년부터 다시 계산해 별도 stage로 저장하고, 화면은 이 stage만 보여준다
+// (2026-10-09 사용자 결정으로 2016~/2010~ 병기를 2010~ 단일 표기로 통일). 2016~ stage(STRATEGY_BACKTEST_DISPLAY_STAGE) 행은
+// DB에 그대로 두고 화면에서만 숨기며, 종료된 전략 카드만 마지막 값을 읽는 용도로 쓴다. 시작 연도·대상 전략·stage는 이 세 값이 기준이다.
+// 2010년은 KRX 일별매매정보로 받을 수 있는 가장 이른 연도(STOCK_DATA_EARLIEST_YEAR)이고, ma_cross는 200일선 워밍업 때문에
+// 첫 신호가 2010년 말경부터 나온다. peg_lynch는 재무 데이터 제약으로 신호가 STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM 이후에만 있어
+// CAGR이 2010년부터의 긴 기간으로 나뉘어 낮게 보이므로 화면에서 비교 참고로만 표시한다.
 export const STRATEGY_BACKTEST_EXTENDED_STAGE = "pit_adjusted_cap5000_from2010";
 export const STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR = 2010;
-export const STRATEGY_BACKTEST_EXTENDED_RULE_TYPES = ["ma_cross"] as const satisfies readonly StrategyRuleType[];
+export const STRATEGY_BACKTEST_EXTENDED_RULE_TYPES = STRATEGY_BACKTEST_TARGET_RULE_TYPES;
 
-// 코스피/코스닥 지수 시세(beta_price_history)는 2016-01-04부터만 저장돼 있다(2010~2015는 미수집, 2026-10-08 확인).
+// 코스피/코스닥 지수 시세(beta_price_history)는 2010-01-04부터 저장돼 있다(2026-10-09 2010~2015 백필, 그 전에는 2016-01-04부터).
 // 백테스트 시작일보다 지수 첫 거래일이 이 일수 넘게 늦으면 지수 벤치마크를 계산·저장하지 않는다
 // (짧은 기간의 수익을 긴 기간으로 나눠 과소 계산하는 것을 막는다). 연초 휴장 여유로 7일을 둔다.
 export const STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS = 7;

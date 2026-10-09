@@ -28,6 +28,17 @@ async function main(): Promise<void> {
       if (list.length === 0) console.log(`  [벤치] ${t}: 행 없음`);
     }
   }
+  const cnt = new Map<string, { n: number; min: string; max: string }>();
+  for (const r of sums) {
+    const k = `${r.data_widen_stage}|${r.rule_type}`;
+    const e = cnt.get(k) ?? { n: 0, min: "9999", max: "" };
+    e.n++;
+    if (r.computed_at < e.min) e.min = r.computed_at;
+    if (r.computed_at > e.max) e.max = r.computed_at;
+    cnt.set(k, e);
+  }
+  console.log("=== stage|rule 별 행 수(전체 이력) ===");
+  for (const [k, e] of [...cnt].sort()) if (/cap5000/.test(k)) console.log(`  ${k}: ${e.n}행 (${e.min.slice(0, 16)} ~ ${e.max.slice(0, 16)})`);
   const api = {
     summaries: selectLatestSummaries(sums, STRATEGY_BACKTEST_DISPLAY_STAGE).map((r) => `${r.rule_type}:${r.cagr_pct?.toFixed(1)}`),
     benchmarks: selectLatestBenchmarks(bens, STRATEGY_BACKTEST_DISPLAY_STAGE).map((r) => `${r.benchmark_type}:${r.cagr_pct?.toFixed(1)}`),

@@ -119,7 +119,7 @@ if (
 }
 const SIGNAL_START_DATE = IS_SIGNAL_START_STAGE ? getSignalStartDate(STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES[0]) : null;
 if (IS_SIGNAL_START_STAGE && !SIGNAL_START_DATE) throw new Error("신호 기간 기준 stage의 시작일을 STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM에서 구하지 못했습니다.");
-const PERIOD_START_DATE = SIGNAL_START_DATE ?? `${WINDOW_START_YEAR}-01-01`;
+const PERIOD_START_DATE = process.env.EXP_PERIOD_START_DATE || (SIGNAL_START_DATE ?? `${WINDOW_START_YEAR}-01-01`); // [임시 검증]
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
 // 동일 여유).

@@ -101,10 +101,23 @@ jobs:
       # 2010년부터 시총 5천억 PIT + 비용 반영 + 액면조정으로 다시 계산해 별도 stage에 새 행으로 저장한다
       # (시작 연도·대상 전략은 stage 값으로 배치가 결정한다). 코스피/코스닥 지수 시세가 2016년부터만 있어 지수
       # 벤치마크는 이 stage에 저장하지 않고, 동일가중 유니버스는 종목 거래일 캘린더로 계산한다.
-      - name: Compute strategy backtest summary (extended period 2010~, ma_cross only)
+      - name: Compute strategy backtest summary (extended period 2010~, all strategies)
         run: npm run batch:strategy-backtest-summary
         env:
           DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
+          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
+          COST_FREE_DRY_RUN: ${{ inputs.cost_free_dry_run }}
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 신호 기간 기준 비교 stage(STRATEGY_BACKTEST_SIGNAL_START_STAGE = pit_adjusted_cap5000_from_signal): 첫 신호가 늦은 전략
+      # (peg_lynch)만 신호가 시작되는 달의 1일(2021-03-01)부터 시총 5천억 PIT + 비용 반영 + 액면조정으로 다시 계산해 별도 stage에 새 행으로
+      # 저장한다. 같은 stage에 동일가중 유니버스·KOSPI·KOSDAQ도 같은 기간으로 저장된다(시작일·대상 전략은 stage 값으로 배치가 결정).
+      - name: Compute strategy backtest summary (signal-start period, peg_lynch only)
+        run: npm run batch:strategy-backtest-summary
+        env:
+          DATA_WIDEN_STAGE: pit_adjusted_cap5000_from_signal
           UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
           COST_FREE_DRY_RUN: ${{ inputs.cost_free_dry_run }}
           NODE_OPTIONS: --max-old-space-size=12288

@@ -119,7 +119,7 @@ export const STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM: Partial<Record<StrategyRuleT
 // 기간(2010~)으로 나누면 신호 전 현금 기간이 분모에 들어가 CAGR이 낮게 보인다. 그래서 이 전략들만 신호가 시작되는 달의 1일부터
 // 다시 계산한 결과를 별도 stage에 저장하고(같은 stage에 동일가중·KOSPI·KOSDAQ도 같은 기간으로 저장), 카드에 "신호 기간 기준" 줄로
 // 병기한다. 시작일은 SIGNAL_LIMITED_FROM("2021-03")에서 파생하므로 월초(2021-03-01)다 — 첫 매수일(2021-03-10)은 데이터가 갱신되면
-// 달라질 수 있어 쓰지 않는다(차이는 CAGR 소수점 이하, PR #456 본문 참고). 가격 데이터는 화면 기준 stage와 같이 2010년부터 읽는다
+// 달라질 수 있어 쓰지 않는다(2026-10-10 실측: 전략 CAGR 18.7% vs 18.8%, 동일가중·KOSPI·KOSDAQ은 0.6%p 안팎 차이). 가격 데이터는 화면 기준 stage와 같이 2010년부터 읽는다
 // (peg_lynch가 공시일 시점 상장주식수를 찾을 때 과거 시세가 필요).
 export const STRATEGY_BACKTEST_SIGNAL_START_STAGE = "pit_adjusted_cap5000_from_signal";
 export const STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES = ["peg_lynch"] as const satisfies readonly StrategyRuleType[];

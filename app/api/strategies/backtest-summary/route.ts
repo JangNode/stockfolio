@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApproved } from "@/lib/requireApproved";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { STRATEGY_BACKTEST_DISPLAY_STAGE, STRATEGY_BACKTEST_EXTENDED_STAGE } from "@/lib/strategyBacktestSummaryConfig";
+import {
+  STRATEGY_BACKTEST_DISPLAY_STAGE,
+  STRATEGY_BACKTEST_EXTENDED_STAGE,
+  STRATEGY_BACKTEST_SIGNAL_START_STAGE,
+} from "@/lib/strategyBacktestSummaryConfig";
 import { selectLatestBenchmarks, selectLatestSummaries } from "@/lib/strategyBacktestSelection";
 
 interface StrategyBacktestSummaryRow {
@@ -77,5 +81,8 @@ export async function GET(request: Request) {
     benchmarks: selectLatestBenchmarks(benchmarkRows, STRATEGY_BACKTEST_DISPLAY_STAGE),
     extendedSummaries: selectLatestSummaries(summaryRows, STRATEGY_BACKTEST_EXTENDED_STAGE),
     extendedBenchmarks: selectLatestBenchmarks(benchmarkRows, STRATEGY_BACKTEST_EXTENDED_STAGE),
+    // 신호 기간 기준 stage(peg_lynch 카드의 보조 줄용). 아직 계산 전이면 빈 배열.
+    signalSummaries: selectLatestSummaries(summaryRows, STRATEGY_BACKTEST_SIGNAL_START_STAGE),
+    signalBenchmarks: selectLatestBenchmarks(benchmarkRows, STRATEGY_BACKTEST_SIGNAL_START_STAGE),
   });
 }

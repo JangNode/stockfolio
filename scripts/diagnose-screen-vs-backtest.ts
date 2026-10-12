@@ -5,6 +5,7 @@ import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { computeReversalBreakoutStates } from "@/lib/reversalBreakout";
 import { computeSMA } from "@/lib/sma";
+import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 
 interface R { id: string; strategy_id: string; stock_code: string; market: string; signal_price: number; entry_price: number; stop_loss_price: number; take_profit_price: number; matched_at: string; closed_at: string | null; status: string; score: number | null }
 const kst = (iso: string): string => new Date(Date.parse(iso) + 9 * 3600e3).toISOString().slice(0, 10);
@@ -72,5 +73,28 @@ async function main(): Promise<void> {
     }
   }
   for (const [rt, s] of Object.entries(stats)) console.log(`INTRADAY ${rt}: 행 ${s.n}, Parquet에 신호일 봉 없음 ${s.noBar}, 신호가=종가(±0.01%) ${s.priceEq}, |신호가/종가-1| 중앙 ${med(s.priceDiffMedPct).toFixed(2)}%, 신호일 종가 기준으로도 신호 유지 ${s.closeTrue}/${s.n - s.noBar}${rt === "ma_cross" ? " (구 규칙 5/20 골든크로스 기준)" : ""}`);
+
+  // (f) 종목 범위: 신호일 기준 백테스트 유니버스(시총 5천억·20일 평균 거래대금 5억) 충족 비율
+  const univ: Record<string, { n: number; noBar: number; cap5000: number; tv5: number; both: number; price1000: number; capLt500: number }> = {};
+  const tvCache = new Map<string, Float64Array>();
+  for (const r of rows.filter((x) => x.market === "KR")) {
+    const rt = String(st.get(r.strategy_id)?.rule_type);
+    const u = (univ[rt] ??= { n: 0, noBar: 0, cap5000: 0, tv5: 0, both: 0, price1000: 0, capLt500: 0 });
+    u.n++;
+    const d = kst(r.matched_at);
+    const bars = series.get(r.stock_code);
+    const i = bars ? bars.findIndex((b) => b.tradeDate === d) : -1;
+    if (!bars || i < 0) { u.noBar++; continue; }
+    let tv = tvCache.get(r.stock_code);
+    if (!tv) { tv = computeTrailingAvgTradingValue(bars, 20); tvCache.set(r.stock_code, tv); }
+    const capOk = bars[i].marketCapEok >= 5000;
+    const tvOk = tv[i] >= 5e8;
+    if (capOk) u.cap5000++;
+    if (tvOk) u.tv5++;
+    if (capOk && tvOk) u.both++;
+    if (bars[i].closePrice >= 1000) u.price1000++;
+    if (bars[i].marketCapEok < 500) u.capLt500++;
+  }
+  for (const [rt, u] of Object.entries(univ)) console.log(`UNIVERSE KR ${rt}: 행 ${u.n}(봉 없음 ${u.noBar}) 중 시총≥5천억 ${u.cap5000}, 20일평균거래대금≥5억 ${u.tv5}, 둘 다 ${u.both}, 종가≥1,000원 ${u.price1000}, 시총<500억 ${u.capLt500}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

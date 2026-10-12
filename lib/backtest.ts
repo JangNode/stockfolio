@@ -203,7 +203,7 @@ const STRATEGY_KIND: Record<StrategyRuleType, "event" | "state"> = {
  * 없이 반복한다. listedSharesByFiscalYear는 EPS CAGR(PEG) 계산이 필요한 경우(peg_lynch)만 쓴다 — 호출부가
  * loadFundamentalsSeriesWithListedShares로 종목당 한 번만 로드해 넘긴다.
  */
-function computeStates(
+export function computeStates(
   prices: DailyPrice[],
   rule: StrategyRule,
   fundamentals?: FundamentalsSeries,

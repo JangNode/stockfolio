@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { selectLatestBenchmarks, selectLatestSummaries } from "@/lib/strategyBacktestSelection";
 import { STRATEGY_BACKTEST_DISPLAY_STAGE, STRATEGY_BACKTEST_EXTENDED_STAGE, STRATEGY_BACKTEST_SIGNAL_START_STAGE } from "@/lib/strategyBacktestSummaryConfig";
 
-interface S { rule_type: string; period_start_date: string; period_end_date: string; computed_at: string; cagr_pct: number | null; mdd_pct: number | null; total_trades: number; win_rate: number | null; payoff_ratio: number | null; data_widen_stage: string | null }
+interface S { rule_type: string; market: string; period_start_date: string; period_end_date: string; computed_at: string; cagr_pct: number | null; mdd_pct: number | null; total_trades: number; win_rate: number | null; payoff_ratio: number | null; data_widen_stage: string | null }
 interface B { benchmark_type: string; period_start_date: string; computed_at: string; cagr_pct: number | null; mdd_pct: number | null; data_widen_stage: string | null }
 const f = (v: number | null, d = 2): string => (v === null ? "-" : v.toFixed(d));
 

@@ -1,0 +1,5 @@
+{
+  "round": 2,
+  "baseline": { "name": "R1b", "clauses": [{ "f": "pos52w", "gt": -0.1829 }] },
+  "candidates": []
+}

@@ -28,6 +28,8 @@ import {
 
 const FROM = "2024-01-01";
 const TO = "2024-12-31";
+const FROM_PEG = "2021-03-01"; // peg_lynch는 재무 데이터 한계로 첫 신호가 2021-03 이후라 이 구간부터 비교한다(2024만 보면 신규 진입이 3건뿐)
+const RECENT_FROM = "2026-08-01";
 const KIS_ROWS = 520; // 스크리닝이 받는 일봉 건수(급등주 v2 등록 시 520)
 const RULES: Record<StrategyRuleType, StrategyRule> = {
   ma_cross: { rule_type: "ma_cross", rule_params: MA_CROSS_V3_PARAMS },
@@ -49,8 +51,7 @@ async function main(): Promise<void> {
   console.log(`종목 ${series.size}개`);
 
   const result: Record<string, { stocks: number; bt: number; replay: number; match: number; entryMissing: T[]; entryExtra: T[]; sellDiff: { bt: T; rp: T }[] }> = {};
-  const recent: Record<string, Map<string, Set<string>>> = { ma_v3: new Map(), ma_v2: new Map(), v2_new: new Map() };
-  const RECENT_FROM = "2026-08-01";
+  const recent: Record<string, Map<string, Set<string>>> = { ma_v3: new Map(), ma_v2: new Map(), v2_new: new Map(), peg_new: new Map() };
 
   // 급등주 v2/ma_cross 재생
   for (const [code, rows] of series) {
@@ -108,12 +109,12 @@ async function main(): Promise<void> {
       const upto = prices.filter((p) => p.date <= TO);
       if (upto.length < 3) continue;
       const loaded = await loadFundamentalsSeriesWithListedShares(code, (_c, d) => pickListedSharesOnOrBefore(rows, d, DEFAULT_ON_OR_BEFORE_LOOKBACK_DAYS));
-      const bt = runBacktest(upto, RULES.peg_lynch, FROM, loaded.series, loaded.listedSharesByFiscalYear, { market: "KR" });
+      const bt = runBacktest(upto, RULES.peg_lynch, FROM_PEG, loaded.series, loaded.listedSharesByFiscalYear, { market: "KR" });
       const btTrades: T[] = bt.trades.map((t) => ({ code, buy: t.buyDate, sell: t.sellDate, forced: !!t.isForcedLiquidation }));
       const rp: T[] = [];
       let open: { buy: string } | null = null;
       for (let i = 1; i < upto.length; i++) {
-        if (upto[i].date < FROM) continue;
+        if (upto[i].date < FROM_PEG) continue;
         const window = [upto[i - 1], upto[i]]; // 스크리닝: 직전 거래일 봉 + 최근 봉
         if (open) {
           if (matchesSignalExitToday(window, RULES.peg_lynch, loaded.series, loaded.listedSharesByFiscalYear)) { rp.push({ code, buy: open.buy, sell: upto[i].date, forced: false }); open = null; }
@@ -122,6 +123,12 @@ async function main(): Promise<void> {
         }
       }
       if (open) rp.push({ code, buy: open.buy, sell: upto[upto.length - 1].date, forced: true });
+      for (let i = 1; i < prices.length; i++) {
+        if (prices[i].date < RECENT_FROM) continue;
+        if (matchesEntrySignalToday([prices[i - 1], prices[i]], RULES.peg_lynch, loaded.series, loaded.listedSharesByFiscalYear)) {
+          const m = recent.peg_new; if (!m.has(prices[i].date)) m.set(prices[i].date, new Set()); m.get(prices[i].date)!.add(code);
+        }
+      }
       const r = (result.peg_lynch ??= { stocks: 0, bt: 0, replay: 0, match: 0, entryMissing: [], entryExtra: [], sellDiff: [] });
       r.stocks++; r.bt += btTrades.length; r.replay += rp.length;
       const rpMap = new Map(rp.map((t) => [t.buy, t])), btMap = new Map(btTrades.map((t) => [t.buy, t]));
@@ -131,7 +138,7 @@ async function main(): Promise<void> {
   }
   await Promise.all(Array.from({ length: 10 }, pegWorker));
 
-  console.log("\n=== (b) 2024 재생 일치 (새 스크리닝 로직 vs runBacktest) ===");
+  console.log("\n=== (b) 재생 일치 (새 스크리닝 로직 vs runBacktest; ma_cross·급등주 v2는 2024-01-01~12-31, peg_lynch는 2021-03-01~2024-12-31) ===");
   for (const [rt, r] of Object.entries(result)) {
     console.log(`[${rt}] 비교 종목 ${r.stocks}, 백테스트 거래 ${r.bt}, 재생 거래 ${r.replay}, 완전 일치 ${r.match}, 진입 누락(백테스트에만) ${r.entryMissing.length}, 추가 진입(재생에만) ${r.entryExtra.length}, 같은 진입·다른 청산일 ${r.sellDiff.length}`);
     for (const t of r.entryMissing.slice(0, 6)) console.log(`   누락: ${t.code} 진입 ${t.buy} 청산 ${t.sell}${t.forced ? "(기간 끝 강제청산)" : ""}`);
@@ -168,6 +175,7 @@ async function main(): Promise<void> {
   console.log(`거래일 ${n}일(${[...tradingDays].sort()[0]}~${[...tradingDays].sort()[n - 1]})`);
   console.log(`ma_cross 이전 v2 규칙 근사(골든크로스 + 시총 5천억): 총 ${sum(recent.ma_v2)}건, 하루 평균 ${(sum(recent.ma_v2) / n).toFixed(2)}건`);
   console.log(`ma_cross v3 신규 신호: 총 ${sum(recent.ma_v3)}건, 하루 평균 ${(sum(recent.ma_v3) / n).toFixed(2)}건`);
+  console.log(`peg_lynch 신규 신호(전환 첫날, 후보 풀 ${pool.length}종목, 후보 풀 필터 그대로): 총 ${sum(recent.peg_new)}건, 하루 평균 ${(sum(recent.peg_new) / n).toFixed(2)}건`);
   console.log(`급등주 v2 신규 신호(전환 첫날 + 시총 5천억·거래대금 5억): 총 ${sum(recent.v2_new)}건, 하루 평균 ${(sum(recent.v2_new) / n).toFixed(2)}건`);
 
   // 기존 규칙의 실제 저장 건수(DB, 읽기 전용): 같은 기간 KR screening_results 신규 행

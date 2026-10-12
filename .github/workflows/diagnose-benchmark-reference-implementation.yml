@@ -33,12 +33,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: Backtest reproduction dry-run (no DB write)
-        run: npm run batch:strategy-backtest-summary
+      - name: Existing rows / paper positions check (read-only)
+        run: npx tsx --conditions=react-server scripts/verify-ma-cross-v3-rows.ts
         env:
-          DRY_RUN: "true"
-          DATA_WIDEN_STAGE: pit_adjusted_cap5000_from2010
-          UNIVERSE_MIN_MARKET_CAP_EOK: "5000"
-          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

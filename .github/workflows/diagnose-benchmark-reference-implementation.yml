@@ -28,8 +28,7 @@ jobs:
 
       - name: summary rows + paper strategies (read-only)
         run: |
-          npx tsx --conditions=react-server scripts/diagnose-summary-rows.ts
-          npx tsx --conditions=react-server scripts/diagnose-paper-strategies.ts
+          npx tsx --conditions=react-server scripts/diagnose-1012-check.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

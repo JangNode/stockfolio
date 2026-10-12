@@ -1,5 +1,10 @@
 {
   "round": 2,
   "baseline": { "name": "R1b", "clauses": [{ "f": "pos52w", "gt": -0.1829 }] },
-  "candidates": []
+  "candidates": [
+    { "name": "R2a_mcap<=33960", "clauses": [{ "f": "pos52w", "gt": -0.1829 }, { "f": "marketCapEok", "le": 33960 }] },
+    { "name": "R2b_vol60d<=2.250", "clauses": [{ "f": "pos52w", "gt": -0.1829 }, { "f": "vol60d", "le": 2.250 }] },
+    { "name": "R2c_gap200>0.06137", "clauses": [{ "f": "pos52w", "gt": -0.1829 }, { "f": "gap200", "gt": 0.06137 }] },
+    { "name": "R2d_slope200<=0.006690", "clauses": [{ "f": "pos52w", "gt": -0.1829 }, { "f": "slope200_20d", "le": 0.006690 }] }
+  ]
 }

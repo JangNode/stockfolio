@@ -15,6 +15,7 @@ import {
 } from "@/lib/pegRatio";
 import { PEG_MAX_RATIO } from "@/lib/pegConfig";
 import { computeReversalBreakoutStates } from "@/lib/reversalBreakout";
+import { passesMaCrossNearHighFilter } from "@/lib/maCrossConfig";
 import { REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO } from "@/lib/reversalBreakoutConfig";
 
 // lib/kis.ts(server-only)의 DailyPrice를 import하지 않고 형태만 맞춰 로컬에 둔다.
@@ -76,6 +77,14 @@ export interface CrossSignal {
   price: number;
 }
 
+/** 상태 전환 판정 — 백테스트(detectStateTransitions)와 스크리닝(isEntrySignalAt 등)이 같은 함수를 쓴다. undefined(데이터 부족)는 전환이 아니다. */
+export function isGoldenTransition(prev: boolean | undefined, cur: boolean | undefined): boolean {
+  return prev === false && cur === true;
+}
+export function isDeadTransition(prev: boolean | undefined, cur: boolean | undefined): boolean {
+  return prev === true && cur === false;
+}
+
 /** true/false/undefined(데이터 부족) 상태 배열에서 false→true(golden), true→false(dead) 전환 시점을 찾는다. */
 function detectStateTransitions(
   prices: DailyPrice[],
@@ -84,18 +93,38 @@ function detectStateTransitions(
   const signals: CrossSignal[] = [];
 
   for (let i = 1; i < prices.length; i++) {
-    const prev = states[i - 1];
-    const cur = states[i];
-    if (prev === undefined || cur === undefined) continue;
-
-    if (!prev && cur) {
+    if (isGoldenTransition(states[i - 1], states[i])) {
       signals.push({ index: i, date: prices[i].date, type: "golden", price: prices[i].close });
-    } else if (prev && !cur) {
+    } else if (isDeadTransition(states[i - 1], states[i])) {
       signals.push({ index: i, date: prices[i].date, type: "dead", price: prices[i].close });
     }
   }
 
   return signals;
+}
+
+/**
+ * 전략별 진입 필터(상태 전환 외에 신호 봉에서 추가로 요구하는 조건). 지금은 ma_cross v3의 "52주 고가 -18% 이내"뿐이다
+ * (lib/maCrossConfig.ts). 백테스트(runBacktest)와 스크리닝(isEntrySignalAt)이 같은 함수를 호출한다.
+ */
+export function passesEntryFilter(prices: DailyPrice[], index: number, rule: StrategyRule): boolean {
+  if (rule.rule_type === "ma_cross") return passesMaCrossNearHighFilter(prices, index);
+  return true;
+}
+
+/** 봉 index에서 진입 신호가 성립하는지: 직전 봉 상태가 거짓이고 이번 봉이 참(전환 첫날) + 전략별 진입 필터. */
+export function isEntrySignalAt(
+  prices: DailyPrice[],
+  states: (boolean | undefined)[],
+  index: number,
+  rule: StrategyRule
+): boolean {
+  return index >= 1 && isGoldenTransition(states[index - 1], states[index]) && passesEntryFilter(prices, index, rule);
+}
+
+/** 봉 index에서 열린 포지션을 신호로 청산해야 하는지: 상태가 거짓(데드크로스/조건 이탈). undefined(데이터 부족)는 청산하지 않는다. */
+export function isSignalExitAt(states: (boolean | undefined)[], index: number): boolean {
+  return states[index] === false;
 }
 
 /**
@@ -336,7 +365,12 @@ export function runBacktest(
   let openBuy: { date: string; price: number } | null = null;
 
   for (const signal of signals) {
-    if (signal.type === "golden" && !openBuy && (options?.entryAllowed?.(signal.date) ?? true)) {
+    if (
+      signal.type === "golden" &&
+      !openBuy &&
+      (options?.entryAllowed?.(signal.date) ?? true) &&
+      passesEntryFilter(prices, signal.index, rule)
+    ) {
       openBuy = { date: signal.date, price: signal.price };
     } else if (signal.type === "dead" && openBuy) {
       const returnPct = includeTransactionCosts
@@ -392,6 +426,31 @@ export function matchesToday(
 
   const prevState = states[states.length - 2];
   return prevState === false;
+}
+
+/**
+ * 한국 스크리닝용(2026-10-12~): 오늘(가장 최근 봉)이 "전일 거짓 → 오늘 참" 전환 첫날이고 진입 필터를 통과하는지.
+ * 모든 전략이 같은 규칙이다(상태 지속 중인 날은 신호가 아니다 — 백테스트의 진입 정의와 같다). matchesToday는 미국 스크리닝이 그대로 쓴다.
+ */
+export function matchesEntrySignalToday(
+  prices: DailyPrice[],
+  rule: StrategyRule,
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
+): boolean {
+  const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
+  return isEntrySignalAt(prices, states, prices.length - 1, rule);
+}
+
+/** 한국 스크리닝용: 신호로 추적 중인 행을 오늘 청산해야 하는지(가장 최근 봉의 상태가 거짓). */
+export function matchesSignalExitToday(
+  prices: DailyPrice[],
+  rule: StrategyRule,
+  fundamentals?: FundamentalsSeries,
+  listedSharesByFiscalYear?: ListedSharesByFiscalYear
+): boolean {
+  const states = computeStates(prices, rule, fundamentals, listedSharesByFiscalYear);
+  return isSignalExitAt(states, prices.length - 1);
 }
 
 // scripts/replay-reversal-breakout-closed-results.ts와

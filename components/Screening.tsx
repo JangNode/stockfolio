@@ -10,7 +10,8 @@ import { useMarket } from "@/components/MarketContext";
 import { formatPrice, MARKET_LABELS, type Market } from "@/lib/market";
 import { toKstDateString, formatKstDate, formatKstDateTime } from "@/lib/formatKst";
 import { formatPercent } from "@/lib/formatNumber";
-import { isMaCrossV2Signal } from "@/lib/maCrossConfig";
+import { isMaCrossV2Signal, isMaCrossV3Signal } from "@/lib/maCrossConfig";
+import { isSignalExitClosed, usesSignalExit } from "@/lib/screeningSignalRules";
 
 interface ScreeningResultRow {
   id: string;
@@ -45,6 +46,17 @@ const STATUS_BADGE: Record<ScreeningResultRow["status"], { label: string; classN
   // 확정된 액면조정 이벤트 없이 가격제한폭을 넘는 변동이 감지돼 손절/익절·집계에서 제외된 상태(이벤트 확정 시 자동 해제).
   price_anomaly: { label: "가격 이상 확인 중", className: "text-est" },
 };
+
+/** ma_cross 행의 규칙 구분 표시. 표식이 없으면 5/20 구 규칙, v2 표식은 한국에선 "v2(구)"(미국은 현행 규칙이라 표시 없음), v3 표식은 현행이라 표시 없음. */
+function maCrossBadge(signalDetails: unknown, market: Market): { label: string; title: string } | null {
+  if (isMaCrossV3Signal(signalDetails)) return null;
+  if (isMaCrossV2Signal(signalDetails)) {
+    return market === "US"
+      ? null
+      : { label: "v2(구)", title: "2026-10-08~10-12 규칙(50/200, 52주 고가 조건 없음)으로 만들어진 신호입니다. 기존 방식(손절·익절)으로 추적합니다." };
+  }
+  return { label: "구 규칙(5/20)", title: "2026-10-08 이평선 규칙 교체(5/20 → 50/200) 이전에 만들어진 신호입니다." };
+}
 
 function formatDateTime(iso: string): string {
   return formatKstDateTime(iso, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -222,7 +234,14 @@ export default function Screening({ user }: { user: User }) {
             )}
           </div>
 
-          {selectedIsMaCross && (
+          {selectedIsMaCross && market !== "US" && (
+            <p className="mb-3 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
+              &quot;구 규칙(5/20)&quot;은 2026-10-08 규칙 교체 전, &quot;v2(구)&quot;는 2026-10-08~10-12 규칙(52주 고가 조건 없음)으로 만들어진
+              신호입니다. 기록은 그대로 보존되며 기존 방식(손절·익절)으로 종료될 때까지 목록에 남습니다. 표시가 없는 행이 현재 규칙(v3: 50/200 +
+              52주 고가 -18% 이내)의 신호이며, 손절가·익절가 없이 데드크로스가 나오면 &quot;신호 이탈&quot;로 종료됩니다.
+            </p>
+          )}
+          {selectedIsMaCross && market === "US" && (
             <p className="mb-3 rounded-card bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
               &quot;구 규칙(5/20)&quot; 표시가 붙은 행은 2026-10-08 규칙 교체 전에 만들어진 신호입니다. 기록은 그대로 보존되며
               손절·익절로 종료될 때까지 목록에 남습니다. 표시가 없는 행이 현재 규칙(50/200)의 신호입니다.
@@ -241,8 +260,8 @@ export default function Screening({ user }: { user: User }) {
                     <th className="pb-2 pr-4 font-normal">종목명</th>
                     <th className="pb-2 pr-4 font-normal">점수</th>
                     <th className="pb-2 pr-4 font-normal">진입 추천가</th>
-                    <th className="pb-2 pr-4 font-normal">손절가</th>
-                    <th className="pb-2 pr-4 font-normal">익절가</th>
+                    <th className="pb-2 pr-4 font-normal" title="신호 이탈(데드크로스·조건 이탈)로 종료되는 행은 손절가·익절가를 쓰지 않아 &quot;-&quot;로 표시합니다.">손절가</th>
+                    <th className="pb-2 pr-4 font-normal" title="신호 이탈(데드크로스·조건 이탈)로 종료되는 행은 손절가·익절가를 쓰지 않아 &quot;-&quot;로 표시합니다.">익절가</th>
                     <th className="pb-2 pr-4 font-normal">현재가</th>
                     <th className="pb-2 pr-4 font-normal">수익률</th>
                     <th className="pb-2 pr-4 font-normal">매칭 시각</th>
@@ -258,6 +277,7 @@ export default function Screening({ user }: { user: User }) {
                           ? "text-fall"
                           : "text-flat";
                     const badge = STATUS_BADGE[r.status];
+                    const ruleBadge = selectedIsMaCross ? maCrossBadge(r.signal_details, market) : null;
 
                     return (
                       <tr key={r.id} className="border-t border-border">
@@ -266,12 +286,12 @@ export default function Screening({ user }: { user: User }) {
                           <span className="text-xs text-ink-faint">
                             {r.stock_code}
                           </span>
-                          {selectedIsMaCross && !isMaCrossV2Signal(r.signal_details) && (
+                          {ruleBadge && (
                             <span
-                              title="2026-10-08 이평선 규칙 교체(5/20 → 50/200) 이전에 만들어진 신호입니다."
+                              title={ruleBadge.title}
                               className="ml-2 rounded-full bg-black/[.06] px-2 py-0.5 text-[10px] font-medium text-ink-muted dark:bg-white/[.1]"
                             >
-                              구 규칙(5/20)
+                              {ruleBadge.label}
                             </span>
                           )}
                         </td>
@@ -282,10 +302,10 @@ export default function Screening({ user }: { user: User }) {
                           {formatPrice(r.entry_price, market)}
                         </td>
                         <td className="py-2 pr-4 tabular-nums text-ink">
-                          {formatPrice(r.stop_loss_price, market)}
+                          {usesSignalExit(r.signal_details) ? "-" : formatPrice(r.stop_loss_price, market)}
                         </td>
                         <td className="py-2 pr-4 tabular-nums text-ink">
-                          {formatPrice(r.take_profit_price, market)}
+                          {usesSignalExit(r.signal_details) ? "-" : formatPrice(r.take_profit_price, market)}
                         </td>
                         <td className="py-2 pr-4 tabular-nums text-ink">
                           {formatPrice(r.current_price, market)}
@@ -297,7 +317,13 @@ export default function Screening({ user }: { user: User }) {
                           {formatDateTime(r.matched_at)}
                         </td>
                         {statusTab === "closed" && (
-                          <td className={`py-2 font-medium ${badge.className}`}>{badge.label}</td>
+                          <td className={`py-2 font-medium ${badge.className}`}>
+                            {isSignalExitClosed(r.signal_details)
+                              ? r.status === "profited"
+                                ? "신호 이탈 · 수익"
+                                : "신호 이탈 · 손실"
+                              : badge.label}
+                          </td>
                         )}
                       </tr>
                     );

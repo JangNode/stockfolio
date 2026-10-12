@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAllRows } from "@/lib/supabasePagination";
 import type { Market } from "@/lib/market";
+import { SIGNAL_EXIT_DETAILS } from "@/lib/screeningSignalRules";
 
 /** screen-all-stocks.ts의 "기존 추적 종목 갱신" 단계가 쓰는 screening_results 행. */
 export interface ActiveRow {
@@ -15,6 +16,7 @@ export interface ActiveRow {
   current_price: number;
   last_price_fetch_success_at: string;
   price_fetch_failure_count: number;
+  signal_details: unknown;
 }
 
 /** 국내(KR) 추적 대상 전체(active + price_anomaly). 1,000건을 넘어도 전부 읽는다. */
@@ -25,7 +27,7 @@ export async function loadKrTrackingRows(): Promise<ActiveRow[]> {
     supabaseAdmin
       .from("screening_results")
       .select(
-        "id, stock_code, status, matched_at, entry_price, stop_loss_price, take_profit_price, current_price, last_price_fetch_success_at, price_fetch_failure_count"
+        "id, stock_code, status, matched_at, entry_price, stop_loss_price, take_profit_price, current_price, last_price_fetch_success_at, price_fetch_failure_count, signal_details"
       )
       // price_anomaly 행도 매번 다시 평가한다 — 확정된 조정계수 이벤트가 등록되면 자동으로 active로 복귀한다.
       .in("status", ["active", "price_anomaly"])
@@ -92,6 +94,32 @@ export async function loadActiveScreeningResults(market: Market): Promise<Active
       .select("id, stock_code, stock_name, strategy_id, return_pct, current_price, market, exchange, signal_details")
       .eq("status", "active")
       .eq("market", market)
+      .order("id")
+      .range(from, to)
+  );
+}
+
+/** 신호 이탈로 닫히는 한국 추적 행(signal_details.exit_rule="signal", status=active). strategyIds를 주면 그 전략만. */
+export interface SignalExitRow {
+  id: string;
+  strategy_id: string;
+  stock_code: string;
+  entry_price: number;
+  current_price: number;
+  matched_at: string;
+  signal_details: unknown;
+}
+
+export async function loadKrSignalExitRows(strategyIds: string[]): Promise<SignalExitRow[]> {
+  if (strategyIds.length === 0) return [];
+  return fetchAllRows<SignalExitRow>((from, to) =>
+    supabaseAdmin
+      .from("screening_results")
+      .select("id, strategy_id, stock_code, entry_price, current_price, matched_at, signal_details")
+      .eq("status", "active")
+      .eq("market", "KR")
+      .in("strategy_id", strategyIds)
+      .contains("signal_details", SIGNAL_EXIT_DETAILS)
       .order("id")
       .range(from, to)
   );

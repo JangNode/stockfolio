@@ -17,7 +17,8 @@ import { getAllStocks, type StockEntry } from "@/lib/stockMaster";
 import {
   computeEntryPlan,
   evaluateTrackingStatus,
-  matchesToday,
+  matchesEntrySignalToday,
+  matchesSignalExitToday,
   type DailyPrice,
   type StrategyRule,
   type StrategyRuleType,
@@ -25,20 +26,24 @@ import {
 import { computeSignalScore, MIN_SCREENING_SCORE } from "@/lib/screeningScore";
 import {
   computeReversalBreakoutLatestRawSignal,
-  matchesReversalBreakoutRaw,
   buildReversalBreakoutSignalDetailsFromRaw,
   type ReversalBreakoutRawSignal,
 } from "@/lib/reversalBreakout";
-import {
-  REVERSAL_BREAKOUT_MIN_HISTORY_ROWS,
-  REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO,
-} from "@/lib/reversalBreakoutConfig";
+import { REVERSAL_BREAKOUT_MIN_HISTORY_ROWS } from "@/lib/reversalBreakoutConfig";
 import { PRICE_FETCH_FAILURE_THRESHOLD } from "@/lib/screeningTrackingConfig";
 import { computeCostAdjustedReturnPct } from "@/lib/transactionCost";
 import { getDailyPriceOnOrBefore, discoverCandidateStockCodes } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStorage";
-import { applyMaCrossV2, isScoreGateExempt, MA_CROSS_KR_MIN_MARKET_CAP_EOK, MA_CROSS_V2_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
-import { loadKrTrackingRows, loadActiveStrategyStockKeys } from "@/lib/screeningActiveRows";
+import { applyMaCrossV3, isScoreGateExempt, MA_CROSS_NEAR_HIGH_LOOKBACK_BARS, MA_CROSS_V3_SIGNAL_DETAILS } from "@/lib/maCrossConfig";
+import {
+  computeAvgTradingValueWon,
+  passesKrSignalUniverse,
+  SIGNAL_EXIT_DETAILS,
+  statusForSignalExit,
+  usesSignalExit,
+  withSignalExitReason,
+} from "@/lib/screeningSignalRules";
+import { loadKrTrackingRows, loadActiveStrategyStockKeys, loadKrSignalExitRows } from "@/lib/screeningActiveRows";
 import { adjustPrice, describeFactor, getCumulativeFactor, isPriceAnomaly, weekdaysBetween } from "@/lib/corporateActionGuard";
 import {
   loadFundamentalsSeries,
@@ -150,7 +155,7 @@ async function loadStrategies(): Promise<StrategyRow[]> {
   // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 더 이상 스캔하지 않는다.
   return ((data ?? []) as StrategyRow[])
     .filter((strategy) => isOperatingRuleType(strategy.rule_type))
-    .map(applyMaCrossV2); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다.
+    .map(applyMaCrossV3); // ma_cross는 DB의 rule_params 대신 현행 규칙(v3: 50/200 + 52주 고가 필터)을 쓴다.
 }
 
 /**
@@ -162,7 +167,8 @@ function computeDailyTargetRows(strategies: StrategyRow[]): number {
 
   for (const strategy of strategies) {
     if (strategy.rule_type === "ma_cross") {
-      target = Math.max(target, strategy.rule_params.long_period + 20);
+      // 200일선 워밍업(long_period + 20)과 52주 고가 필터(직전 252거래일 고가, lib/maCrossConfig.ts) 중 큰 쪽.
+      target = Math.max(target, strategy.rule_params.long_period + 20, MA_CROSS_NEAR_HIGH_LOOKBACK_BARS);
     } else if (strategy.rule_type === "reversal_breakout_v2") {
       target = Math.max(target, REVERSAL_BREAKOUT_MIN_HISTORY_ROWS);
     }
@@ -435,7 +441,11 @@ async function updateActiveTracking(): Promise<{
     const adjustedEntry = adjustPrice(row.entry_price, factor);
     const adjustedStopLoss = adjustPrice(row.stop_loss_price, factor);
     const adjustedTakeProfit = adjustPrice(row.take_profit_price, factor);
-    const status = evaluateTrackingStatus(currentPrice, adjustedStopLoss, adjustedTakeProfit);
+    // 신호 이탈로 닫히는 행(signal_details.exit_rule="signal", lib/screeningSignalRules.ts)은 손절·익절 가격을 쓰지 않는다 — 가격·수익률만
+    // 갱신하고, 닫는 건 신호 이탈 판정 단계(closeSignalExitRows / 펀더멘털 단계)다. 표식이 없는 기존 행은 7%/20%로 그대로 추적한다.
+    const status = usesSignalExit(row.signal_details)
+      ? "active"
+      : evaluateTrackingStatus(currentPrice, adjustedStopLoss, adjustedTakeProfit);
     // "지금 판다면" 가정으로 매도측 비용(수수료+슬리피지+세금)까지 반영한 순수익률 —
     // active 상태에서도 실현 시 손익을 그대로 보여주는 게 의도된 설계다.
     const returnPct = computeCostAdjustedReturnPct(adjustedEntry, currentPrice, today, "KR") * 100;
@@ -528,6 +538,84 @@ async function collectDailyPrices(
   return { priceByCode, fetchErrors };
 }
 
+/** 신호 이탈로 행을 닫는다(status는 비용 반영 수익률 부호로 profited/stopped, signal_details.exit_reason="signal_exit"). 닫은 수익률(%)을 돌려준다. */
+async function closeBySignalExit(
+  row: { id: string; stock_code: string; entry_price: number; matched_at: string; signal_details: unknown },
+  exitPrice: number,
+  today: string,
+  adjustmentsByCode: Awaited<ReturnType<typeof loadAppliedAdjustmentsForCodes>>
+): Promise<number> {
+  const factor = getCumulativeFactor(row.stock_code, d10(row.matched_at), today, adjustmentsByCode);
+  const adjustedEntry = adjustPrice(row.entry_price, factor);
+  const returnPct = computeCostAdjustedReturnPct(adjustedEntry, exitPrice, today, "KR") * 100;
+  const { error } = await supabaseAdmin
+    .from("screening_results")
+    .update({
+      status: statusForSignalExit(returnPct),
+      closed_at: new Date().toISOString(),
+      current_price: exitPrice,
+      return_pct: returnPct,
+      signal_details: withSignalExitReason(row.signal_details),
+    })
+    .eq("id", row.id)
+    .eq("status", "active");
+  if (error) throw new Error(error.message);
+  return returnPct;
+}
+
+/**
+ * 신호 이탈로 닫히는 추적 행(signal_details.exit_rule="signal": ma_cross v3, 급등주 v2 신규 행)을 청산한다 — 상태가 거짓이 되면(데드크로스 /
+ * 조건 이탈) 닫는다. 판정은 백테스트와 같은 함수(lib/backtest.ts matchesSignalExitToday)다. 그 종목이 오늘 스캔 대상이 아니면(시총·가격 필터 탈락 등)
+ * 일봉을 따로 조회한다(신호 이탈 행은 소수라 호출 증가는 작다). status는 스키마 제약상 stopped/profited만 쓸 수 있어 비용 반영 수익률 부호로
+ * 고르고, signal_details.exit_reason="signal_exit"로 손절·익절과 구분한다. peg_lynch는 펀더멘털 단계(scanFundamentalStrategies)에서 닫는다.
+ */
+async function closeSignalExitRows(
+  strategies: StrategyRow[],
+  priceByCode: Map<string, StockPriceEntry>,
+  dailyTargetRows: number
+): Promise<{ checked: number; closed: number; errors: number }> {
+  const ruleById = new Map(strategies.filter((s) => !FUNDAMENTAL_RULE_TYPES.has(s.rule_type)).map((s) => [s.id, s]));
+  const rows = await loadKrSignalExitRows(Array.from(ruleById.keys())).catch((error: Error) => {
+    throw new Error(`신호 이탈 대상 조회 실패: ${error.message}`);
+  });
+  console.log(`=== 신호 이탈 청산 확인: 대상 ${rows.length}건 ===`);
+  if (rows.length === 0) return { checked: 0, closed: 0, errors: 0 };
+
+  const today = todayKstDate();
+  const codes = Array.from(new Set(rows.map((r) => r.stock_code)));
+  const adjustmentsByCode = await loadAppliedAdjustmentsForCodes(codes);
+  const barsByCode = new Map<string, DailyPrice[]>();
+  let closed = 0;
+  let errors = 0;
+
+  for (const row of rows) {
+    try {
+      const strategy = ruleById.get(row.strategy_id);
+      if (!strategy) continue;
+
+      let bars = barsByCode.get(row.stock_code) ?? priceByCode.get(row.stock_code)?.prices;
+      if (!bars) {
+        bars = await withRetry(() => getDailyPrices(row.stock_code, "D", dailyTargetRows, "batch"), `${row.stock_code} 일봉 조회(신호 이탈 확인)`);
+      }
+      barsByCode.set(row.stock_code, bars);
+      if (bars.length === 0) continue;
+      if (!matchesSignalExitToday(bars, strategy)) continue;
+
+      const exitPrice = bars[bars.length - 1].close;
+      const returnPct = await closeBySignalExit(row, exitPrice, today, adjustmentsByCode);
+      closed++;
+      console.log(`    ⏹ 신호 이탈 청산: ${row.stock_code} [${strategy.rule_type}] (${returnPct.toFixed(2)}%)`);
+    } catch (error) {
+      errors++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`    ${row.stock_code} 신호 이탈 확인 중 오류, 건너뜁니다: ${message}`);
+    }
+  }
+
+  console.log(`  --- 신호 이탈 청산 완료: 확인 ${rows.length}건, 청산 ${closed}건, 오류 ${errors}건 ---`);
+  return { checked: rows.length, closed, errors };
+}
+
 /**
  * 전략 하나를 이미 수집된 전종목 데이터에 대해 판정한다. 이 전략에서 발생하는 오류(판정
  * 함수 버그, 저장 실패 등)는 여기서만 처리되어 다른 전략의 판정에 영향을 주지 않는다.
@@ -537,7 +625,8 @@ async function runStrategyScan(
   priceByCode: Map<string, StockPriceEntry>,
   activeKeys: Set<string>,
   marketCapByCode: Map<string, number>,
-  reversalBreakoutRawCache: Map<string, ReversalBreakoutRawSignal | undefined>
+  reversalBreakoutRawCache: Map<string, ReversalBreakoutRawSignal | undefined>,
+  entrySignalCache: Map<string, boolean>
 ): Promise<{ matched: number; lowScore: number; errors: number }> {
   const label = `${strategy.name ?? strategy.rule_type}(${strategy.rule_type})`;
   console.log(`  --- [${label}] 판정 시작 (대상 ${priceByCode.size}종목) ---`);
@@ -550,27 +639,33 @@ async function runStrategyScan(
 
   for (const [stockCode, { name: stockName, prices }] of priceByCode) {
     try {
-      let reversalBreakoutRaw: ReversalBreakoutRawSignal | undefined;
+      // 후보 유니버스(시총·20일 평균 거래대금): 백테스트가 검증한 범위만 후보로 삼는다(lib/screeningSignalRules.ts). 시총을 모르면(조회 실패) 제외.
+      const marketCapEok = marketCapByCode.get(stockCode) ?? null;
+      if (!passesKrSignalUniverse(strategy.rule_type, marketCapEok, computeAvgTradingValueWon(prices, prices.length - 1))) continue;
 
+      // 진입 신호: 전일 상태 거짓 → 오늘 참 첫날 + 전략별 진입 필터(ma_cross는 52주 고가 -18% 이내). 백테스트와 같은 함수(lib/backtest.ts).
+      // 같은 rule_type의 전략 행이 여러 개(계정별 시딩)라 판정은 종목당 한 번만 한다.
+      const entryCacheKey = `${strategy.rule_type}:${stockCode}`;
+      let entryMatched = entrySignalCache.get(entryCacheKey);
+      if (entryMatched === undefined) {
+        entryMatched = matchesEntrySignalToday(prices, strategy);
+        entrySignalCache.set(entryCacheKey, entryMatched);
+      }
+      if (!entryMatched) continue;
+
+      const key = `${strategy.id}:${stockCode}`;
+      if (activeKeys.has(key)) continue; // 이미 추적 중
+
+      let reversalBreakoutRaw: ReversalBreakoutRawSignal | undefined;
       if (isReversalBreakoutFamily) {
         if (!reversalBreakoutRawCache.has(stockCode)) {
           reversalBreakoutRawCache.set(stockCode, computeReversalBreakoutLatestRawSignal(prices));
         }
         reversalBreakoutRaw = reversalBreakoutRawCache.get(stockCode);
-        if (!matchesReversalBreakoutRaw(reversalBreakoutRaw, REVERSAL_BREAKOUT_V2_MIN_INVERSE_RATIO)) continue;
-      } else {
-        if (!matchesToday(prices, strategy)) continue;
       }
-
-      const key = `${strategy.id}:${stockCode}`;
-      if (activeKeys.has(key)) continue; // 이미 추적 중
-
-      // ma_cross는 검증 범위(시총 5천억 이상)만 후보로 삼는다. 시총을 모르면(조회 실패) 후보에서 제외한다.
-      if (strategy.rule_type === "ma_cross" && !((marketCapByCode.get(stockCode) ?? 0) >= MA_CROSS_KR_MIN_MARKET_CAP_EOK)) continue;
 
       const signalPrice = prices[prices.length - 1].close;
       const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
-      const marketCapEok = marketCapByCode.get(stockCode) ?? null;
       const score = computeSignalScore(
         prices,
         strategy,
@@ -582,17 +677,15 @@ async function runStrategyScan(
         continue;
       }
 
-      // reversal_breakout_v2는 판단 근거(역배열 지속 비율, 매집봉
-      // 발생일/거래량 배수, 이평 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안 드러나므로
-      // DH전략과 같은 이유로 signal_details를 채운다 — 위에서 이미 계산해 캐시해둔 raw를
-      // 그대로 펼치기만 하고 재계산하지 않는다(reversalBreakoutRaw는 매칭 시점에 이미
-      // undefined가 아님이 확인됐다).
-      // ma_cross는 새 규칙(v2)으로 만든 신호라는 표식만 남긴다 — 기존 규칙(5/20) 이력과 구분하는 용도다.
+      // reversal_breakout_v2는 판단 근거(역배열 지속 비율, 매집봉 발생일/거래량 배수, 이평 돌파 시점/경과일)가 가격/거래량 컬럼만으론 안
+      // 드러나므로 signal_details를 채운다 — 위에서 캐시해둔 raw를 펼치기만 한다(재계산 없음).
+      // ma_cross는 v3 규칙으로 만든 신호라는 표식을 남긴다 — 기존 규칙(5/20)·v2 이력과 구분하는 용도다.
+      // 두 전략 모두 SIGNAL_EXIT_DETAILS(exit_rule="signal")가 붙어 손절·익절이 아니라 신호 이탈로 닫힌다.
       const signalDetails =
         isReversalBreakoutFamily && reversalBreakoutRaw
-          ? buildReversalBreakoutSignalDetailsFromRaw(reversalBreakoutRaw)
+          ? { ...buildReversalBreakoutSignalDetailsFromRaw(reversalBreakoutRaw), ...SIGNAL_EXIT_DETAILS }
           : strategy.rule_type === "ma_cross"
-            ? MA_CROSS_V2_SIGNAL_DETAILS
+            ? MA_CROSS_V3_SIGNAL_DETAILS
             : undefined;
 
       const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
@@ -684,6 +777,9 @@ async function scanAllStocks(
 
   const { priceByCode, fetchErrors } = await collectDailyPrices(finalStocks, dailyTargetRows);
 
+  // 신호 이탈 청산(데드크로스 / 조건 이탈)을 새 신호 판정보다 먼저 처리한다.
+  const exitResult = await closeSignalExitRows(strategies, priceByCode, dailyTargetRows);
+
   // 이미 추적 중인 (전략, 종목) 쌍은 다시 추가하지 않는다. 여러 전략 판정이 공유하는
   // 집합이라, 한 전략에서 새로 매칭된 것도 곧바로 다른 전략 판정에 반영된다(같은 종목을
   // 서로 다른 전략이 중복으로 추적하는 건 막지 않는다 — strategy_id가 다르면 별개 추적).
@@ -695,12 +791,13 @@ async function scanAllStocks(
 
   let totalMatched = 0;
   let totalLowScore = 0;
-  let totalErrors = fetchErrors + quoteFetchErrors;
+  let totalErrors = fetchErrors + quoteFetchErrors + exitResult.errors;
 
   // reversal_breakout/reversal_breakout_v2가 함께 등록돼 있어도 종목당 이평선 계산이
   // 한 번만 일어나도록 전략 루프 바깥에 캐시를 둔다(runStrategyScan의
   // isReversalBreakoutFamily 분기 참고).
   const reversalBreakoutRawCache = new Map<string, ReversalBreakoutRawSignal | undefined>();
+  const entrySignalCache = new Map<string, boolean>();
 
   for (const strategy of strategies) {
     try {
@@ -709,7 +806,8 @@ async function scanAllStocks(
         priceByCode,
         activeKeys,
         marketCapByCode,
-        reversalBreakoutRawCache
+        reversalBreakoutRawCache,
+        entrySignalCache
       );
       totalMatched += matched;
       totalLowScore += lowScore;
@@ -809,9 +907,18 @@ async function scanFundamentalStrategies(
     throw new Error(`추적 중인 종목 조회 실패: ${error.message}`);
   });
 
+  // 신호 이탈로 닫히는 추적 행(2026-10-12~ 신규 등록분): 상태가 거짓이 되면 닫는다. 표식이 없는 기존 행은 7%/20%로 계속 추적한다.
+  const exitRows = await loadKrSignalExitRows(targets.map((s) => s.id)).catch((error: Error) => {
+    throw new Error(`신호 이탈 대상 조회 실패: ${error.message}`);
+  });
+  const exitRowByKey = new Map(exitRows.map((r) => [`${r.strategy_id}:${r.stock_code}`, r]));
+  const exitAdjustments = await loadAppliedAdjustmentsForCodes(Array.from(new Set(exitRows.map((r) => r.stock_code))));
+  console.log(`  신호 이탈로 추적 중인 행 ${exitRows.length}건`);
+
   let matched = 0;
   let errors = 0;
   let completed = 0;
+  let exitClosed = 0;
 
   await runWithConcurrency(candidates, BATCH_CONCURRENCY, async (stock) => {
     try {
@@ -828,33 +935,43 @@ async function scanFundamentalStrategies(
       if (!priceRow) return; // 최근 시세 없음(백필 하한 미달 등)
       const { series: fundamentals, listedSharesByFiscalYear } = fundamentalsData;
 
-      const prices: DailyPrice[] = [
-        {
-          date: priceRow.tradeDate,
-          open: priceRow.closePrice,
-          high: priceRow.closePrice,
-          low: priceRow.closePrice,
-          close: priceRow.closePrice,
+      // "전일 거짓 → 오늘 참" 전환을 보려면 직전 거래일 봉도 필요하다(상태는 봉마다 그 봉의 종가·상장주식수·재무로 계산된다).
+      const previousRow = await getDailyPriceOnOrBefore(stock.code, previousDateOf(priceRow.tradeDate));
+      const prices: DailyPrice[] = [previousRow, priceRow]
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => ({
+          date: r.tradeDate,
+          open: r.closePrice,
+          high: r.closePrice,
+          low: r.closePrice,
+          close: r.closePrice,
           volume: 0,
-          marketCapEok: priceRow.marketCapEok,
-          listedShares: priceRow.listedShares,
-        },
-      ];
+          marketCapEok: r.marketCapEok,
+          listedShares: r.listedShares,
+        }));
 
       for (const strategy of targets) {
-        if (!matchesToday(prices, strategy, fundamentals, listedSharesByFiscalYear)) continue;
-
         const key = `${strategy.id}:${stock.code}`;
+
+        const exitRow = exitRowByKey.get(key);
+        if (exitRow) {
+          if (matchesSignalExitToday(prices, strategy, fundamentals, listedSharesByFiscalYear)) {
+            // 청산가: 오늘 기존 추적 단계가 갱신한 현재가(KIS). 상태 판정에 쓴 settled 종가는 어제 값이다.
+            const returnPct = await closeBySignalExit(exitRow, exitRow.current_price, today, exitAdjustments);
+            exitClosed++;
+            console.log(`    ⏹ 신호 이탈 청산: ${stock.code} [${strategy.rule_type}] (${returnPct.toFixed(2)}%)`);
+          }
+          continue; // 신호 이탈 추적 중인 행이 있으면 새로 등록하지 않는다(active 중복 방지와 별개로, 조건 지속 중 재등록 금지)
+        }
+
+        if (!matchesEntrySignalToday(prices, strategy, fundamentals, listedSharesByFiscalYear)) continue;
         if (activeKeys.has(key)) continue;
 
         const { entryPrice, stopLossPrice, takeProfitPrice } = computeEntryPlan(prices, strategy);
-        const signalDetails = buildPegLynchSignalDetails(
-          priceRow.closePrice,
-          priceRow.listedShares,
-          fundamentals,
-          listedSharesByFiscalYear,
-          today
-        );
+        const signalDetails = {
+          ...buildPegLynchSignalDetails(priceRow.closePrice, priceRow.listedShares, fundamentals, listedSharesByFiscalYear, today),
+          ...SIGNAL_EXIT_DETAILS,
+        };
 
         const { error: insertError } = await supabaseAdmin.from("screening_results").insert({
           strategy_id: strategy.id,
@@ -894,7 +1011,7 @@ async function scanFundamentalStrategies(
     }
   });
 
-  console.log(`  --- 펀더멘털 전략 판정 완료: 신규 매칭 ${matched}건, 오류 ${errors}건 ---`);
+  console.log(`  --- 펀더멘털 전략 판정 완료: 신규 매칭 ${matched}건, 신호 이탈 청산 ${exitClosed}건, 오류 ${errors}건 ---`);
   return { matched, errors };
 }
 
@@ -1023,6 +1140,13 @@ async function recordRun(
   if (error) {
     console.error(`실행 기록 저장 실패: ${error.message}`);
   }
+}
+
+/** YYYY-MM-DD의 하루 전 날짜(getDailyPriceOnOrBefore가 그 날짜 이전 가장 가까운 거래일을 찾는다). */
+function previousDateOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function todayKstDate(): string {

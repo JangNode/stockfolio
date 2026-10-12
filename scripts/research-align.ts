@@ -239,7 +239,7 @@ async function main(): Promise<void> {
       const st = (t: Trade[]): string => t.length ? `${t.length}건 승률 ${((t.filter((x) => x.returnPct > 0).length / t.length) * 100).toFixed(1)}% 평균 ${((t.reduce((q, x) => q + x.returnPct, 0) / t.length) * 100).toFixed(2)}%` : "0건";
       console.log(`[peg 후보 풀 영향] A0 거래 ${a0.length}건 중 2011~현재 시총 1조 이상 이력 종목 ${inPool.length}건(${((inPool.length / Math.max(a0.length, 1)) * 100).toFixed(1)}%): ${st(inPool)} / 풀 밖 ${st(out)}`);
       console.log(`\n--- 탐색적(사전 등록 7항: 판정에 쓰지 않음) peg_lynch 구간 분할 ---`);
-      for (const v of ["A0", "A1", "A2", "F500", "F1000", "F3000"]) for (const [label, a, b] of PEG_EXPL) console.log(`  ${v} ${label}: ${f(ext(accs.get(`peg_lynch|${v}`)!, a, b))}`);
+      for (const v of ["A0", "A1", "A1R", "A2", "A2R", "F500", "F1000", "F3000"]) for (const [label, a, b] of PEG_EXPL) console.log(`  ${v} ${label}: ${f(ext(accs.get(`peg_lynch|${v}`)!, a, b))}`);
     }
   }
   console.log("\n\n=== 결론 요약 ===");

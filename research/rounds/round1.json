@@ -1,0 +1,10 @@
+{
+  "round": 1,
+  "baseline": { "name": "R0", "clauses": [] },
+  "candidates": [
+    { "name": "R1a_52w>-0.12", "clauses": [{ "f": "pos52w", "gt": -0.12 }] },
+    { "name": "R1b_52w>-0.1829", "clauses": [{ "f": "pos52w", "gt": -0.1829 }] },
+    { "name": "R1c_52w>-0.25", "clauses": [{ "f": "pos52w", "gt": -0.25 }] },
+    { "name": "R1d_52w>-0.1829+RSI>54.53", "clauses": [{ "f": "pos52w", "gt": -0.1829 }, { "f": "rsi14", "gt": 54.53 }] }
+  ]
+}

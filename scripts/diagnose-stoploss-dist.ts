@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   for (const m of ["KOSPI", "KOSDAQ"] as const) {
     const s = await getIndexPriceSeries(m, "2026-09-01", "2026-10-31");
     const tail = s.slice(-24);
-    console.log(`${m} 최근: ${JSON.stringify(tail.map((p, i) => [p.date, p.close, i ? +(((p.close / tail[i - 1].close) - 1) * 100).toFixed(2) : null]))}`);
+    console.log(`${m} 최근: ${JSON.stringify(tail.map((p, i) => [p.tradeDate, p.closePrice, i ? +(((p.closePrice / tail[i - 1].closePrice) - 1) * 100).toFixed(2) : null]))}`);
   }
   const { data: strategies } = await supabaseAdmin.from("strategies").select("id, rule_type");
   const rt = new Map((strategies ?? []).map((s) => [s.id as string, s.rule_type as string]));

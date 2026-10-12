@@ -36,3 +36,8 @@ export const BREAKOUT_MA_PERIOD: number = REVERSAL_BREAKOUT_MA_PERIODS[0];
 // 종목당 필요한 최소 일봉 건수: (REVERSAL_HISTORY_LOOKBACK_DAYS - 1) + (최장 이평선
 // 기간(448) - 1) + 1 = 59 + 447 + 1 = 507. 여유를 둬 520을 최소 상수로 쓴다.
 export const REVERSAL_BREAKOUT_MIN_HISTORY_ROWS = 520;
+
+// 급등주 v2 스크리닝(한국) 후보의 시총 하한(억원). 장기 백테스트가 시총 5천억 PIT 유니버스(20일 평균 거래대금 5억 병행)에서 검증됐으므로 그 범위만
+// 후보로 삼는다(2026-10-12 정렬 연구 — 스크리닝은 이전에 500억 이상이었고, 같은 신호를 5천억 하한 없이 백테스트하면 학습 구간 MDD가 74.76%로
+// 5천억 하한(43.49%)보다 크게 나빠졌다). 거래대금 하한은 lib/strategyBacktestSummaryConfig.ts의 PIT_MIN_AVG_TRADING_VALUE_WON을 그대로 쓴다.
+export const REVERSAL_BREAKOUT_V2_MIN_MARKET_CAP_EOK = 5000;

@@ -29,7 +29,7 @@ import {
   type StockDailyPriceRow,
 } from "@/lib/stockDailyPricesStorage";
 import { computeTrailingAvgTradingValue, pickListedSharesOnOrBefore } from "@/lib/pitUniverse";
-import { MA_CROSS_V2_PARAMS } from "@/lib/maCrossConfig";
+import { MA_CROSS_V3_PARAMS } from "@/lib/maCrossConfig";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { loadFundamentalsSeriesWithListedShares, type FundamentalsSeries } from "@/lib/stockFundamentals";
 import {
@@ -182,10 +182,10 @@ function createAccumulator(): RuleTypeAccumulator {
 async function main(): Promise<void> {
   console.log(`장기 백테스트(${PERIOD_START_DATE}~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
 
-  console.log(`ma_cross 현행 규칙 사용(lib/maCrossConfig.ts): ${JSON.stringify(MA_CROSS_V2_PARAMS)}`);
+  console.log(`ma_cross 현행 규칙(v3) 사용(lib/maCrossConfig.ts): ${JSON.stringify(MA_CROSS_V3_PARAMS)} + 52주 고가 -18% 이내 진입 필터(lib/backtest.ts runBacktest)`);
 
   const RULES: Record<TargetRuleType, StrategyRule> = {
-    ma_cross: { rule_type: "ma_cross", rule_params: MA_CROSS_V2_PARAMS },
+    ma_cross: { rule_type: "ma_cross", rule_params: MA_CROSS_V3_PARAMS },
     reversal_breakout_v2: { rule_type: "reversal_breakout_v2", rule_params: {} },
     peg_lynch: { rule_type: "peg_lynch", rule_params: {} },
   };

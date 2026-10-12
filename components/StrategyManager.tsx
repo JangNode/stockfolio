@@ -17,7 +17,15 @@ import {
 import { formatPercent } from "@/lib/formatNumber";
 import { authJsonFetcher } from "@/lib/authFetch";
 import { fetchAllRows } from "@/lib/supabasePagination";
-import { applyMaCrossV2, isMaCrossV2Signal, MA_CROSS_V2_LABEL } from "@/lib/maCrossConfig";
+import {
+  applyMaCrossV3,
+  isMaCrossV2Signal,
+  isMaCrossV3Signal,
+  MA_CROSS_NEAR_HIGH_LOOKBACK_BARS,
+  MA_CROSS_NEAR_HIGH_MIN_GAP,
+  MA_CROSS_V2_LABEL,
+  MA_CROSS_V3_LABEL,
+} from "@/lib/maCrossConfig";
 import {
   STRATEGY_BACKTEST_WINDOW_START_YEAR,
   STRATEGY_BACKTEST_TARGET_RULE_TYPES,
@@ -41,18 +49,18 @@ export type StrategyRow = StrategyRule & {
 };
 
 const RULE_TYPE_LABELS: Record<StrategyRuleType, string> = {
-  ma_cross: MA_CROSS_V2_LABEL,
+  ma_cross: MA_CROSS_V3_LABEL,
   peg_lynch: "피터린치 PEG전략",
   reversal_breakout_v2: "급등주 찾기 v2 (역배열 반등 - 강화)",
 };
 
 const STRATEGY_DESCRIPTIONS: Record<StrategyRuleType, string> = {
   ma_cross:
-    "단기(50일) 이동평균선이 장기(200일) 이동평균선을 아래에서 위로 뚫고 올라가는 골든크로스가 발생하면 매수 신호로, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호로 판단합니다. 2026-10-08 기존 5/20 규칙을 이 규칙으로 교체했습니다(그 이전 신호는 구 규칙 이력으로 따로 구분되며, 성과 비교에는 새 규칙 신호만 집계합니다). 국내 후보는 시총 5천억 이상만 저장하고 점수 게이트(50점)는 적용하지 않습니다(검증한 조건과 같게 맞춤).",
+    `단기(50일) 이동평균선이 장기(200일) 이동평균선을 아래에서 위로 뚫는 골든크로스가 발생하고, 그날 종가가 직전 ${MA_CROSS_NEAR_HIGH_LOOKBACK_BARS}거래일 고가의 ${(MA_CROSS_NEAR_HIGH_MIN_GAP * 100).toFixed(2)}% 이내(52주 고가 -18% 이내)일 때만 매수 신호로 판단하고, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호입니다(손절·익절은 쓰지 않고, 닫힌 뒤 재등록은 다음 골든크로스에서만 됩니다). 2026-10-08 기존 5/20 규칙을 50/200(v2)으로, 2026-10-12 여기에 52주 고가 조건을 더한 v3으로 교체했습니다(이전 신호는 "구 규칙(5/20)"·"v2(구)"로 따로 구분되며, 성과 비교에는 v3 신호만 집계합니다). 52주 고가 조건은 같은 데이터(2010~현재)로 39회 시도한 연구에서 고른 in-sample 임시 채택값이라 과적합 위험이 있습니다. 국내 후보는 시총 5천억 이상·20일 평균 거래대금 5억 이상만 저장하고 점수 게이트(50점)는 적용하지 않습니다(검증한 조건과 같게 맞춤). 장기 백테스트 카드는 이 규칙 적용 이후 처음 계산되는 주간 배치부터 v3 기준이며, 그 이전에 계산된 수치는 v2 규칙(52주 고가 조건 없음) 기준입니다.`,
   peg_lynch:
-    "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다.",
+    "피터 린치의 PEG(주가수익성장비율) 지표를 쓰는 전략입니다. 적자기업은 제외하고, PEG(=PER÷최근 5년 EPS 성장률)가 기준값 이하인 저평가 성장주를 point-in-time 재무 데이터로 판정합니다. 기준값은 서버 설정(lib/pegConfig.ts)에서 관리됩니다. 스크리닝은 조건을 처음 충족한 날(전일 미충족 → 오늘 충족)에만 신호를 저장하고, 조건이 깨지면(적자·PEG 초과) 신호를 종료합니다(손절·익절 미사용, 조건이 계속 참인 동안 재등록 안 함). 이 규칙 적용 이전에 저장된 신호는 기존 방식(손절 7% / 익절 20%)으로 계속 추적됩니다.",
   reversal_breakout_v2:
-    "역배열(하락 추세) 상태에서 바닥을 다지다 대량 거래를 동반한 반등이 시작되는 시점을 포착하는 전략입니다. ① 최근 60거래일 중 90% 이상 이동평균이 역배열(20일선<60일선<112일선<244일선<448일선)이었고, ② 최근 20거래일 내 거래량이 직전 평균 대비 3배 이상인 양봉(매집봉)이 있었으며, ③ 현재가가 20일선을 최근 5거래일 이내에 돌파했으면 신호로 판단합니다. 기준값은 서버 설정(lib/reversalBreakoutConfig.ts)에서 관리됩니다.",
+    "역배열(하락 추세) 상태에서 바닥을 다지다 대량 거래를 동반한 반등이 시작되는 시점을 포착하는 전략입니다. ① 최근 60거래일 중 90% 이상 이동평균이 역배열(20일선<60일선<112일선<244일선<448일선)이었고, ② 최근 20거래일 내 거래량이 직전 평균 대비 3배 이상인 양봉(매집봉)이 있었으며, ③ 현재가가 20일선을 최근 5거래일 이내에 돌파했으면 신호로 판단합니다. 기준값은 서버 설정(lib/reversalBreakoutConfig.ts)에서 관리됩니다. 스크리닝은 조건을 처음 충족한 날(전일 미충족 → 오늘 충족)에만 신호를 저장하고, 시총 5천억 이상·20일 평균 거래대금 5억 이상만 후보로 삼으며, 조건이 깨지면 신호를 종료합니다(손절·익절 미사용, 조건이 계속 참인 동안 재등록 안 함). 이 규칙 적용 이전에 저장된 신호는 기존 방식(손절 7% / 익절 20%)으로 계속 추적됩니다.",
 };
 
 // 종료된 신호 수가 이보다 적으면 승률/평균·중앙값 수익률이 통계적으로 신뢰하기
@@ -154,8 +162,20 @@ function describeParams(strategy: StrategyRow): string {
   return `단기 ${short_period}일 / 장기 ${long_period}일`;
 }
 
+/** 미국 ma_cross는 이번 규칙 변경(v3) 범위 밖이라 v2 규칙(52주 고가 조건 없음)을 그대로 쓴다 — 표기도 v2로 둔다. */
+function ruleTypeLabel(ruleType: StrategyRuleType, market: Market): string {
+  return ruleType === "ma_cross" && market === "US" ? MA_CROSS_V2_LABEL : RULE_TYPE_LABELS[ruleType];
+}
+
+const MA_CROSS_US_DESCRIPTION =
+  "단기(50일) 이동평균선이 장기(200일) 이동평균선을 아래에서 위로 뚫고 올라가는 골든크로스가 발생하면 매수 신호로, 반대로 위에서 아래로 뚫고 내려가는 데드크로스가 발생하면 매도 신호로 판단합니다(v2 규칙). 국내 전략과 달리 52주 고가 조건·신호 이탈 종료(v3)는 적용되지 않았고, 손절 7% / 익절 20%로 추적하며 점수 게이트(50점)를 적용합니다. 미국 종목은 장기 백테스트 검증이 없습니다.";
+
+function strategyDescription(strategy: StrategyRow): string {
+  return strategy.rule_type === "ma_cross" && strategy.market === "US" ? MA_CROSS_US_DESCRIPTION : STRATEGY_DESCRIPTIONS[strategy.rule_type];
+}
+
 export function describeStrategy(strategy: StrategyRow): string {
-  return `${RULE_TYPE_LABELS[strategy.rule_type]} · ${describeParams(strategy)}`;
+  return `${ruleTypeLabel(strategy.rule_type, strategy.market)} · ${describeParams(strategy)}`;
 }
 
 export function useStrategies(user: User) {
@@ -170,7 +190,7 @@ export function useStrategies(user: User) {
     // 종료된 전략(minervini, v1 등)의 행은 DB에 보존돼 있지만 화면에는 내보내지 않는다.
     return (data as StrategyRow[])
       .filter((strategy) => isOperatingRuleType(strategy.rule_type))
-      .map(applyMaCrossV2); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다.
+      .map(applyMaCrossV3); // ma_cross는 DB의 rule_params 대신 현행 규칙(50/200)을 쓴다(52주 고가 조건은 서버 판정 함수에 있다).
   });
 }
 
@@ -402,8 +422,9 @@ export default function StrategyManager({ user }: { user: User }) {
     for (const row of strategyComparisonRows) {
       const ruleType = ruleTypeById.get(row.strategy_id);
       if (!ruleType) continue;
-      // 이평선은 규칙을 교체했으므로(구 5/20 → 50/200) 새 규칙으로 만든 신호만 성과에 집계한다.
-      if (ruleType === "ma_cross" && !isMaCrossV2Signal(row.signal_details)) continue;
+      // 이평선은 규칙을 교체했으므로(5/20 → 50/200 v2 → 52주 고가 조건이 붙은 v3) 현재 규칙(v3)으로 만든 한국 신호만 성과에 집계한다.
+      // 미국 ma_cross는 이번 변경 범위 밖이라 v2 규칙·표식을 그대로 쓰므로 v2 표식 신호만 집계한다(이전과 동일).
+      if (ruleType === "ma_cross" && !(market === "US" ? isMaCrossV2Signal(row.signal_details) : isMaCrossV3Signal(row.signal_details))) continue;
       const rows = rowsByRuleType.get(ruleType) ?? [];
       rows.push({ status: row.status, returnPct: row.return_pct, matchedAt: row.matched_at });
       rowsByRuleType.set(ruleType, rows);
@@ -414,7 +435,7 @@ export default function StrategyManager({ user }: { user: User }) {
       stats.set(ruleType, computeScreeningResultStats(rowsByRuleType.get(ruleType) ?? []));
     }
     return stats;
-  }, [strategyComparisonRows, comparableStrategies]);
+  }, [strategyComparisonRows, comparableStrategies, market]);
 
   const { data: backtestSummaryData } = useSWR<StrategyBacktestSummaryResponse>(
     "/api/strategies/backtest-summary",
@@ -483,7 +504,7 @@ export default function StrategyManager({ user }: { user: User }) {
                     className="rounded-card border border-border bg-surface p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-ink">{RULE_TYPE_LABELS[ruleType]}</span>
+                      <span className="font-medium text-ink">{ruleTypeLabel(ruleType, market)}</span>
                       {isLowSample && (
                         <span className="rounded-full bg-est-soft px-2 py-0.5 text-[10px] font-medium text-est">
                           표본 부족
@@ -645,13 +666,13 @@ export default function StrategyManager({ user }: { user: User }) {
                 <span className="mr-2 rounded-full bg-black/[.06] px-2 py-0.5 text-xs font-normal text-ink-muted dark:bg-white/[.1]">
                   {MARKET_LABELS[strategy.market]}
                 </span>
-                {RULE_TYPE_LABELS[strategy.rule_type]}
+                {ruleTypeLabel(strategy.rule_type, strategy.market)}
               </p>
               <p className="mt-2 text-sm text-ink-muted">
                 {describeParams(strategy)}
               </p>
               <p className="mt-3 border-t border-border pt-3 text-xs text-ink-muted">
-                {STRATEGY_DESCRIPTIONS[strategy.rule_type]}
+                {strategyDescription(strategy)}
               </p>
             </div>
           ))}

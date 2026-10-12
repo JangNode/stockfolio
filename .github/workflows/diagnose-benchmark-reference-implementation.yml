@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: ma_cross v2 research (read-only)
-        run: npx tsx --conditions=react-server scripts/research-v3-enhance.ts
+        run: npx tsx --conditions=react-server scripts/research-v3-portfolio-cap.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

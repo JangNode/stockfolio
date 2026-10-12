@@ -31,7 +31,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           ROUND: "2"
-          MODE: "diag"
-          PRIOR_ATTEMPTS: "31"
+          MODE: "eval"
+          PRIOR_ATTEMPTS: "35"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

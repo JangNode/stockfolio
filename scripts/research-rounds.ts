@@ -132,6 +132,7 @@ async function main(): Promise<void> {
     const c5 = F.ev >= B.F.ev;
     console.log(`  확인(1회): ${fm(C)}\n  전체: ${fm(F)}`);
     console.log(`  판정: 조건2 ${c2 ? "충족" : "미충족"}(확인 CAGR ${C.cagr.toFixed(2)} vs ${B.C.cagr.toFixed(2)}, MDD ${C.mdd.toFixed(2)} vs ${B.C.mdd.toFixed(2)}) / 조건3 ${c3 ? "충족" : "미충족"}(${F.trades} ≥ ${ORIG_TRADES_MIN}) / 조건4 ${c4 ? "충족" : "미충족"}(${F.payoff.toFixed(2)} ≥ ${ORIG_PAYOFF_MIN}) / 조건5 ${c5 ? "충족" : "미충족"}(${(F.ev * 100).toFixed(2)}% vs ${(B.F.ev * 100).toFixed(2)}%) → ${c2 && c3 && c4 && c5 ? "채택 가능" : "탈락"}`);
+    console.log(`  참고(채택 판정에 미사용, 사용자 원문 기준): 조건3' 현재 기준선 거래의 50%(${(0.5 * B.F.trades).toFixed(0)}) ${F.trades >= 0.5 * B.F.trades ? "충족" : "미충족"} / 조건4' 현재 기준선 손익비의 85%(${(0.85 * B.F.payoff).toFixed(3)}) ${F.payoff >= 0.85 * B.F.payoff ? "충족" : "미충족"}`);
     if (c2 && c3 && c4 && c5) adopted.push({ name: c.name, evL: L.ev, calmarL: calmar(L) });
   }
   adopted.sort((a, b) => b.evL - a.evL);

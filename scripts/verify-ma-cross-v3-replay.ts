@@ -47,7 +47,7 @@ const key = (t: T): string => `${t.code}|${t.buy}|${t.forced ? "OPEN" : t.sell}`
 async function main(): Promise<void> {
   console.log(`재생 일치 검증 시작: ${new Date().toISOString()}`);
   const adjustments = await loadAppliedAdjustments();
-  const series = await loadAllStockSeriesFromParquet(2021, new Date().getUTCFullYear(), adjustments);
+  const series = await loadAllStockSeriesFromParquet(2010, new Date().getUTCFullYear(), adjustments);
   console.log(`종목 ${series.size}개`);
 
   const result: Record<string, { stocks: number; bt: number; replay: number; match: number; entryMissing: T[]; entryExtra: T[]; sellDiff: { bt: T; rp: T }[] }> = {};

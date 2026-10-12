@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Old-rule rows overlap probe (read-only)
-        run: npx tsx --conditions=react-server scripts/probe-old-rows-overlap.ts
+        run: npx tsx --conditions=react-server scripts/probe-summary-rows.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

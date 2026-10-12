@@ -51,6 +51,9 @@ import {
   STRATEGY_BACKTEST_DISPLAY_STAGE,
   STRATEGY_BACKTEST_EXTENDED_STAGE,
   STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR,
+  STRATEGY_BACKTEST_SIGNAL_START_STAGE,
+  STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES,
+  getSignalStartDate,
   STRATEGY_BACKTEST_EXTENDED_RULE_TYPES,
   STRATEGY_BACKTEST_INDEX_COVERAGE_TOLERANCE_DAYS,
   PIT_LIQUIDITY_LOOKBACK_DAYS,
@@ -102,9 +105,11 @@ const capOk = (row: StockDailyPriceRow): boolean => MIN_MARKET_CAP_EOK === 0 || 
 const WINDOW_START_YEAR_OVERRIDE = Number(process.env.BACKTEST_WINDOW_START_YEAR) || 0;
 // 확장 기간 stage로 저장하는 실행이면 시작 연도와 대상 전략이 확장 설정으로 바뀐다(lib/strategyBacktestSummaryConfig.ts).
 const IS_EXTENDED_STAGE = DATA_WIDEN_STAGE === STRATEGY_BACKTEST_EXTENDED_STAGE;
+// 신호 기간 기준 stage(전략의 첫 신호 시작 달 1일부터 평가)는 평가 시작일만 다르고 가격 데이터는 확장 stage와 같은 연도부터 읽는다.
+const IS_SIGNAL_START_STAGE = DATA_WIDEN_STAGE === STRATEGY_BACKTEST_SIGNAL_START_STAGE;
 const WINDOW_START_YEAR =
   WINDOW_START_YEAR_OVERRIDE ||
-  (IS_EXTENDED_STAGE ? STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR : STRATEGY_BACKTEST_WINDOW_START_YEAR);
+  (IS_EXTENDED_STAGE || IS_SIGNAL_START_STAGE ? STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR : STRATEGY_BACKTEST_WINDOW_START_YEAR);
 if (
   WINDOW_START_YEAR_OVERRIDE > 0 &&
   !NO_WRITE &&
@@ -112,7 +117,9 @@ if (
 ) {
   throw new Error("BACKTEST_WINDOW_START_YEAR를 쓰려면 DATA_WIDEN_STAGE를 기본·승격·화면 stage와 다르게 지정하거나 COST_FREE_DRY_RUN·DRY_RUN=true로 실행해야 합니다.");
 }
-const PERIOD_START_DATE = `${WINDOW_START_YEAR}-01-01`;
+const SIGNAL_START_DATE = IS_SIGNAL_START_STAGE ? getSignalStartDate(STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES[0]) : null;
+if (IS_SIGNAL_START_STAGE && !SIGNAL_START_DATE) throw new Error("신호 기간 기준 stage의 시작일을 STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM에서 구하지 못했습니다.");
+const PERIOD_START_DATE = SIGNAL_START_DATE ?? `${WINDOW_START_YEAR}-01-01`;
 // 미너비니 250봉(신고/신저가)+20봉(추세 확인) 워밍업이 PERIOD_START_DATE에 이미
 // 끝나 있도록 넉넉히 2년 전부터 가격을 받아온다(diagnose-strategy-daily-returns.ts와
 // 동일 여유).
@@ -127,7 +134,9 @@ type TargetRuleType = (typeof STRATEGY_BACKTEST_TARGET_RULE_TYPES)[number];
 // 이번 실행이 계산할 전략: 기본은 운영 전략 전부, 확장 기간 stage는 확장 대상만.
 const TARGET_RULE_TYPES: readonly TargetRuleType[] = IS_EXTENDED_STAGE
   ? STRATEGY_BACKTEST_EXTENDED_RULE_TYPES
-  : STRATEGY_BACKTEST_TARGET_RULE_TYPES;
+  : IS_SIGNAL_START_STAGE
+    ? STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES
+    : STRATEGY_BACKTEST_TARGET_RULE_TYPES;
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let nextIndex = 0;
@@ -171,7 +180,7 @@ function createAccumulator(): RuleTypeAccumulator {
 }
 
 async function main(): Promise<void> {
-  console.log(`장기 백테스트(${WINDOW_START_YEAR}~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
+  console.log(`장기 백테스트(${PERIOD_START_DATE}~오늘) 요약 계산 시작: ${new Date().toISOString()}`);
 
   console.log(`ma_cross 현행 규칙 사용(lib/maCrossConfig.ts): ${JSON.stringify(MA_CROSS_V2_PARAMS)}`);
 

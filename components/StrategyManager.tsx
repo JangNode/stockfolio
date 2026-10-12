@@ -28,6 +28,7 @@ import {
   STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE,
   STRATEGY_BACKTEST_MIN_TRADES_PER_YEAR,
   STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM,
+  STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES,
   STRATEGY_BACKTEST_EXTENDED_WINDOW_START_YEAR,
 } from "@/lib/strategyBacktestSummaryConfig";
 import { benchmarkVerdict, isLowSampleSize } from "@/lib/strategyBacktestBadges";
@@ -115,6 +116,9 @@ interface StrategyBacktestSummaryResponse {
   // 확장 기간(2010~) stage — ma_cross 카드의 기간별 두 줄용. 아직 계산 전이면 빈 배열.
   extendedSummaries?: StrategyBacktestSummaryRow[];
   extendedBenchmarks?: BenchmarkSummaryRow[];
+  // 신호 기간 기준 stage(첫 신호가 늦은 전략의 보조 줄용). 아직 계산 전이면 빈 배열.
+  signalSummaries?: StrategyBacktestSummaryRow[];
+  signalBenchmarks?: BenchmarkSummaryRow[];
 }
 
 function formatMdd(value: number | null): string {
@@ -181,6 +185,50 @@ function MetricRow({ label, title, children }: { label: string; title?: string; 
   );
 }
 
+/** 첫 신호가 늦은 전략(peg_lynch)의 "신호 기간 기준" 보조 줄. 화면 기준 기간(2010~) 줄 아래에 같은 신호 시작일부터 계산한 전략·벤치마크
+ * 수치를 판정 문구 없이 나란히 보여준다. 전략 수익률은 보유한 날의 평균이고 벤치마크는 전액 투자라 단순 비교에는 한계가 있다. */
+function SignalPeriodSection({
+  fromLabel,
+  summary,
+  benchmarks,
+}: {
+  fromLabel: string;
+  summary: StrategyBacktestSummaryRow | undefined;
+  benchmarks: Map<string, BenchmarkSummaryRow>;
+}) {
+  const universe = benchmarks.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE);
+  const kospi = benchmarks.get("kospi");
+  const kosdaq = benchmarks.get("kosdaq");
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="text-xs font-medium text-ink-muted">신호 기간 기준({fromLabel}~)</p>
+      {summary ? (
+        <>
+          <dl className="mt-2 space-y-2 text-sm">
+            <p className="text-[11px] text-ink-faint">
+              기준 기간 {summary.period_start_date} ~ {summary.period_end_date}
+            </p>
+            <MetricRow label="CAGR(연환산)">{formatPct(summary.cagr_pct)}</MetricRow>
+            <MetricRow label="MDD">{formatMdd(summary.mdd_pct)}</MetricRow>
+            <MetricRow label="동일가중 · KOSPI · KOSDAQ CAGR">
+              {formatPct(universe?.cagr_pct ?? null)} · {formatPct(kospi?.cagr_pct ?? null)} · {formatPct(kosdaq?.cagr_pct ?? null)}
+            </MetricRow>
+            <MetricRow label="동일가중 · KOSPI · KOSDAQ MDD">
+              {formatMdd(universe?.mdd_pct ?? null)} · {formatMdd(kospi?.mdd_pct ?? null)} · {formatMdd(kosdaq?.mdd_pct ?? null)}
+            </MetricRow>
+          </dl>
+          <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">
+            신호가 시작된 시점부터의 짧은 기간(약 5~6년)이고 과거 데이터에 맞춘 값(in-sample)입니다. 전략 수익률은 보유한 날의
+            평균이고 벤치마크는 전액 투자라 단순 비교에는 한계가 있습니다.
+          </p>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-ink-muted">계산 전</p>
+      )}
+    </div>
+  );
+}
+
 /** 장기 백테스트 요약 카드. 운영 전략과 종료된 전략(ended)이 같은 형식을 쓴다 — 종료된 전략은
  * "종료됨" 라벨과 갱신 중단 안내, 마지막 계산 기준일을 함께 보여주는 읽기 전용 카드다. */
 function BacktestSummaryCard({
@@ -189,12 +237,15 @@ function BacktestSummaryCard({
   universeCagrPct,
   signalLimitedFrom,
   ended = false,
+  signalPeriod,
 }: {
   label: string;
   summary: StrategyBacktestSummaryRow | undefined;
   universeCagrPct: number | null;
   signalLimitedFrom?: string;
   ended?: boolean;
+  // 있으면 카드 아래에 "신호 기간 기준" 줄을 붙인다(첫 신호가 늦은 전략).
+  signalPeriod?: React.ComponentProps<typeof SignalPeriodSection>;
 }) {
   const concentrationWarning = summary ? isConcentrationWarning(summary.cagr_pct, summary.top5_exclude_return_pct) : false;
   const highForcedLiquidation = summary ? isHighForcedLiquidationRatio(summary.forced_liquidation_ratio) : false;
@@ -294,6 +345,7 @@ function BacktestSummaryCard({
       ) : (
         <p className="mt-3 text-xs text-ink-muted">{ended ? "저장된 검증 결과가 없습니다" : "재정비 중"}</p>
       )}
+      {signalPeriod && <SignalPeriodSection {...signalPeriod} />}
     </div>
   );
 }
@@ -383,6 +435,19 @@ export default function StrategyManager({ user }: { user: User }) {
     [backtestSummaryData]
   );
   const universeBenchmark = benchmarkByType.get(STRATEGY_BACKTEST_UNIVERSE_BENCHMARK_TYPE) ?? null;
+
+  // 신호 기간 기준 stage(peg_lynch 보조 줄).
+  const signalSummaryByRuleType = useMemo(() => {
+    const map = new Map<string, StrategyBacktestSummaryRow>();
+    for (const row of backtestSummaryData?.signalSummaries ?? []) {
+      if (row.market === "KR") map.set(row.rule_type, row);
+    }
+    return map;
+  }, [backtestSummaryData]);
+  const signalBenchmarkByType = useMemo(
+    () => new Map((backtestSummaryData?.signalBenchmarks ?? []).map((b) => [b.benchmark_type, b])),
+    [backtestSummaryData]
+  );
 
   // 종료된 전략은 운영 종료 시점의 마지막 값(2016~ stage)을 그대로 보여준다. 2016~ stage 행은 DB에 남아 있고 화면에서는 여기서만 읽는다.
   const endedSummaryByRuleType = useMemo(() => {
@@ -526,6 +591,16 @@ export default function StrategyManager({ user }: { user: User }) {
                   summary={summaryByRuleType.get(ruleType)}
                   universeCagrPct={universeBenchmark?.cagr_pct ?? null}
                   signalLimitedFrom={STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType]}
+                  signalPeriod={
+                    (STRATEGY_BACKTEST_SIGNAL_START_RULE_TYPES as readonly string[]).includes(ruleType) &&
+                    STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType]
+                      ? {
+                          fromLabel: STRATEGY_BACKTEST_SIGNAL_LIMITED_FROM[ruleType]!,
+                          summary: signalSummaryByRuleType.get(ruleType),
+                          benchmarks: signalBenchmarkByType,
+                        }
+                      : undefined
+                  }
                 />
               );
             })}

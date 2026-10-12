@@ -27,8 +27,11 @@ jobs:
         run: npm ci
 
       - name: ma_cross v2 research (read-only)
-        run: npx tsx --conditions=react-server scripts/research-align.ts
+        run: npx tsx --conditions=react-server scripts/research-rounds.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          ROUND: "1"
+          MODE: "eval"
+          PRIOR_ATTEMPTS: "31"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

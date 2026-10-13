@@ -13,6 +13,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
+      PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,8 +29,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore Parquet cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            parquet-v1-${{ runner.os }}-
+
+      - name: Reset Parquet cache dirty marker
+        run: rm -f .parquet-cache/.dirty
+
       - name: Run benchmark reference implementation
         run: npm run diagnose:benchmark-reference-implementation
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Check Parquet cache changes
+        id: parquet_cache_state
+        if: ${{ always() }}
+        run: |
+          if [ -f .parquet-cache/.dirty ]; then echo "dirty=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save Parquet cache
+        if: ${{ always() && steps.parquet_cache_state.outputs.dirty == 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

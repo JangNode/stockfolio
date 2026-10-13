@@ -1,8 +1,14 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { parquetReadObjects } from "hyparquet";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { STOCK_DATA_HOT_WINDOW_YEARS } from "@/lib/stockDataConfig";
+import {
+  buildFingerprint,
+  readThroughDiskCache,
+  registerParquetCacheSummaryOnExit,
+  type YearFingerprint,
+} from "@/lib/parquetDiskCache";
+import { parseYearPricesParquet } from "@/lib/stockDailyPricesParquet";
 import { applyAdjustmentsInPlace, type AppliedAdjustment } from "@/lib/priceAdjustment";
 
 /**
@@ -85,44 +91,40 @@ export async function yearPricesExist(year: number): Promise<boolean> {
   return (data ?? []).some((entry) => entry.name === objectPath(year));
 }
 
-interface ParquetRawRow {
-  stock_code: string;
-  trade_date: string;
-  close_price: number;
-  market_cap_eok: number;
-  listed_shares: number;
-  // 2011~2026년 재백필(2026-09-06) 이전 연도 파일에는 아직 이 컬럼들이 없을 수 있다 —
-  // 재백필 완료 전까지는 undefined일 수 있으므로 downloadYearPrices에서 0으로 채운다.
-  open_price?: number;
-  volume?: number;
-  high_price?: number;
-  low_price?: number;
-  trading_value?: number;
+/** 연도 파일의 변경 판별값을 Storage list API(작은 JSON)로 조회한다. 얻을 수 없으면 null. */
+async function getYearFingerprint(year: number): Promise<YearFingerprint | null> {
+  const { data, error } = await supabaseAdmin.storage.from(BUCKET).list("", { search: objectPath(year) });
+  if (error) return null;
+  const entry = (data ?? []).find((e) => e.name === objectPath(year));
+  return entry ? buildFingerprint(entry) : null;
 }
 
-/** year 파일을 그대로 다운로드+파싱한다(내부용) — 아카이빙 배치가 기존 파일과 새로
- * 옮길 행을 합칠 때 직접 쓴다. */
-export async function downloadYearPrices(year: number): Promise<StockDailyPriceRow[]> {
+/** 연도 파일을 Storage에서 통째로 받는다. 파일이 아직 없으면(미래 연도, 백필 전) null. */
+async function downloadYearBuffer(year: number): Promise<ArrayBuffer | null> {
   const { data, error } = await supabaseAdmin.storage.from(BUCKET).download(objectPath(year));
   if (error) {
-    // 아직 그 연도 파일이 없는 경우(예: 미래 연도, 백필 전)는 빈 배열로 취급한다.
-    if (error.message.toLowerCase().includes("not found")) return [];
+    if (error.message.toLowerCase().includes("not found")) return null;
     throw new Error(`${year}년 시세 다운로드 실패: ${error.message}`);
   }
-  const buffer = await data.arrayBuffer();
-  const rows = (await parquetReadObjects({ file: buffer })) as ParquetRawRow[];
-  return rows.map((r) => ({
-    stockCode: r.stock_code,
-    tradeDate: r.trade_date,
-    closePrice: r.close_price,
-    marketCapEok: r.market_cap_eok,
-    listedShares: r.listed_shares,
-    openPrice: r.open_price ?? 0,
-    volume: r.volume ?? 0,
-    highPrice: r.high_price ?? 0,
-    lowPrice: r.low_price ?? 0,
-    tradingValue: r.trading_value ?? 0,
-  }));
+  return data.arrayBuffer();
+}
+
+const cacheDir = (): string | undefined => process.env.PARQUET_CACHE_DIR?.trim() || undefined;
+
+/** year 파일을 그대로 다운로드+파싱한다(내부용) — 아카이빙 배치가 기존 파일과 새로
+ * 옮길 행을 합칠 때 직접 쓴다. PARQUET_CACHE_DIR가 있으면 디스크 캐시를 거친다
+ * (lib/parquetDiskCache.ts) — 없으면 예전과 똑같이 매번 받는다. */
+export async function downloadYearPrices(year: number): Promise<StockDailyPriceRow[]> {
+  registerParquetCacheSummaryOnExit(() => cacheDir() !== undefined);
+  const buffer = await readThroughDiskCache({
+    cacheDir: cacheDir(),
+    fileName: objectPath(year),
+    source: { getFingerprint: () => getYearFingerprint(year), download: () => downloadYearBuffer(year) },
+    log: console.log,
+  });
+  // 아직 그 연도 파일이 없는 경우(예: 미래 연도, 백필 전)는 빈 배열로 취급한다.
+  if (!buffer) return [];
+  return parseYearPricesParquet(buffer);
 }
 
 // 프로세스(스크립트 1회 실행 또는 서버리스 함수 인스턴스) 생존 기간 동안만 유지되는

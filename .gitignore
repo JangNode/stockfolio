@@ -42,3 +42,6 @@ next-env.d.ts
 
 # claude code local overrides (personal, not shared)
 .claude/settings.local.json
+
+# Parquet disk cache (GitHub Actions)
+.parquet-cache/

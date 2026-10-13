@@ -28,9 +28,10 @@ jobs:
 
       - name: Restore Parquet cache
         uses: actions/cache/restore@v4
+        continue-on-error: true
         with:
           path: .parquet-cache
-          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             parquet-v1-${{ runner.os }}-
 
@@ -53,6 +54,7 @@ jobs:
       - name: Save Parquet cache
         if: ${{ always() && steps.parquet_cache_state.outputs.dirty == 'true' }}
         uses: actions/cache/save@v4
+        continue-on-error: true
         with:
           path: .parquet-cache
-          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

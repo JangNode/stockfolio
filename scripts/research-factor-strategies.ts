@@ -39,19 +39,19 @@ const PRIOR_ATTEMPTS = 54;
 const REF = { v3: "6.36 / 53.31 / 2335건", peg: "5.89 / 29.3 / 약 707건" };
 const MS_DAY = 86_400_000;
 
-type Fid = "F1" | "F2" | "F3" | "F4" | "F5" | "F6" | "F7" | "F6L";
+export type Fid = "F1" | "F2" | "F3" | "F4" | "F5" | "F6" | "F7" | "F6L";
 const FIDS: Fid[] = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F6L"];
 const FNAME: Record<Fid, string> = {
   F1: "F1 낮은 PER", F2: "F2 낮은 PBR", F3: "F3 높은 ROE", F4: "F4 순이익 성장률", F5: "F5 배당수익률", F6: "F6 합성(U1)", F7: "F7 PEG 순위", F6L: "F6L 합성(U2 시총 상위 100)",
 };
-type Base = "D1" | "D2" | "D4";
+export type Base = "D1" | "D2" | "D4";
 const BNAME: Record<Base, string> = { D1: "D1 상위20 동일가중", D2: "D2 상위20 시총가중", D4: "D4 U1 전체 시총가중" };
 
 interface PricePoint { tradeDate: string; closePrice: number }
 interface Sk { code: string; dates: string[]; close: Float64Array; rawClose: Float64Array; mcap: Float64Array; listed: Float64Array; avgTv: Float64Array; idx: Map<string, number> }
 interface Tgt { code: string; w: number }
 interface Rec { sk: Sk; i: number; per: number; pbr: number; roe: number; growth: number; dy: number; peg: number }
-interface TR { buyDate: string; sellDate: string; ret: number; days: { d: string; r: number }[] }
+export interface TR { code?: string; buyDate: string; sellDate: string; ret: number; days: { d: string; r: number }[] }
 interface Book { sum: Map<string, number>; cnt: Map<string, number>; trades: TR[] }
 const newBook = (): Book => ({ sum: new Map(), cnt: new Map(), trades: [] });
 function addTrade(b: Book, t: TR): void {
@@ -90,7 +90,7 @@ function bookDaily(b: Book): number[] {
 }
 
 // ---- 월말 리밸런싱 포트폴리오 엔진 (research-baseline-decomposition.ts 와 같은 체결·비용 규칙, 시작일 파라미터화) ----
-interface SimOut { dates: string[]; ret: number[]; hold: number[]; cashShare: number[]; turn: { d: string; v: number }[]; orders: { d: string; n: number }[] }
+export interface SimOut { dates: string[]; ret: number[]; hold: number[]; cashShare: number[]; turn: { d: string; v: number }[]; orders: { d: string; n: number }[] }
 function simulate(targetsAt: (d: string) => Tgt[], stocks: Sk[], cal: string[], start: string): SimOut {
   const byC = new Map(stocks.map((s) => [s.code, s]));
   const endedBefore = new Date(Date.parse(cal[cal.length - 1]) - ENDED_GRACE_DAYS * MS_DAY).toISOString().slice(0, 10);
@@ -167,7 +167,15 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
   }));
 }
 
-export async function runStudy(inp: StudyInput): Promise<void> {
+export interface StudyResult {
+  calEval: string[]; cal: string[];
+  sims: Map<Fid, SimOut>; baseSims: Map<Base, SimOut>;
+  kDates: string[]; kRets: number[];
+  v3Daily: number[]; pegDaily: number[]; pegTrades: TR[]; pegCnt: Map<string, number>;
+  fundRows: { stocks: number; annual: number; dividend: number; kospi: number };
+}
+
+export async function runStudy(inp: StudyInput): Promise<StudyResult> {
   const { series, kospi } = inp;
   const calSet = new Set<string>();
   let globalLast = "";
@@ -248,7 +256,7 @@ export async function runStudy(inp: StudyInput): Promise<void> {
       for (const t of result.trades) {
         const tmp: DailyStockReturns = new Map();
         accumulateStockDailyReturns(tmp, new Map(), code, prices, [t], win, "KR", true);
-        const tr: TR = { buyDate: t.buyDate, sellDate: t.sellDate, ret: t.returnPct, days: [...tmp.entries()].map(([d, es]) => ({ d, r: es[0].returnPct })) };
+        const tr: TR = { code, buyDate: t.buyDate, sellDate: t.sellDate, ret: t.returnPct, days: [...tmp.entries()].map(([d, es]) => ({ d, r: es[0].returnPct })) };
         if (win === PERIOD_START) pegTrades2010.push(tr); else addTrade(pegBook2017, tr);
       }
     }
@@ -444,6 +452,10 @@ export async function runStudy(inp: StudyInput): Promise<void> {
   console.log(`| I2 (8개 중 C2 만족 전략 수) | ${i2} |`);
   console.log(`\n누적 시도 횟수: ${PRIOR_ATTEMPTS} + ${FIDS.length} = ${PRIOR_ATTEMPTS + FIDS.length}회`);
   console.log("완료");
+  return {
+    calEval, cal: CAL, sims, baseSims, kDates: kDatesAll, kRets: kRetsAll, v3Daily, pegDaily, pegTrades: pegBook2017.trades, pegCnt: pegBook2017.cnt,
+    fundRows: { stocks: fundBy.size, annual: annualRows, dividend: dividendRows, kospi: kospi.length },
+  };
 }
 
 async function main(): Promise<void> {

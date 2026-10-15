@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: factor strategies research (read-only)
+      - name: blend research (read-only)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-factor-strategies.ts
+        run: npx tsx --conditions=react-server scripts/research-blend.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

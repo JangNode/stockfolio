@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -30,6 +30,7 @@ jobs:
         run: npm ci
 
       - name: Restore Parquet cache
+        id: parquet_restore
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -41,9 +42,38 @@ jobs:
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
 
-      - name: Run benchmark reference implementation
-        run: npm run diagnose:benchmark-reference-implementation
+      - name: Parquet cache gate (캐시 적중이 아니면 연구를 실행하지 않는다)
+        id: parquet_gate
         env:
+          MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key }}
+          EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit }}
+          # 비워 두면 2010~2026 연도 파일이 전부 캐시에 있어야 통과한다(엄격). 일부 연도만 허용하려면 공백으로 구분해 적는다.
+          ALLOWED_MISSING_YEARS: ""
+        run: |
+          echo "cache-matched-key=${MATCHED_KEY:-없음} exact-hit=${EXACT_HIT:-없음}"
+          ls -la .parquet-cache 2>/dev/null | head -50 || true
+          missing=""
+          for y in $(seq 2010 2026); do
+            if [ ! -f ".parquet-cache/$y.parquet" ] || [ ! -f ".parquet-cache/$y.parquet.meta.json" ]; then missing="$missing $y"; fi
+          done
+          echo "캐시에 없는 연도:${missing:- 없음}"
+          blocked=false
+          if [ -z "$MATCHED_KEY" ]; then blocked=true; fi
+          for y in $missing; do
+            case " $ALLOWED_MISSING_YEARS " in *" $y "*) ;; *) blocked=true ;; esac
+          done
+          if [ "$blocked" = "true" ]; then
+            echo "gate=blocked" >> "$GITHUB_OUTPUT"
+            echo "::warning::캐시가 적중이 아니라(복원 실패 또는 연도 파일 누락) 연구 스크립트를 실행하지 않습니다. 결과를 보고하고 지시를 받으세요."
+          else
+            echo "gate=ok" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ma_cross v3 portfolio cap research (read-only)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
+        run: npx tsx --conditions=react-server scripts/research-v3-portfolio-cap.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

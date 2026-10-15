@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: v3 audit (read-only)
+      - name: v3 top trades check (read-only)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-audit-v3.ts
+        run: npx tsx --conditions=react-server scripts/research-audit-v3-top-trades.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

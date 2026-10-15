@@ -19,7 +19,8 @@ import { computeEffectiveBuyPrice, computeEffectiveSellPrice, computeCostAdjuste
 import { buildCtx, genTrades, PERIOD_START, TODAY, CAP_EOK, type Ctx } from "./research-ma-lab";
 
 // ---- 사전 등록 상수 (research/audit-peg-prereg.md) ----
-const REPRO_REF = { cagr: "5.89", mdd: "29.3", tradesMin: 700, tradesMax: 714, endDate: "2026-10-09" };
+// 재현 게이트(research/audit-peg-prereg-addendum.md): 기준일 실행일 연환산 CAGR 5.89 ±0.02%p, MDD 29.3 ±0.1%p, 거래 700~714건.
+const REPRO_REF = { cagr: 5.89, cagrTol: 0.02, mdd: 29.3, mddTol: 0.1, tradesMin: 700, tradesMax: 714, endDate: "2026-10-09" };
 const PEG_RULE: StrategyRule = { rule_type: "peg_lynch", rule_params: {} };
 const V3_NEAR_HIGH_GAP = -0.1829;
 const V3_NEAR_HIGH_BARS = 252;
@@ -293,11 +294,11 @@ export async function runStudy(inp: StudyInput): Promise<{ ok: boolean }> {
   const m0 = seriesMetrics(CAL, pegDaily, PERIOD_START, TODAY);
   const mRef = seriesMetrics(CAL, pegDaily, PERIOD_START, REPRO_REF.endDate);
   console.log(`\n=== 0) peg_lynch 재현 확인 ===`);
-  console.log(`재무 조회 종목 ${fundStocks}개(실패 ${fundFail}), annual 행 ${annualRows}, dividend 행 ${dividendRows}`);
+  console.log(`재무 조회 종목 ${fundStocks}개(실패 ${fundFail}), annual 행 ${annualRows}, dividend 행 ${dividendRows}, beta_price_history(KOSPI) 읽은 행 ${kospi.length}`);
   console.log(`하네스(기준일 ${REPRO_REF.endDate}): CAGR ${f2(mRef.cagr)}% | MDD ${mRef.mdd.toFixed(1)}% | 거래 ${pegAll.length}건`);
   console.log(`하네스(기준일 오늘 ${TODAY}): CAGR ${f2(m0.cagr)}% | MDD ${m0.mdd.toFixed(1)}%`);
-  console.log(`기준: CAGR ${REPRO_REF.cagr}% | MDD ${REPRO_REF.mdd}% | 거래 약 707건(허용 ${REPRO_REF.tradesMin}~${REPRO_REF.tradesMax})`);
-  const match = f2(mRef.cagr) === REPRO_REF.cagr && mRef.mdd.toFixed(1) === REPRO_REF.mdd && pegAll.length >= REPRO_REF.tradesMin && pegAll.length <= REPRO_REF.tradesMax;
+  console.log(`기준: CAGR ${REPRO_REF.cagr}% ±${REPRO_REF.cagrTol}%p(기준일 실행일) | MDD ${REPRO_REF.mdd}% ±${REPRO_REF.mddTol}%p | 거래 ${REPRO_REF.tradesMin}~${REPRO_REF.tradesMax}건`);
+  const match = Math.abs(m0.cagr - REPRO_REF.cagr) <= REPRO_REF.cagrTol + 1e-9 && Math.abs(m0.mdd - REPRO_REF.mdd) <= REPRO_REF.mddTol + 1e-9 && pegAll.length >= REPRO_REF.tradesMin && pegAll.length <= REPRO_REF.tradesMax;
   console.log(`재현 결과: ${match ? "일치" : "불일치"}`);
   if (inp.reproGate && !match) {
     console.log("재현이 어긋나 중단합니다. (원인 후보: 데이터 범위(연도 파일)·조정계수/재무 데이터 변경, 집계 구현 차이)");

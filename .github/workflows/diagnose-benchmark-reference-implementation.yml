@@ -47,8 +47,8 @@ jobs:
         env:
           MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key }}
           EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit }}
-          # 2010~2026 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 2010은 main 캐시에 없어 이번 실행에서 1개만 받는다(사용자 승인).
-          ALLOWED_MISSING_YEARS: "2010"
+          # 2010~2026 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 비워 두면 17개 파일이 전부 캐시에 있어야 통과한다(엄격).
+          ALLOWED_MISSING_YEARS: ""
         run: |
           echo "cache-matched-key=${MATCHED_KEY:-없음} exact-hit=${EXACT_HIT:-없음}"
           ls -la .parquet-cache 2>/dev/null | head -50 || true
@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: ma_cross v3 portfolio cap research (read-only)
+      - name: ma_cross v3 portfolio rank-cap research (read-only)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-v3-portfolio-cap.ts
+        run: npx tsx --conditions=react-server scripts/research-v3-portfolio-rank.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

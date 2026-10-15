@@ -47,8 +47,8 @@ jobs:
         env:
           MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key }}
           EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit }}
-          # 비워 두면 2010~2026 연도 파일이 전부 캐시에 있어야 통과한다(엄격). 일부 연도만 허용하려면 공백으로 구분해 적는다.
-          ALLOWED_MISSING_YEARS: ""
+          # 2010~2026 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 2010은 main 캐시에 없어 이번 실행에서 1개만 받는다(사용자 승인).
+          ALLOWED_MISSING_YEARS: "2010"
         run: |
           echo "cache-matched-key=${MATCHED_KEY:-없음} exact-hit=${EXACT_HIT:-없음}"
           ls -la .parquet-cache 2>/dev/null | head -50 || true

@@ -70,20 +70,20 @@
 
 ## 3. 화면의 peg_lynch 백테스트 수치
 - 저장 표: `strategy_backtest_summary`(+ 벤치마크 `benchmark_summary`), 계산 시마다 새 행 insert(`scripts/compute-strategy-backtest-summary.ts:404, :495`). 화면 API `app/api/strategies/backtest-summary/route.ts`가 stage별 최신 행을 읽는다.
-- stage(`lib/strategyBacktestSummaryConfig.ts`): 화면 기본 `pit_adjusted_cap5000`(2016~, :79) / 기준 기간 `pit_adjusted_cap5000_from2010`(2010~, :87) / peg 카드 보조줄 `pit_adjusted_cap5000_from_signal`(2021-03-01~, :124). 화면 미노출 기본값 `pit_adjusted`(:51).
+- stage(`lib/strategyBacktestSummaryConfig.ts`): 화면 기본 `pit_adjusted_cap5000`(2016~, :79) / 기준 기간 `pit_adjusted_cap5000_from2010`(2010~, :87) / peg 카드 보조줄 `pit_adjusted_cap5000_from_signal`(2021-03-01~, :124). 화면 미노출 기본값 `pit_adjusted`(:70).
 - 만드는 workflow: `.github/workflows/compute-strategy-backtest-summary.yml`(매주 월요일 KST 05:00 `schedule` + `workflow_dispatch`). 한 번 실행하면 `batch:strategy-backtest-summary`를 네 번(pit_adjusted / pit_adjusted_cap5000 / pit_adjusted_cap5000_from2010 / pit_adjusted_cap5000_from_signal) 돌려 네 stage를 모두 새로 저장한다. 입력은 `data_widen_stage`(비움 = pit_adjusted), `cost_free_dry_run`("false")뿐이고, 특정 stage만 고르는 입력은 없다.
 - 직전 main 실행(2026-10-12 16:36Z, run 38278542976): peg_lynch CAGR 10.2%(pit_adjusted) / 9.3%(cap5000) / 5.9%(from2010) / 18.7%(from_signal), 거래 851/707/707/707건, 소요 약 6분 10초.
 
 ### 병합 후 재계산 (실행하지 않음)
-- 필요한 실행: `compute-strategy-backtest-summary.yml`을 `workflow_dispatch` 1회(입력 기본값). 이 workflow는 KRX 지수·시세 갱신 스텝(`KRX_API_KEY`, 외부 요청)을 포함하므로 외부 요청 0건 조건과는 별개다. 저장 없이 계산만 하려면 `DRY_RUN=true`가 필요한데 workflow 입력에는 없다(스크립트 환경변수 :72 `DRY_RUN`).
-- Parquet 읽기: `PRICE_FETCH_START_YEAR = max(2010, WINDOW_START_YEAR − 2)`(:127) → 2016 stage 두 개는 2014~2026(13개 파일 180.72 MB), from2010·from_signal은 2010~2026(17개 파일 230.05 MB). 연도 파일 크기는 직전 연구 실행 로그의 `[parquet-cache]` 값(MB): 2010 12.21, 2011 12.46, 2012 12.41, 2013 12.25, 2014 12.23, 2015 11.44, 2016 11.84, 2017 12.10, 2018 12.59, 2019 13.04, 2020 13.66, 2021 14.07, 2022 14.45, 2023 16.85, 2024 17.23, 2025 17.59, 2026 13.63.
+- 필요한 실행: `compute-strategy-backtest-summary.yml`을 `workflow_dispatch` 1회(입력 기본값). 이 workflow는 KRX 지수·시세 갱신 스텝(`KRX_API_KEY`, 외부 요청)을 포함하므로 외부 요청 0건 조건과는 별개다. 저장 없이 계산만 하려면 `DRY_RUN=true`가 필요한데 workflow 입력에는 없다(스크립트 환경변수 `DRY_RUN`, `scripts/compute-strategy-backtest-summary.ts:87`).
+- Parquet 읽기: `PRICE_FETCH_START_YEAR = max(2010, WINDOW_START_YEAR − 2)`(`scripts/compute-strategy-backtest-summary.ts:128`) → 2016 stage 두 개는 2014~2026(13개 파일 180.72 MB), from2010·from_signal은 2010~2026(17개 파일 230.05 MB). 연도 파일 크기는 직전 연구 실행 로그의 `[parquet-cache]` 값(MB): 2010 12.21, 2011 12.46, 2012 12.41, 2013 12.25, 2014 12.23, 2015 11.44, 2016 11.84, 2017 12.10, 2018 12.59, 2019 13.04, 2020 13.66, 2021 14.07, 2022 14.45, 2023 16.85, 2024 17.23, 2025 17.59, 2026 13.63.
 - 디스크 캐시(`lib/parquetDiskCache.ts`, workflow의 Restore/Save Parquet cache 스텝): 캐시 적중이면 Storage 다운로드 0, 미적중이면 한 job 안에서 파일당 한 번씩 최대 230.05 MB(캐시가 없던 2026-10-12 실행은 invocation마다 다시 읽어 최대 약 821.5 MB = 180.72×2 + 230.05×2).
 - 캐시 범위: 지금까지 `parquet-v1-Linux-*` 캐시는 연구 브랜치 `claude/ma-v3-portfolio-cap-run`의 실행(예: run 38695340606, head_branch가 그 브랜치)이 만든 것이다. GitHub Actions 캐시는 현재 브랜치와 기본 브랜치(main)의 캐시만 복원할 수 있으므로, main에서 도는 이 workflow는 그 캐시를 복원하지 못한다. main 자체 캐시 목록은 이 환경의 프록시가 Actions 캐시 API를 막아(HTTP 403) 확인하지 못했고, 2026-10-12 main 실행 로그에는 캐시 스텝이 없었다.
 - Postgres 읽기: 배치 4회 모두 peg_lynch를 포함해 종목당 `loadFundamentalsSeriesWithListedShares`를 호출 → 호출당 읽는 stock_annual_fundamentals 행은 대상 종목들의 행 합계(현재 표 6,066행, 병합 후 9,988행) 이내이고, 4회 합산 최대 약 24,264행 → 약 39,952행(+ stock_dividend_history 행).
 
 ## 4. 신호 판정 동작: "상태 undefined → true"
 - 백테스트: `lib/backtest.ts:82` golden = 직전 상태 `false` → 현재 `true`(undefined→true는 전환 아님). `:362` `detectStateTransitions(...).filter(date >= windowStartDate)`, `:367-375` 진입 = golden && 열린 포지션 없음 && entryAllowed, `:390-404` 기간 끝 미청산은 마지막 봉 강제청산.
-- 스크리닝도 같은 함수: `lib/backtest.ts:116-123` `isEntrySignalAt`(:122 `isGoldenTransition(states[index-1], states[index])`), `:435-443` `matchesEntrySignalToday`, 호출 `scripts/screen-all-stocks.ts:967`. 스크리닝은 직전 봉과 오늘 봉 2개만 만든다(`:939-950`)이므로 "전일 false → 오늘 true"인 날에만 신규 등록된다. 종료는 `lib/backtest.ts:126-128`(`states[index] === false`, undefined는 청산 아님)과 `:446-454`(`matchesSignalExitToday`), 호출 :958.
+- 스크리닝도 같은 함수: `lib/backtest.ts:116-123` `isEntrySignalAt`(:122 `isGoldenTransition(states[index-1], states[index])`), `:435-443` `matchesEntrySignalToday`, 호출 `scripts/screen-all-stocks.ts:967`. 스크리닝은 직전 봉과 오늘 봉 2개만 만든다(`scripts/screen-all-stocks.ts:939-951`)이므로 "전일 false → 오늘 true"인 날에만 신규 등록된다. 종료는 `lib/backtest.ts:126-128`(`states[index] === false`, undefined는 청산 아님)과 `:446-454`(`matchesSignalExitToday`), 호출 :958.
 - 후보 풀: `scripts/screen-all-stocks.ts:848-855` — 2011년부터 시가총액이 한 번이라도 `STOCK_DATA_CANDIDATE_MARKET_CAP_EOK`(1조, `lib/stockDataConfig.ts`) 이상이었던 종목 중 마스터 필터 통과분.
 
 ## 5. 오늘 기준 입력 완비도와 최근 스크리닝 (읽기만으로 추정한 숫자)

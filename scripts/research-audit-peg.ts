@@ -34,8 +34,8 @@ const P5_MAX_DROP_PP = 1.5;
 const MS_DAY = 86_400_000;
 
 interface PricePoint { tradeDate: string; closePrice: number }
-type Cat = "청산" | "데이터 끝 강제청산" | "미청산 평가";
-interface TR { code: string; buyDate: string; sellDate: string; ret: number; cat: Cat; eIdx: number; sIdx: number; days: { d: string; r: number }[] }
+export type Cat = "청산" | "데이터 끝 강제청산" | "미청산 평가";
+export interface TR { code: string; buyDate: string; sellDate: string; ret: number; cat: Cat; eIdx: number; sIdx: number; days: { d: string; r: number }[] }
 interface Book { sum: Map<string, number>; cnt: Map<string, number>; trades: TR[] }
 const newBook = (): Book => ({ sum: new Map(), cnt: new Map(), trades: [] });
 function addTrade(b: Book, t: TR): void {
@@ -99,7 +99,7 @@ function nearHighOk(ctx: Ctx, e: number): boolean {
 }
 
 /** 신호 인덱스 e,s를 shift 거래일 뒤 종가에 체결(감사 v3 스크립트 makeTrade와 같은 규칙). */
-function delayedTrade(code: string, prices: DailyPrice[], e: number, s0: number, shift: number, cat: Cat): TR | null {
+export function delayedTrade(code: string, prices: DailyPrice[], e: number, s0: number, shift: number, cat: Cat): TR | null {
   const n = prices.length;
   const b = e + shift, s = Math.min(s0 + shift, n - 1);
   if (b >= n || s <= b || !(prices[b].close > 0) || !(prices[s].close > 0)) return null;
@@ -116,8 +116,8 @@ function delayedTrade(code: string, prices: DailyPrice[], e: number, s0: number,
 }
 
 // ---- D4(유니버스 시총가중) — research/baseline-decomposition-prereg.md 정의 그대로 ----
-interface Sk { code: string; dates: string[]; close: Float64Array; mcap: Float64Array; avgTv: Float64Array; idx: Map<string, number> }
-function simulateD4(stocks: Sk[], cal: string[]): { dates: string[]; ret: number[] } {
+export interface Sk { code: string; dates: string[]; close: Float64Array; mcap: Float64Array; avgTv: Float64Array; idx: Map<string, number> }
+export function simulateD4(stocks: Sk[], cal: string[]): { dates: string[]; ret: number[] } {
   const byCode = new Map(stocks.map((s) => [s.code, s]));
   const endedBefore = new Date(Date.parse(cal[cal.length - 1]) - ENDED_GRACE_DAYS * MS_DAY).toISOString().slice(0, 10);
   const buyRate = computeEffectiveBuyPrice(1) - 1;

@@ -71,7 +71,7 @@ jobs:
 
       - name: leader earnings T71 (read-only, 외부 요청 없음)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-leader-earnings.ts
+        run: npx tsx --conditions=react-server scripts/research-leader-earnings-v2.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

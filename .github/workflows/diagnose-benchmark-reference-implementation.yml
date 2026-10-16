@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 90
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -69,14 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: DART 분기 실적 백필 (새 표 dart_quarterly_fundamentals, 실행당 DART 15,000건 이하)
+      - name: 시총가중 + 이동평균 추세 6종 T88~93 (read-only, 외부 요청 없음)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/backfill-dart-quarterly-fundamentals.ts
+        run: npx tsx --conditions=react-server scripts/research-trend-capweight.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

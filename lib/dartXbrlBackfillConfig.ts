@@ -30,7 +30,7 @@ export const XBRL_BACKFILL_MAX_RETRIES = 2;
 export const XBRL_BACKFILL_RETRY_BASE_MS = 1000;
 export const XBRL_BACKFILL_ASSUMED_DAILY_LIMIT = 20_000;
 /** 워크플로 timeout-minutes보다 짧게 잡아, 이 시간이 지나면 새 종목을 시작하지 않고 저장·보고 후 멈춘다. */
-export const XBRL_BACKFILL_SOFT_DEADLINE_MINUTES = 38;
+export const XBRL_BACKFILL_SOFT_DEADLINE_MINUTES = 170;
 export const XBRL_BACKFILL_PROGRESS_EVERY = 50;
 export const XBRL_BACKFILL_UPSERT_BATCH = 200;
 export const XBRL_BACKFILL_DB_IN_CHUNK = 200;

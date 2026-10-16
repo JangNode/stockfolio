@@ -159,6 +159,7 @@ async function main(): Promise<void> {
   console.log(`\n요청 수 사전 계산(상한): XBRL ${targets.length}×4 = ${targets.length * 4} + list.json ${targets.length} = ${planned}건 (한도 ${XBRL_BACKFILL_MAX_REQUESTS})`);
   if (planned > XBRL_BACKFILL_MAX_REQUESTS) { console.log(`합계가 ${XBRL_BACKFILL_MAX_REQUESTS}건을 넘어 실행하지 않습니다.`); return; }
 
+  const keysOf = (t: Meta): string[] => [...XBRL_BACKFILL_FISCAL_YEARS.map((y) => `${t.corp}|${y}|own`), `${t.corp}|${XBRL_BACKFILL_PRIOR_COL_FISCAL_YEAR}|prior_col`];
   // ---- 이미 저장된 키 ----
   const stored = new Set<string>();
   for (let i = 0; i < targets.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
@@ -167,6 +168,11 @@ async function main(): Promise<void> {
     for (const r of rows) stored.add(`${r.corp_code}|${r.fiscal_year}|${r.source}`);
   }
   console.log(`이미 저장된 (corp_code, fiscal_year, source) ${stored.size}건`);
+  {
+    const complete = targets.filter((t) => keysOf(t).every((k) => stored.has(k))).length;
+    const remain = targets.length - complete;
+    console.log(`이어받기 전 상태: 5개 키 모두 저장된 종목 ${complete}개 / 남은 종목 ${remain}개 → 남은 요청 수 상한 ≈ ${remain}×5 = ${remain * 5}건 (list ${remain} + XBRL 최대 ${remain * 4}; 소프트 데드라인 ${XBRL_BACKFILL_SOFT_DEADLINE_MINUTES}분)`);
+  }
 
   // ---- 수집 ----
   const buffer: XbrlRow[] = [];
@@ -182,7 +188,6 @@ async function main(): Promise<void> {
   const deadline = T0 + XBRL_BACKFILL_SOFT_DEADLINE_MINUTES * 60_000;
   let stopReason: string | null = null;
   let cursor = 0, done = 0;
-  const keysOf = (t: Meta): string[] => [...XBRL_BACKFILL_FISCAL_YEARS.map((y) => `${t.corp}|${y}|own`), `${t.corp}|${XBRL_BACKFILL_PRIOR_COL_FISCAL_YEAR}|prior_col`];
 
   async function processStock(t: Meta): Promise<void> {
     const need = new Set(keysOf(t).filter((k) => !stored.has(k)));
@@ -247,6 +252,8 @@ async function report(targets: Meta[], existing: Map<string, Map<number, { fs_di
     rows.push(...(await selectAll<XbrlRow>(TABLE + "(결과 집계)", (f, t) => supabaseAdmin.from(TABLE).select("*").in("corp_code", chunk).range(f, t))));
   }
   const meta = new Map(targets.map((t) => [t.corp, t]));
+  const byCorpEarly = new Map<string, XbrlRow[]>();
+  for (const r of rows) byCorpEarly.set(r.corp_code, [...(byCorpEarly.get(r.corp_code) ?? []), r]);
   const key = (r: XbrlRow): string => (r.source === "prior_col" ? `FY${r.fiscal_year}(prior_col)` : `FY${r.fiscal_year}`);
   const groups = ["FY2011", "FY2012", "FY2013", "FY2014", "FY2010(prior_col)"];
   const hasX = (r: XbrlRow): boolean => r.status === "ok" || r.status === "partial" || (r.status === "amended_only" && !/xbrl:014/.test(r.miss_reason ?? ""));
@@ -254,7 +261,9 @@ async function report(targets: Meta[], existing: Map<string, Map<number, { fs_di
 
   console.log("\n=== 1. 대상·제외·처리 종목 수 ===");
   console.log(`대상(corp_code 있음) ${targets.length} | 제외(12월 결산 사업보고서 없음, 3월 결산 등) ${stats.nonDec} | 처리(행 생성) ${stats.processed} | 이미 저장돼 건너뜀 ${stats.skippedAll} | list 조회 실패(미저장) ${stats.listFail} | 일부 XBRL 조회 실패(해당 행 미저장) ${stats.xbrlFail}건 | 범위 내 사업보고서 0건(→ no_report 행) ${stats.noFilingsAtAll}`);
-  console.log(`진행: ${run.done}/${targets.length} 종목, 중단 사유: ${run.stopReason ?? "없음(전체 완료)"}`);
+  const completeN = targets.filter((t) => (byCorpEarly.get(t.corp)?.length ?? 0) === 5).length;
+  console.log(`전체 ${targets.length}종목 중 처리 완료(5개 키 저장) ${completeN} | 제외(12월 결산 아님, 미저장) ${stats.nonDec} | 미완료 ${targets.length - completeN - stats.nonDec}`);
+  console.log(`이번 실행 진행: ${run.done}/${targets.length} 종목 시도, 중단 사유: ${run.stopReason ?? "없음(전체 완료)"}`);
   if (stats.nonDecCodes.length) console.log(`제외 종목 코드: ${stats.nonDecCodes.join(",")}`);
   console.log("제외 종목의 최초 진입 연도 구간: " + BUCKETS.map((b) => `${b}=${stats.nonDecCodes.filter((c) => bucketOf(targets.find((t) => t.code === c)!.entryYear) === b).length}`).join(" | "));
 
@@ -304,26 +313,41 @@ async function report(targets: Meta[], existing: Map<string, Map<number, { fs_di
   console.log("| # | miss_reason | 건수 |\n|---|---|---|");
   [...mr.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 10).forEach(([k, v], i) => console.log(`| ${i + 1} | ${k} | ${v} |`));
 
-  console.log("\n=== 6. 기존 재무 표와의 이음새 (FY2010~FY2015 EPS) ===");
-  console.log("주의: 기존 표 stock_annual_fundamentals에는 EPS 컬럼이 없다(당기순이익·자본·fs_div만). 'FY2015 EPS 가능'은 FY2015 행의 net_income_parent가 있는 경우로 센다(EPS는 NI÷상장주식수로 계산하는 기존 방식).");
-  console.log("| 구간 | XBRL EPS 5개 연도(FY2010~2014) 모두 있음 | 그중 기준 일관 | FY2015 NI 있음 (일관) | FY2015 NI 있음 (기준 섞임) | FY2015 NI 있음 & 기준 일관 & fs_div 호환 | fs_div 매핑 불가(차원 없음 기준) |");
-  console.log("|---|---|---|---|---|---|---|");
-  for (const b of [...BUCKETS, "전체"]) {
-    const cs = fiveEps.filter((rs) => b === "전체" || bucketOf(meta.get(rs[0].corp_code)!.entryYear) === b);
-    const cons = cs.filter((rs) => new Set(rs.map((r) => r.eps_basis)).size === 1);
-    const mix = cs.filter((rs) => new Set(rs.map((r) => r.eps_basis)).size > 1);
-    const f15 = (rs: XbrlRow[]): { fs_div: string; ni: number | null } | undefined => existing.get(rs[0].stock_code)?.get(2015);
-    const hasNi = (rs: XbrlRow[]): boolean => f15(rs)?.ni != null;
-    const compat = cons.filter((rs) => hasNi(rs) && ((rs[0].eps_basis === "cons" && f15(rs)!.fs_div === "CFS") || (rs[0].eps_basis === "sep" && f15(rs)!.fs_div === "OFS")));
-    const unmappable = cons.filter((rs) => hasNi(rs) && rs[0].eps_basis === "nodim");
-    console.log(`| ${b} | ${cs.length} | ${cons.length} | ${cons.filter(hasNi).length} | ${mix.filter(hasNi).length} | ${compat.length} | ${unmappable.length} |`);
-  }
+  const f15 = (rs: XbrlRow[]): { fs_div: string; ni: number | null } | undefined => existing.get(rs[0].stock_code)?.get(2015);
+  const seam = (title: string, note: string, has: (r: XbrlRow) => boolean, basisOf: (r: XbrlRow) => string | null): void => {
+    console.log(`\n=== ${title} ===`);
+    console.log(note);
+    console.log("| 구간 | XBRL 5개 연도(FY2010~2014) 모두 있음 | 그중 기준 일관 | FY2015 NI 있음 (일관) | FY2015 NI 있음 (기준 섞임) | FY2015 NI 있음 & 일관 & fs_div 호환 | fs_div 매핑 불가(차원 없음 기준) |");
+    console.log("|---|---|---|---|---|---|---|");
+    const five = [...byCorp.values()].filter((rs) => rs.length === 5 && rs.every(has));
+    for (const b of [...BUCKETS, "전체"]) {
+      const cs = five.filter((rs) => b === "전체" || bucketOf(meta.get(rs[0].corp_code)!.entryYear) === b);
+      const cons = cs.filter((rs) => new Set(rs.map(basisOf)).size === 1);
+      const mix = cs.filter((rs) => new Set(rs.map(basisOf)).size > 1);
+      const hasNi = (rs: XbrlRow[]): boolean => f15(rs)?.ni != null;
+      const compat = cons.filter((rs) => hasNi(rs) && ((basisOf(rs[0]) === "cons" && f15(rs)!.fs_div === "CFS") || (basisOf(rs[0]) === "sep" && f15(rs)!.fs_div === "OFS")));
+      const unmappable = cons.filter((rs) => hasNi(rs) && basisOf(rs[0]) === "nodim");
+      console.log(`| ${b} | ${cs.length} | ${cons.length} | ${cons.filter(hasNi).length} | ${mix.filter(hasNi).length} | ${compat.length} | ${unmappable.length} |`);
+    }
+  };
+  seam("6. 기존 재무 표와의 이음새 (EPS 기준, FY2010~FY2015)", "주의: 기존 표 stock_annual_fundamentals에는 EPS 컬럼이 없다. 'FY2015 가능'은 FY2015 행의 net_income_parent가 있는 경우로 센다.", (r) => r.eps_basic !== null, (r) => r.eps_basis);
 
   console.log("\n=== 7. 실행 지표 ===");
   console.log(`Supabase 읽은 행: ${Object.entries(dbRead).map(([k, v]) => `${k} ${v}`).join(" | ")} | 합계 ${Object.values(dbRead).reduce((a, b) => a + b, 0)}`);
   console.log(`Supabase 쓴 행(upsert 전송, 중복 무시 모드): ${dbWritten.rows}`);
   console.log(`DART 외부 요청(재시도 포함): ${dartRequests}건 | 소요 ${run.elapsedMin.toFixed(1)}분 | 일일 한도: 응답에서 값 확인 불가(status 020 메시지만 존재), ${XBRL_BACKFILL_ASSUMED_DAILY_LIMIT}건/일은 가정`);
   console.log(`status 020 수신: ${limitHit ? "예" : "아니오"}`);
+
+  seam("B-1. 이음새 (순이익 기준, FY2010~FY2015)", "NI = dart_xbrl_fundamentals.ni_parent 5개 연도 모두 있음 + FY2015 stock_annual_fundamentals.net_income_parent 있음. 일관 = ni_basis가 5개 연도 동일.", (r) => r.ni_parent !== null, (r) => r.ni_basis);
+  console.log("\n=== B-2. 대상 종목의 stock_annual_fundamentals FY2015~FY2020 행 누락 ===");
+  const YRS = [2015, 2016, 2017, 2018, 2019, 2020];
+  console.log(`| 구간 | 대상 | ${YRS.map((y) => `FY${y} 없음`).join(" | ")} | 한 연도라도 없음 | 6개 연도 모두 있음 |`);
+  console.log(`|---|---|${YRS.map(() => "---").join("|")}|---|---|`);
+  for (const b of [...BUCKETS, "전체"]) {
+    const ts = targets.filter((t) => b === "전체" || bucketOf(t.entryYear) === b);
+    const miss = (t: Meta, y: number): boolean => !existing.get(t.code)?.has(y);
+    console.log(`| ${b} | ${ts.length} | ${YRS.map((y) => ts.filter((t) => miss(t, y)).length).join(" | ")} | ${ts.filter((t) => YRS.some((y) => miss(t, y))).length} | ${ts.filter((t) => YRS.every((y) => !miss(t, y))).length} |`);
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

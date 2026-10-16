@@ -69,13 +69,14 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: leader earnings T71 (read-only, 외부 요청 없음)
+      - name: 분기 실적 확보 가능성 점검 (read-only, DART 40건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-leader-earnings-v2.ts
+        run: npx tsx --conditions=react-server scripts/research-quarterly-feasibility.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

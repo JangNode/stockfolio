@@ -38,3 +38,14 @@ export const QUARTERLY_BACKFILL_VERIFY_SAMPLE = 20;
 
 /** 계정 매칭용 정규화 대상 account_id 접두사. */
 export const QUARTERLY_ACCOUNT_PREFIX_RE = /^(ifrs-full|ifrs|dart)_/;
+
+/** 2회차부터: 연구용 DART 호출 키 전환. 1순위 DART_API_KEY_2, 2순위 기존 DART_API_KEY(운영 몫 보존을 위해 실행당 상한). */
+export const QUARTERLY_KEY_PRIMARY_ENV = "DART_API_KEY_2";
+export const QUARTERLY_KEY_SECONDARY_ENV = "DART_API_KEY";
+export const KEY1_FALLBACK_CAP = 2_000;
+/** 2회차 전체 DART 요청 상한(키 합산, 예약 방식으로 초과 금지). */
+export const QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2 = 18_000;
+/** 시작 시 1순위 키 확인용 list.json 대상(삼성전자 corp_code)과 조회 기간. */
+export const QUARTERLY_KEY_CHECK = { corpCode: "00126380", bgn: "20260101", end: "20260131" } as const;
+/** 폴백 규칙 도입 후(2회차) 저장분 표시. account_ids_used가 이 접두어로 시작하면 재요청 대상에서 제외한다. */
+export const QUARTERLY_ROW_VERSION_PREFIX = "v2;";

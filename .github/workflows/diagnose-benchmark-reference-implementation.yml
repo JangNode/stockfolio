@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 200
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 분기 실적 확보 가능성 점검 (read-only, DART 40건 이하)
+      - name: DART 분기 실적 백필 (새 표 dart_quarterly_fundamentals, 실행당 DART 15,000건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-quarterly-feasibility.ts
+        run: npx tsx --conditions=react-server scripts/backfill-dart-quarterly-fundamentals.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

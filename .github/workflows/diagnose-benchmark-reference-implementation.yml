@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -47,13 +47,13 @@ jobs:
         env:
           MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key }}
           EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit }}
-          # 2010~2016 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 비워 두면 7개 파일(2010~2016)이 전부 캐시에 있어야 통과한다(엄격).
+          # 2010~2026 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 비워 두면 17개 파일(2010~2026)이 전부 캐시에 있어야 통과한다(엄격).
           ALLOWED_MISSING_YEARS: ""
         run: |
           echo "cache-matched-key=${MATCHED_KEY:-없음} exact-hit=${EXACT_HIT:-없음}"
           ls -la .parquet-cache 2>/dev/null | head -50 || true
           missing=""
-          for y in $(seq 2010 2016); do
+          for y in $(seq 2010 2026); do
             if [ ! -f ".parquet-cache/$y.parquet" ] || [ ! -f ".parquet-cache/$y.parquet.meta.json" ]; then missing="$missing $y"; fi
           done
           echo "캐시에 없는 연도:${missing:- 없음}"
@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: DART XBRL 3rd probe (read-only)
+      - name: DART XBRL backfill (dart_xbrl_fundamentals, 1회)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/probe-dart-xbrl-3rd.ts
+        run: npx tsx --conditions=react-server scripts/backfill-dart-xbrl-fundamentals.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           DART_API_KEY: ${{ secrets.DART_API_KEY }}

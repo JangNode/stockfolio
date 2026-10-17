@@ -12,9 +12,9 @@ import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/li
 import {
   QUARTERLY_BACKFILL_UNIVERSE_MIN_CAP_EOK, QUARTERLY_BACKFILL_PIT_FROM, QUARTERLY_BACKFILL_CONCURRENCY, QUARTERLY_BACKFILL_MIN_REQUEST_GAP_MS,
   QUARTERLY_BACKFILL_MAX_RETRIES, QUARTERLY_BACKFILL_RETRY_BASE_MS, QUARTERLY_BACKFILL_UPSERT_BATCH, QUARTERLY_BACKFILL_DB_IN_CHUNK,
-  QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES, QUARTERLY_BACKFILL_FY_FROM, QUARTERLY_BACKFILL_FY_TO, QUARTERLY_REPORTS,
+  QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3, QUARTERLY_BACKFILL_FY_FROM, QUARTERLY_BACKFILL_FY_TO, QUARTERLY_REPORTS,
   QUARTERLY_BACKFILL_FILING_LAG_DAYS, QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2, QUARTERLY_BACKFILL_PROGRESS_EVERY_REQUESTS,
-  QUARTERLY_ACCOUNT_PREFIX_RE, QUARTERLY_KEY_PRIMARY_ENV, QUARTERLY_KEY_SECONDARY_ENV, KEY1_FALLBACK_CAP, QUARTERLY_KEY_CHECK, QUARTERLY_ROW_VERSION_PREFIX,
+  QUARTERLY_ACCOUNT_PREFIX_RE, QUARTERLY_KEY_PRIMARY_ENV, QUARTERLY_KEY_SECONDARY_ENV, QUARTERLY_KEY_CHECK, QUARTERLY_ROW_VERSION_PREFIX,
 } from "@/lib/dartQuarterlyBackfillConfig";
 import { DartKeyPool } from "./dartKeyPool";
 
@@ -123,8 +123,8 @@ type Outcome = { kind: "ok" | "no_data_013" | "error"; row: QRow } | { kind: "tr
 async function main(): Promise<void> {
   const keyPrimary = process.env[QUARTERLY_KEY_PRIMARY_ENV], keySecondary = process.env[QUARTERLY_KEY_SECONDARY_ENV];
   if (!keyPrimary || !keySecondary) throw new Error(`환경변수 ${QUARTERLY_KEY_PRIMARY_ENV}, ${QUARTERLY_KEY_SECONDARY_ENV}가 필요합니다.`);
-  pool = new DartKeyPool([{ name: QUARTERLY_KEY_PRIMARY_ENV, value: keyPrimary }, { name: QUARTERLY_KEY_SECONDARY_ENV, value: keySecondary, cap: KEY1_FALLBACK_CAP }], QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2);
-  console.log(`DART 분기 실적 백필 2회차 시작: ${new Date().toISOString()} (키: 1순위 ${QUARTERLY_KEY_PRIMARY_ENV}, 2순위 ${QUARTERLY_KEY_SECONDARY_ENV} 상한 ${KEY1_FALLBACK_CAP}, 전체 상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2})`);
+  pool = new DartKeyPool([{ name: QUARTERLY_KEY_PRIMARY_ENV, value: keyPrimary }, { name: QUARTERLY_KEY_SECONDARY_ENV, value: keySecondary }], QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2);
+  console.log(`DART 분기 실적 백필 3회차 시작: ${new Date().toISOString()} (키: 1순위 ${QUARTERLY_KEY_PRIMARY_ENV}, 2순위 ${QUARTERLY_KEY_SECONDARY_ENV}, 운영 키 DART_API_KEY 사용 안 함, 전체 상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2})`);
 
   // ---- 시작 시 1순위 키 확인(list.json 1건) ----
   const chk = await dartJson((k) => `${DART_BASE_URL}/list.json?crtfc_key=${k}&corp_code=${QUARTERLY_KEY_CHECK.corpCode}&bgn_de=${QUARTERLY_KEY_CHECK.bgn}&end_de=${QUARTERLY_KEY_CHECK.end}&page_no=1&page_count=1`);
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
       dbWritten.rows += batch.length;
     }
   }
-  const deadline = T0 + QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES * 60_000;
+  const deadline = T0 + QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3 * 60_000;
   let stopReason: string | null = null;
   let cursor = 0, doneKeys = 0, transientSkips = 0, nextLog = QUARTERLY_BACKFILL_PROGRESS_EVERY_REQUESTS;
   const p1 = { done: 0, parent: 0, profitloss: 0, stillNull: 0, noAcnt: 0, emptyAmt: 0, notOk: 0, transient: 0 };
@@ -261,7 +261,7 @@ async function main(): Promise<void> {
   async function worker(): Promise<void> {
     while (!stopReason) {
       if (pool.stopReason) { stopReason = pool.stopReason; break; }
-      if (Date.now() > deadline) { stopReason = `소프트 데드라인 ${QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES}분 도달`; break; }
+      if (Date.now() > deadline) { stopReason = `소프트 데드라인 ${QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3}분 도달`; break; }
       const i = cursor++;
       if (i >= queue.length) break;
       await processItem(queue[i]);
@@ -295,6 +295,8 @@ async function report(items: Item[], targets: Meta[], run: { phase1N: number; p1
   console.log(`| 합계 | ${pool.total} (상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2}) | - |`);
   console.log(`1순위→2순위 전환: ${pool.switchedAt ? `발생 ${pool.switchedAt} (전체 요청 ${pool.switchedAtRequest}번째 부근)` : "발생 안 함"}`);
   console.log(`중단 사유: ${run.stopReason ?? "이번 실행 대상 키 전부 처리"}`);
+  const minutes = (Date.now() - T0) / 60000;
+  console.log(`소요 ${minutes.toFixed(1)}분 | 분당 처리 키 ${(run.doneKeys / minutes).toFixed(1)} | 분당 DART 요청 ${(pool.total / minutes).toFixed(1)}`);
 
   console.log("\n=== 2. 재요청 행(ok & ni_parent_q null) 결과 ===");
   console.log("| 항목 | 값 |\n|---|---|");
@@ -359,6 +361,23 @@ async function report(items: Item[], targets: Meta[], run: { phase1N: number; p1
     if (!d.length && !a.length) continue;
     const dok = d.filter((r) => r.status === "ok").length, aok = a.filter((r) => r.status === "ok").length;
     console.log(`| ${fy} | ${d.length} | ${dok} | ${pct(dok, d.length)} | ${a.length} | ${aok} | ${pct(aok, a.length)} |`);
+  }
+
+  console.log("\n=== 5. 전략 설계용 집계 ===");
+  console.log("| FY | (a) ni_parent_q·prev_q 둘 다 있는 ok 행 | (a) 종목 수 | (b) op_income_q·prev_q 둘 다 있는 ok 행 | (b) 종목 수 |\n|---|---|---|---|---|");
+  for (const fy of fys) {
+    const okFy = rows.filter((r) => r.fiscal_year === fy && r.status === "ok");
+    if (!okFy.length) continue;
+    const a = okFy.filter((r) => r.ni_parent_q !== null && r.ni_parent_prev_q !== null);
+    const b = okFy.filter((r) => r.op_income_q !== null && r.op_income_prev_q !== null);
+    console.log(`| ${fy} | ${a.length} | ${new Set(a.map((r) => r.corp_code)).size} | ${b.length} | ${new Set(b.map((r) => r.corp_code)).size} |`);
+  }
+  const qtile = (v: number[], p: number): number => { const s = [...v].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : NaN; };
+  console.log("\n분기별 접수일 = 분기말 + 며칠 (ok 행, rcept_date 있는 행; 전 연도 합산)");
+  console.log("| 분기 | 행 수 | 최소 | 중앙값 | 90분위 | 최대 |\n|---|---|---|---|---|---|");
+  for (const q of QUARTERLY_REPORTS) {
+    const lags = rows.filter((r) => r.status === "ok" && r.quarter === q.quarter && r.rcept_date).map((r) => (Date.parse(r.rcept_date!) - Date.parse(`${r.fiscal_year}-${q.qEndMmdd}`)) / MS_DAY);
+    console.log(`| ${q.quarter} | ${lags.length} | ${Math.min(...lags)} | ${qtile(lags, 0.5)} | ${qtile(lags, 0.9)} | ${Math.max(...lags)} |`);
   }
 
   console.log("\n=== 6. 실행 지표 ===");

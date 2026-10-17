@@ -52,3 +52,21 @@ export const QUARTERLY_ROW_VERSION_PREFIX = "v2;";
 
 /** 3회차: 운영 키(DART_API_KEY)는 풀에 넣지 않는다(상한 0건). 소프트 데드라인은 300분. */
 export const QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3 = 300;
+
+/** 분기 XBRL 백필(scripts/backfill-dart-quarterly-xbrl.ts, research/quarterly-tilt-holdout-prereg.md 5df8ab2). */
+export const QUARTERLY_XBRL_FY_FROM = 2011;
+export const QUARTERLY_XBRL_FY_TO = 2015;
+/** 검증 전용(저장하지 않음). */
+export const QUARTERLY_XBRL_VERIFY_FY = 2016;
+export const QUARTERLY_XBRL_LIST_FROM = "20110401";
+export const QUARTERLY_XBRL_LIST_TO = "20161231";
+export const QUARTERLY_XBRL_LIST_PAGE_COUNT = 100;
+/** 3개월 컨텍스트로 인정하는 시작~끝 일수 범위. */
+export const QUARTERLY_XBRL_DURATION_MIN_DAYS = 80;
+export const QUARTERLY_XBRL_DURATION_MAX_DAYS = 100;
+export const QUARTERLY_XBRL_VERIFY_SEED = 20261018;
+export const QUARTERLY_XBRL_VERIFY_SAMPLE = 30;
+export const QUARTERLY_XBRL_VERIFY_MAX_MISMATCH = 0.05;
+export const QUARTERLY_XBRL_VERIFY_TOLERANCE_WON = 1;
+export const QUARTERLY_XBRL_VERIFY_MAX_CASES = 10;
+export const QUARTERLY_XBRL_HOLDOUT_PREREG_COMMIT = "5df8ab2";

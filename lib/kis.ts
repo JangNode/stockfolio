@@ -664,6 +664,40 @@ export async function getDailyPrices(
   return prices;
 }
 
+/**
+ * 연구용(읽기 전용 점검): 기간별 시세 한 페이지를 구간·수정주가 옵션을 지정해 원본 그대로
+ * 돌려준다. output1/output2의 필드를 가공하지 않으며 getDailyPrices와 같은 인증·호출 통로를 쓴다.
+ * adjOption은 FID_ORG_ADJ_PRC 값("0"=수정주가 반영, "1"=원주가).
+ */
+export async function getDailyPricesRangeForResearch(
+  stockCode: string,
+  startYyyymmdd: string,
+  endYyyymmdd: string,
+  adjOption: "0" | "1"
+): Promise<{ output1: unknown; output2: Record<string, string>[] }> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+  const url = new URL(
+    "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+    KIS_BASE_URL
+  );
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
+  url.searchParams.set("FID_INPUT_ISCD", stockCode);
+  url.searchParams.set("FID_INPUT_DATE_1", startYyyymmdd);
+  url.searchParams.set("FID_INPUT_DATE_2", endYyyymmdd);
+  url.searchParams.set("FID_PERIOD_DIV_CODE", "D");
+  url.searchParams.set("FID_ORG_ADJ_PRC", adjOption);
+  const data = (await kisFetch(
+    url,
+    TR_ID_INQUIRE_DAILY_CHART_PRICE,
+    accessToken,
+    appKey,
+    appSecret,
+    "batch"
+  )) as unknown as { output1: unknown; output2: Record<string, string>[] };
+  return { output1: data.output1, output2: data.output2 ?? [] };
+}
+
 export interface IntradayBar {
   time: number; // unix seconds. 한국 벽시계 시각을 그대로 UTC 초로 표현한다.
   open: number;

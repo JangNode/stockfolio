@@ -28,3 +28,8 @@ export const ETF_JUMP_REPORT_PCT = 10;
 /** 연도별 수익률 비교 구간(069500 vs KOSPI). */
 export const ETF_YEARLY_FROM = 2009;
 export const ETF_YEARLY_TO = 2026;
+
+/** 레버리지 ETF 추가 수집(scripts/collect-kis-etf-leverage.ts): 대상 코드, 요청 상한(사용자 확정 120건), |r| 목록 보고 기준(15%). */
+export const ETF_LEVERAGE_CODE = "122630";
+export const ETF_LEVERAGE_REQUEST_CAP = 120;
+export const ETF_LEVERAGE_BIG_MOVE_REPORT_PCT = 15;

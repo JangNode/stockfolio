@@ -69,15 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 122630 레버리지 ETF 일봉 수집 (KIS 120건 이하, 새 행만 추가)
+      - name: 목표별 3계열 자산 배분 (read-only, 외부 요청 0, 사전등록 8c1b38fe 이후)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-kis-etf-leverage.ts
+        run: npx tsx --conditions=react-server scripts/research-allocation-goals.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

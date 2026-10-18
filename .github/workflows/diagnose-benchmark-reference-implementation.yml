@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 90
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -69,15 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 분기 XBRL 백필 FY2011~2015 (dart_quarterly_fundamentals, 키 3→2, 운영 키 미사용, 실행당 18,000건 이하)
+      - name: Q3 홀드아웃 판정 T98 (read-only, 외부 요청 없음)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/backfill-dart-quarterly-xbrl.ts
+        run: npx tsx --conditions=react-server scripts/research-q3-holdout.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
-          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

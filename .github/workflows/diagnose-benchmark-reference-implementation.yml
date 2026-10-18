@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KRX 자산 배분용 데이터(ETF·채권지수·금시장) 확보 가능성 점검 (read-only, KRX 40건 이하)
+      - name: KRX 승인 후 재점검 ETF·채권지수·금·석유 (read-only, KRX 50건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/probe-krx-assets.ts
+        run: npx tsx --conditions=react-server scripts/probe-krx-assets2.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

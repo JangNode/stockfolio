@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 90
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -69,15 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 자사주 취득 공시 이벤트 수집 (dart_buyback_events, DART 4,000건 이하)
+      - name: 자사주 공시 이벤트 전략 4변형 T99~102 (read-only, 외부 요청 없음)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-dart-buyback-events.ts
+        run: npx tsx --conditions=react-server scripts/research-buyback-event.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
-          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

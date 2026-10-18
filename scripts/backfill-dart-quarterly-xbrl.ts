@@ -12,7 +12,7 @@ import type { Filing } from "@/lib/dartXbrlExtract";
 import {
   QUARTERLY_BACKFILL_UNIVERSE_MIN_CAP_EOK, QUARTERLY_BACKFILL_PIT_FROM, QUARTERLY_BACKFILL_CONCURRENCY, QUARTERLY_BACKFILL_MIN_REQUEST_GAP_MS,
   QUARTERLY_BACKFILL_MAX_RETRIES, QUARTERLY_BACKFILL_RETRY_BASE_MS, QUARTERLY_BACKFILL_UPSERT_BATCH, QUARTERLY_BACKFILL_DB_IN_CHUNK,
-  QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3, QUARTERLY_REPORTS, QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2, QUARTERLY_BACKFILL_PROGRESS_EVERY_REQUESTS,
+  QUARTERLY_BACKFILL_SOFT_DEADLINE_MINUTES_V3, QUARTERLY_REPORTS, QUARTERLY_XBRL_RUN2_REQUEST_CAP, QUARTERLY_BACKFILL_PROGRESS_EVERY_REQUESTS,
   QUARTERLY_KEY_PRIMARY_ENV, QUARTERLY_KEY_SECONDARY_ENV, QUARTERLY_KEY_CHECK,
   QUARTERLY_XBRL_FY_FROM, QUARTERLY_XBRL_FY_TO, QUARTERLY_XBRL_VERIFY_FY, QUARTERLY_XBRL_LIST_FROM, QUARTERLY_XBRL_LIST_TO, QUARTERLY_XBRL_LIST_PAGE_COUNT,
   QUARTERLY_XBRL_VERIFY_SEED, QUARTERLY_XBRL_VERIFY_SAMPLE, QUARTERLY_XBRL_VERIFY_MAX_MISMATCH, QUARTERLY_XBRL_VERIFY_TOLERANCE_WON, QUARTERLY_XBRL_VERIFY_MAX_CASES,
@@ -137,8 +137,8 @@ function mulberry32(seed: number): () => number {
 async function main(): Promise<void> {
   const keyPrimary = process.env[QUARTERLY_KEY_PRIMARY_ENV], keySecondary = process.env[QUARTERLY_KEY_SECONDARY_ENV];
   if (!keyPrimary || !keySecondary) throw new Error(`환경변수 ${QUARTERLY_KEY_PRIMARY_ENV}, ${QUARTERLY_KEY_SECONDARY_ENV}가 필요합니다.`);
-  pool = new DartKeyPool([{ name: QUARTERLY_KEY_PRIMARY_ENV, value: keyPrimary }, { name: QUARTERLY_KEY_SECONDARY_ENV, value: keySecondary }], QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2);
-  console.log(`분기 XBRL 백필(FY${QUARTERLY_XBRL_FY_FROM}~${QUARTERLY_XBRL_FY_TO}) 시작: ${new Date().toISOString()} | 사전등록 ${QUARTERLY_XBRL_HOLDOUT_PREREG_COMMIT} | 키: 1순위 ${QUARTERLY_KEY_PRIMARY_ENV}, 2순위 ${QUARTERLY_KEY_SECONDARY_ENV}, 운영 키 DART_API_KEY 사용 안 함 | 전체 상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2}`);
+  pool = new DartKeyPool([{ name: QUARTERLY_KEY_PRIMARY_ENV, value: keyPrimary }, { name: QUARTERLY_KEY_SECONDARY_ENV, value: keySecondary }], QUARTERLY_XBRL_RUN2_REQUEST_CAP);
+  console.log(`분기 XBRL 백필(FY${QUARTERLY_XBRL_FY_FROM}~${QUARTERLY_XBRL_FY_TO}) 시작: ${new Date().toISOString()} | 사전등록 ${QUARTERLY_XBRL_HOLDOUT_PREREG_COMMIT} | 키: 1순위 ${QUARTERLY_KEY_PRIMARY_ENV}, 2순위 ${QUARTERLY_KEY_SECONDARY_ENV}, 운영 키 DART_API_KEY 사용 안 함 | 전체 상한 ${QUARTERLY_XBRL_RUN2_REQUEST_CAP}`);
   const chk = await dartRaw((k) => `${DART_BASE_URL}/list.json?crtfc_key=${k}&corp_code=${QUARTERLY_KEY_CHECK.corpCode}&bgn_de=${QUARTERLY_KEY_CHECK.bgn}&end_de=${QUARTERLY_KEY_CHECK.end}&page_no=1&page_count=1`);
   let chkStatus = "응답 없음";
   try { chkStatus = chk ? (JSON.parse(chk.toString("utf-8")) as { status?: string }).status ?? "?" : "응답 없음"; } catch { chkStatus = "파싱 실패"; }
@@ -269,7 +269,7 @@ async function main(): Promise<void> {
     }
   }
   const pendingKeys = queue.reduce((a, w) => a + w.qs.length, 0);
-  console.log(`전체 키 ${totalKeys}건, 이번에 시도할 키 ${pendingKeys}건 (${queue.length}개 종목-연도), 요청 수 상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2}`);
+  console.log(`전체 키 ${totalKeys}건, 이번에 시도할 키 ${pendingKeys}건 (${queue.length}개 종목-연도), 요청 수 상한 ${QUARTERLY_XBRL_RUN2_REQUEST_CAP}`);
 
   const buffer: QRow[] = [];
   async function flush(force: boolean): Promise<void> {
@@ -327,7 +327,7 @@ async function report(targets: Meta[], totalKeys: number, run: { doneKeys: numbe
   console.log("\n=== 2. 키·요청·중단 ===");
   console.log("| 키 이름 | 요청 수 | status 020 수신 |\n|---|---|---|");
   for (const [n, v] of pool.used) console.log(`| ${n} | ${v} | ${pool.got020.get(n) ?? 0} |`);
-  console.log(`| 합계 | ${pool.total} (상한 ${QUARTERLY_BACKFILL_RUN_REQUEST_CAP_V2}) | - |`);
+  console.log(`| 합계 | ${pool.total} (상한 ${QUARTERLY_XBRL_RUN2_REQUEST_CAP}) | - |`);
   console.log(`키 전환: ${pool.switchedAt ? `발생 ${pool.switchedAt} (전체 요청 ${pool.switchedAtRequest}번째 부근)` : "발생 안 함"} | 중단 사유: ${run.stopReason ?? "이번 실행 대상 키 전부 처리"} | 소요 ${minutes.toFixed(1)}분 (분당 저장 키 ${(run.doneKeys / minutes).toFixed(1)}, 분당 요청 ${(pool.total / minutes).toFixed(1)})`);
 
   console.log("\n=== 3. 진행 ===");
@@ -336,7 +336,9 @@ async function report(targets: Meta[], totalKeys: number, run: { doneKeys: numbe
   console.log(`| 일시 오류로 저장 안 한 키 | ${run.transientKeys} |`);
   console.log(`| 요청 수 / 저장 키 (list.json 포함) | ${reqPerKey.toFixed(3)} |`);
   console.log(`| 누적 진행률(저장된 키, error 제외) | ${savedFinal} / ${totalKeys} (${pct(savedFinal, totalKeys)}) |`);
-  console.log(`| 남은 키 | ${remainKeys} |`);
+  console.log(`| 남은 키(error 포함) | ${remainKeys} |`);
+  console.log(`| 남은 키(error 제외, 미저장) | ${totalKeys - rows.length} |`);
+  console.log(`| error 행 | ${rows.filter((r) => r.status === "error").length} |`);
   console.log(`| 남은 요청 추정 | ${Math.round(remainKeys * reqPerKey)} (이번 실행 평균 기준) |`);
 
   const fys: number[] = [];

@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KIS ETF 일별 시세 이력 확인 (read-only, KIS 40건 이하)
+      - name: KIS ETF 일봉 수집 (새 표 etf_daily_prices, KIS 500건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/probe-kis-etf.ts
+        run: npx tsx --conditions=react-server scripts/collect-kis-etf-daily.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

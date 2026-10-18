@@ -69,13 +69,15 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Q3 홀드아웃 판정 T98 (read-only, 외부 요청 없음)
+      - name: DART 이벤트 공시 확보 가능성 점검 (read-only, DART 60건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-q3-holdout.ts
+        run: npx tsx --conditions=react-server scripts/probe-dart-events.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

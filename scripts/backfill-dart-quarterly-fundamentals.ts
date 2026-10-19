@@ -159,7 +159,7 @@ async function main(): Promise<void> {
   const corpMap = new Map<string, { corp_code: string; corp_name: string }>();
   for (let i = 0; i < entryCodes.length; i += QUARTERLY_BACKFILL_DB_IN_CHUNK) {
     const chunk = entryCodes.slice(i, i + QUARTERLY_BACKFILL_DB_IN_CHUNK);
-    const rows = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).range(f, t));
+    const rows = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).order("corp_code").range(f, t));
     for (const r of rows) if (r.stock_code && !corpMap.has(r.stock_code)) corpMap.set(r.stock_code, { corp_code: r.corp_code, corp_name: r.corp_name });
   }
   const targets: Meta[] = entryCodes.filter((c) => corpMap.has(c)).map((c) => {

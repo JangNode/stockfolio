@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     if (!fyBy.has(r.stock_code)) fyBy.set(r.stock_code, new Map());
     fyBy.get(r.stock_code)!.set(r.fiscal_year, { ni: r.net_income_parent === null ? null : Number(r.net_income_parent), fs: r.fs_div, rcept: r.rcept_date });
   }
-  const corps = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").not("stock_code", "is", null).range(f, t));
+  const corps = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").not("stock_code", "is", null).order("corp_code").range(f, t));
   const corpBy = new Map<string, { corp: string; name: string }>();
   for (const c of corps) if (c.stock_code && !corpBy.has(c.stock_code)) corpBy.set(c.stock_code, { corp: c.corp_code, name: c.corp_name });
   let globalLast = "";

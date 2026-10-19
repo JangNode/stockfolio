@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     const corps = [...new Set([...ctx.corpMap.values()].map((c) => c.corp))];
     for (let i = 0; i < corps.length; i += 100) {
       const chunk = corps.slice(i, i + 100);
-      const rs = await selectAll<{ stock_code: string; fiscal_year: number; status: string; rcept_date: string | null; net_income_parent: number | null; fs_div: string | null }>(ctx.dbRead, label, (f, t) => supabaseAdmin.from(FILL_TABLE).select("stock_code, fiscal_year, status, rcept_date, net_income_parent, fs_div").in("corp_code", chunk).range(f, t));
+      const rs = await selectAll<{ stock_code: string; fiscal_year: number; status: string; rcept_date: string | null; net_income_parent: number | null; fs_div: string | null }>(ctx.dbRead, label, (f, t) => supabaseAdmin.from(FILL_TABLE).select("stock_code, fiscal_year, status, rcept_date, net_income_parent, fs_div").in("corp_code", chunk).order("stock_code").order("fiscal_year").range(f, t));
       for (const r of rs) {
         const m = fillStatus.get(r.stock_code) ?? new Map();
         m.set(r.fiscal_year, r.status); fillStatus.set(r.stock_code, m);
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   const valCodes = sh.slice(0, VALIDATE_N);
   const exist2020 = new Map<string, { ni: number | null; eq: number | null; fs: string; rcept: string }>();
   for (let i = 0; i < valCodes.length; i += 100) {
-    const rs = await selectAll<{ stock_code: string; net_income_parent: number | null; equity_parent: number | null; fs_div: string; rcept_no: string }>(ctx.dbRead, "stock_annual_fundamentals(사전 검증)", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, net_income_parent, equity_parent, fs_div, rcept_no").eq("fiscal_year", VALIDATE_FY).in("stock_code", valCodes.slice(i, i + 100)).range(f, t));
+    const rs = await selectAll<{ stock_code: string; net_income_parent: number | null; equity_parent: number | null; fs_div: string; rcept_no: string }>(ctx.dbRead, "stock_annual_fundamentals(사전 검증)", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, net_income_parent, equity_parent, fs_div, rcept_no").eq("fiscal_year", VALIDATE_FY).in("stock_code", valCodes.slice(i, i + 100)).order("stock_code").range(f, t));
     for (const r of rs) exist2020.set(r.stock_code, { ni: r.net_income_parent === null ? null : Number(r.net_income_parent), eq: r.equity_parent === null ? null : Number(r.equity_parent), fs: r.fs_div, rcept: r.rcept_no });
   }
   console.log(`\n=== 사전 검증: 기존 표 FY${VALIDATE_FY} 보유 종목 중 무작위 ${valCodes.length}개(시드 ${SEED}) 재조회 vs 기존 표 (저장 안 함) ===`);

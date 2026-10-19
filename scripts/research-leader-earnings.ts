@@ -290,7 +290,7 @@ async function main(): Promise<void> {
   const nameOf = new Map<string, string>();
   for (let i = 0; i < allMissing.length; i += 200) {
     const chunk = allMissing.slice(i, i + 200);
-    const rs = await selectAll<{ stock_code: string | null; corp_name: string }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("stock_code, corp_name").in("stock_code", chunk).range(f, t));
+    const rs = await selectAll<{ stock_code: string | null; corp_name: string }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("stock_code, corp_name").in("stock_code", chunk).order("corp_code").range(f, t));
     for (const r of rs) if (r.stock_code && !nameOf.has(r.stock_code)) nameOf.set(r.stock_code, r.corp_name);
   }
   console.log("\n=== (g) 이익 확인 단계 '재무 행 없음' 탈락 (후보 평가 건수 대비, 연도별) ===");

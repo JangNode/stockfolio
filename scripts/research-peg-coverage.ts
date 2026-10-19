@@ -77,13 +77,13 @@ async function main(): Promise<void> {
   const corpMap = new Map<string, { corp: string; name: string }>();
   for (let i = 0; i < codes.length; i += XBRL_BACKFILL_DB_IN_CHUNK) {
     const chunk = codes.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK);
-    const rs = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).range(f, t));
+    const rs = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).order("corp_code").range(f, t));
     for (const r of rs) if (r.stock_code && !corpMap.has(r.stock_code)) corpMap.set(r.stock_code, { corp: r.corp_code, name: r.corp_name });
   }
   const stockRows = new Map<string, Ann[]>();
   for (let i = 0; i < codes.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
     const chunk = codes.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK / 2);
-    const rs = await selectAll<{ stock_code: string; fiscal_year: number; rcept_date: string; net_income_parent: number | null; fs_div: string }>("stock_annual_fundamentals", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, fiscal_year, rcept_date, net_income_parent, fs_div").in("stock_code", chunk).range(f, t));
+    const rs = await selectAll<{ stock_code: string; fiscal_year: number; rcept_date: string; net_income_parent: number | null; fs_div: string }>("stock_annual_fundamentals", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, fiscal_year, rcept_date, net_income_parent, fs_div").in("stock_code", chunk).order("stock_code").order("fiscal_year").range(f, t));
     for (const r of rs) stockRows.set(r.stock_code, [...(stockRows.get(r.stock_code) ?? []), { fy: r.fiscal_year, rcept: r.rcept_date, ni: r.net_income_parent === null ? null : Number(r.net_income_parent), fsDiv: r.fs_div, src: "stock" }]);
   }
   const xbrlAnn = new Map<string, Ann[]>();
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   const corpCodes = codes.filter((c) => corpMap.has(c)).map((c) => corpMap.get(c)!.corp);
   for (let i = 0; i < corpCodes.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
     const chunk = corpCodes.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK / 2);
-    const rs = await selectAll<{ stock_code: string; fiscal_year: number; rcept_dt: string | null; ni_parent: number | null; ni_basis: string | null; status: string }>("dart_xbrl_fundamentals", (f, t) => supabaseAdmin.from("dart_xbrl_fundamentals").select("stock_code, fiscal_year, rcept_dt, ni_parent, ni_basis, status").in("corp_code", chunk).range(f, t));
+    const rs = await selectAll<{ stock_code: string; fiscal_year: number; rcept_dt: string | null; ni_parent: number | null; ni_basis: string | null; status: string }>("dart_xbrl_fundamentals", (f, t) => supabaseAdmin.from("dart_xbrl_fundamentals").select("stock_code, fiscal_year, rcept_dt, ni_parent, ni_basis, status").in("corp_code", chunk).order("corp_code").order("fiscal_year").order("source").range(f, t));
     for (const r of rs) {
       xbrlKeys.set(r.stock_code, (xbrlKeys.get(r.stock_code) ?? 0) + 1);
       if (r.status === "no_report") { const s = xbrlNoReport.get(r.stock_code) ?? new Set(); s.add(r.fiscal_year); xbrlNoReport.set(r.stock_code, s); }

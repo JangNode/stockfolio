@@ -126,7 +126,7 @@ async function main(): Promise<void> {
   const corpMap = new Map<string, { corp_code: string; corp_name: string }>();
   for (let i = 0; i < entryCodes.length; i += XBRL_BACKFILL_DB_IN_CHUNK) {
     const chunk = entryCodes.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK);
-    const rows = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).range(f, t));
+    const rows = await selectAll<{ corp_code: string; corp_name: string; stock_code: string | null }>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).order("corp_code").range(f, t));
     for (const r of rows) if (r.stock_code && !corpMap.has(r.stock_code)) corpMap.set(r.stock_code, { corp_code: r.corp_code, corp_name: r.corp_name });
   }
   const targets: Meta[] = entryCodes.filter((c) => corpMap.has(c)).map((c) => ({ code: c, corp: corpMap.get(c)!.corp_code, name: corpMap.get(c)!.corp_name, fin: FIN_NAME_RE.test(corpMap.get(c)!.corp_name), entryYear: entry.get(c)! }));
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
   const existing = new Map<string, Map<number, { fs_div: string; ni: number | null }>>();
   for (let i = 0; i < targets.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
     const chunk = targets.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK / 2).map((t) => t.code);
-    const rows = await selectAll<{ stock_code: string; fiscal_year: number; fs_div: string; net_income_parent: number | null }>("stock_annual_fundamentals", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, fiscal_year, fs_div, net_income_parent").in("stock_code", chunk).gte("fiscal_year", 2015).range(f, t));
+    const rows = await selectAll<{ stock_code: string; fiscal_year: number; fs_div: string; net_income_parent: number | null }>("stock_annual_fundamentals", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, fiscal_year, fs_div, net_income_parent").in("stock_code", chunk).gte("fiscal_year", 2015).order("stock_code").order("fiscal_year").range(f, t));
     for (const r of rows) {
       const m = existing.get(r.stock_code) ?? new Map();
       m.set(r.fiscal_year, { fs_div: r.fs_div, ni: r.net_income_parent === null ? null : Number(r.net_income_parent) });
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
   const stored = new Set<string>();
   for (let i = 0; i < targets.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
     const chunk = targets.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK / 2).map((t) => t.corp);
-    const rows = await selectAll<{ corp_code: string; fiscal_year: number; source: string }>(TABLE + "(스킵 확인)", (f, t) => supabaseAdmin.from(TABLE).select("corp_code, fiscal_year, source").in("corp_code", chunk).range(f, t));
+    const rows = await selectAll<{ corp_code: string; fiscal_year: number; source: string }>(TABLE + "(스킵 확인)", (f, t) => supabaseAdmin.from(TABLE).select("corp_code, fiscal_year, source").in("corp_code", chunk).order("corp_code").order("fiscal_year").order("source").range(f, t));
     for (const r of rows) stored.add(`${r.corp_code}|${r.fiscal_year}|${r.source}`);
   }
   console.log(`이미 저장된 (corp_code, fiscal_year, source) ${stored.size}건`);
@@ -249,7 +249,7 @@ async function report(targets: Meta[], existing: Map<string, Map<number, { fs_di
   const rows: XbrlRow[] = [];
   for (let i = 0; i < targets.length; i += XBRL_BACKFILL_DB_IN_CHUNK / 2) {
     const chunk = targets.slice(i, i + XBRL_BACKFILL_DB_IN_CHUNK / 2).map((t) => t.corp);
-    rows.push(...(await selectAll<XbrlRow>(TABLE + "(결과 집계)", (f, t) => supabaseAdmin.from(TABLE).select("*").in("corp_code", chunk).range(f, t))));
+    rows.push(...(await selectAll<XbrlRow>(TABLE + "(결과 집계)", (f, t) => supabaseAdmin.from(TABLE).select("*").in("corp_code", chunk).order("corp_code").order("fiscal_year").order("source").range(f, t))));
   }
   const meta = new Map(targets.map((t) => [t.corp, t]));
   const byCorpEarly = new Map<string, XbrlRow[]>();

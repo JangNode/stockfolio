@@ -38,3 +38,5 @@ export const INVESTOR_FLOW_CHECKPOINT_STOCKS = 10;
 export const INVESTOR_FLOW_CHECKPOINT_MS = 20 * 60e3;
 /** 오류 응답 뒤 같은 요청을 다시 보내기 전 대기. */
 export const INVESTOR_FLOW_ERROR_RETRY_MS = 2_000;
+/** 주가 거래일과 대조해 정리한 사본의 저장 경로(원본 research/investor_flow_stock은 그대로 둔다). */
+export const INVESTOR_FLOW_STOCK_CLEAN_PREFIX = "research/investor_flow_stock_clean";

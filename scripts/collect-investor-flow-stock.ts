@@ -41,6 +41,7 @@ let progress: Progress = { seeded: false, requestsTotal: 0, stocks: {}, runs: []
 let runNewRows = 0, runErrors = 0, runCompleted = 0, consecErrors = 0;
 let stopReason: string | null = null;
 let loaded = false;
+const completedCodes: string[] = [];
 let lastLogReq = 0;
 /** 이번 회차의 KIS 요청 수(재시도 포함 HTTP 시도 전부). */
 const runRequests = (): number => getKisCallStats().total;
@@ -212,18 +213,20 @@ async function main(): Promise<void> {
   console.log(`대상 ${pool.length}종목(상장폐지 ${pool.filter(isDelisted).length}개), Parquet 마지막 날 ${lastDate}`);
 
   const startedDone = pool.filter((c) => progress.stocks[c]?.done).length;
-  console.log(`회차 시작 시 완료 ${startedDone}/${pool.length}`);
+  const remaining = pool.filter((c) => !progress.stocks[c]?.done);
+  console.log(`회차 시작 시 완료 ${startedDone}/${pool.length}; 수집 순서 = 종목코드 오름차순; 남은 ${remaining.length}종목: ${remaining.join(",")} (중간까지 받은 종목: ${remaining.filter((c) => progress.stocks[c]).join(",") || "없음"})`);
   for (const code of pool) {
     if (progress.stocks[code]?.done) continue;
     if (stopCheck()) break;
     const finished = await collectStock(code, isDelisted(code) ? lastRow.get(code)! : INVESTOR_FLOW_TO);
-    if (finished) { runCompleted++; completedSinceCheckpoint++; }
+    if (finished) { runCompleted++; completedSinceCheckpoint++; completedCodes.push(code); }
     if (!finished) break;
     if (completedSinceCheckpoint >= INVESTOR_FLOW_CHECKPOINT_STOCKS || Date.now() - lastCheckpoint >= INVESTOR_FLOW_CHECKPOINT_MS) await checkpoint("주기 저장");
   }
 
   const doneNow = pool.filter((c) => progress.stocks[c]?.done).length;
   const partial = pool.filter((c) => progress.stocks[c] && !progress.stocks[c].done).length;
+  console.log(`이번 회차 완료 종목 ${completedCodes.length}개: ${completedCodes.join(",")}`);
   const stop = stopReason ?? (doneNow === pool.length ? "전 종목 완료" : "알 수 없음");
   progress.runs.push({ startedAt: new Date(T0).toISOString(), requests: runRequests(), completed: runCompleted, newRows: runNewRows, errors: runErrors, stop });
   await checkpoint("회차 종료");

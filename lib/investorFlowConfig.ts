@@ -25,7 +25,7 @@ export const INVESTOR_FLOW_BYTES_PER_STOCK_ROW = 150;
 
 // ---- 2단계 B: 대형주 종목별 수집을 Storage Parquet로 저장(scripts/collect-investor-flow-stock.ts). 사용자 지정(2026-10-19). ----
 /** 외부(KIS) 요청 누적 상한(회차 합산)과 연속 오류 중단 기준. */
-export const INVESTOR_FLOW_STOCK_REQUEST_TOTAL_CAP = 50_000;
+export const INVESTOR_FLOW_STOCK_REQUEST_TOTAL_CAP = 56_000; // 2026-10-19 사용자가 50,000 → 56,000(이어받기 추가분 최대 6,000)으로 상향
 export const INVESTOR_FLOW_CONSEC_ERROR_STOP = 20;
 /** 한 회차 최대 실행 시간(워크플로 상한 5시간보다 짧게: 마지막 저장 여유 15분). */
 export const INVESTOR_FLOW_STOCK_RUN_MAX_MS = 4.75 * 3600e3;

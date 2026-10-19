@@ -31,3 +31,13 @@ export const SCAN_QUARTER_FRESH_DAYS = 150;
 export const SCAN_DIVIDEND_WINDOW_DAYS = 365;
 export const SCAN_BUYBACK_WINDOW_DAYS = 60;
 export const SCAN_DB_CHUNK = 100;
+
+// ---- 스캔 2회차(중소형주, research/signal-scan-smallmid-prereg.md) 사용자 사전등록(2026-10-19) ----
+/** SMALL 유니버스: 직전 행 시총 1,000억 이상 5,000억 미만 + 20일 평균 거래대금 2억 이상 + 원본 종가 1,000원 이상. 상한(5,000억)은 SCAN_CAP_EOK. */
+export const SCAN_SMALL_MIN_MCAP_EOK = 1000;
+export const SCAN_SMALL_MIN_AVG_TV_WON = 200_000_000;
+export const SCAN_SMALL_MIN_PRICE_WON = 1000;
+/** SMALL 비용: 슬리피지만 0.2%(수수료·거래세는 기존 규칙). */
+export const SCAN_SMALL_SLIPPAGE = 0.002;
+/** 폐지 종목 집계: 마지막 행이 학습 구간 끝 − 이 일수 이전이면 폐지로 센다. */
+export const SCAN_ENDED_GRACE_DAYS = 14;

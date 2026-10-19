@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 대형주 외국인 수급 틸트 K1~K3 (읽기 전용, 외부 요청 0건)
+      - name: 신호 스캔 (학습 구간만, 읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-foreign-flow-tilt.ts
+        run: npx tsx --conditions=react-server scripts/research-signal-scan.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

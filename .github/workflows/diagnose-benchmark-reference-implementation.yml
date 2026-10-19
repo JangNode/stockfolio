@@ -69,13 +69,14 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 목표별 3계열 자산 배분 (read-only, 외부 요청 0, 사전등록 8c1b38fe 이후)
+      - name: KRX 채권 총수익지수로 국고채 ETF 검증 (read-only, KRX 250건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-allocation-goals.ts
+        run: npx tsx --conditions=react-server scripts/probe-krx-bond-tr.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

@@ -69,16 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 공매도·신용잔고 데이터 조사 (외부 요청 60건 이하, 백테스트 없음)
+      - name: 소형주 저변동성·영업이익 M1~M3 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/probe-short-credit.ts
+        run: npx tsx --conditions=react-server scripts/research-smallcap-lowvol.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

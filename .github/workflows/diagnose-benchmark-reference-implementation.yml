@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 10/19 주간 배치 후 peg_lynch 화면 수치 확인 (read-only, 외부 요청 0, DB 쓰기 0)
+      - name: 변동성 목표화 V1·V2 (read-only, 외부 요청 0, 사전등록 a7b24da5 이후)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/check-peg-screen.ts
+        run: npx tsx --conditions=react-server scripts/research-vol-target.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

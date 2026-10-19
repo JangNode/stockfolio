@@ -69,15 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 투자자별 수급 1단계 수집 (KIS 900건 이하, 새 표 2개, 백테스트 없음)
+      - name: 시장 수급 전략 F1·F2 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-investor-flow.ts
+        run: npx tsx --conditions=react-server scripts/research-flow-timing.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

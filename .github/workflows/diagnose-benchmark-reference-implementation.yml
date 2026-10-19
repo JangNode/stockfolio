@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 종목별 투자자 수급 정리본 생성 (주가 거래일 대조, Storage 저장, 외부 요청 0건)
+      - name: 대형주 외국인 수급 틸트 K1~K3 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/clean-investor-flow-stock.ts
+        run: npx tsx --conditions=react-server scripts/research-foreign-flow-tilt.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

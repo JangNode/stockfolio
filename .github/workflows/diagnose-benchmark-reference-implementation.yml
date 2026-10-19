@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KRX 채권 총수익지수로 국고채 ETF 검증 (read-only, KRX 250건 이하)
+      - name: ETF vs 기초지수 월 수익률 비교 (read-only, KRX 200건 이하)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/probe-krx-bond-tr.ts
+        run: npx tsx --conditions=react-server scripts/probe-krx-etf-index.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

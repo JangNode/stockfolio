@@ -698,6 +698,23 @@ export async function getDailyPricesRangeForResearch(
   return { output1: data.output1, output2: data.output2 ?? [] };
 }
 
+/**
+ * 연구용(읽기 전용 점검): 임의의 국내주식 조회 TR을 같은 인증·호출 통로(kisFetch)로 한 번 호출해 응답 본문을 가공 없이 돌려준다.
+ * rt_cd가 0이 아니면 kisFetch가 msg1을 담은 오류를 던진다.
+ */
+export async function kisGetForResearch(
+  path: string,
+  trId: string,
+  params: Record<string, string>
+): Promise<Record<string, unknown>> {
+  const { appKey, appSecret } = getCredentials();
+  const accessToken = await getAccessToken();
+  const url = new URL(path, KIS_BASE_URL);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const data = await kisFetch(url, trId, accessToken, appKey, appSecret, "batch");
+  return data as unknown as Record<string, unknown>;
+}
+
 export interface IntradayBar {
   time: number; // unix seconds. 한국 벽시계 시각을 그대로 UTC 초로 표현한다.
   open: number;

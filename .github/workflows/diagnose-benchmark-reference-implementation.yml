@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 소형주 저변동성·영업이익 M1~M3 (읽기 전용, 외부 요청 0건)
+      - name: M3 진단 (시도 아님, 읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-smallcap-lowvol.ts
+        run: npx tsx --conditions=react-server scripts/research-smallcap-m3-diagnose.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

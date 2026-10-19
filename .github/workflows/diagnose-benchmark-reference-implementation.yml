@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: DB 크기 보고 (읽기 전용, 외부 요청 0건)
+      - name: Storage 사용량 보고 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/report-db-size.ts
+        run: npx tsx --conditions=react-server scripts/report-storage-usage.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

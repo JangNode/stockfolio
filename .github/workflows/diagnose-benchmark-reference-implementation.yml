@@ -69,13 +69,16 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 중소형주 신호 스캔 2회차 (학습 구간만, 읽기 전용, 외부 요청 0건)
+      - name: 공매도·신용잔고 데이터 조사 (외부 요청 60건 이하, 백테스트 없음)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-signal-scan-smallmid.ts
+        run: npx tsx --conditions=react-server scripts/probe-short-credit.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

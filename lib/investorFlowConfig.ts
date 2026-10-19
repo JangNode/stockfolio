@@ -22,3 +22,19 @@ export const INVESTOR_FLOW_BLOCK_UTC_TO_MIN = 5 * 60 + 30;
 /** upsert 배치 크기. 저장 용량 추정에 쓰는 행당 바이트(키+숫자 컬럼+PK 인덱스, 가정). */
 export const INVESTOR_FLOW_UPSERT_BATCH = 500;
 export const INVESTOR_FLOW_BYTES_PER_STOCK_ROW = 150;
+
+// ---- 2단계 B: 대형주 종목별 수집을 Storage Parquet로 저장(scripts/collect-investor-flow-stock.ts). 사용자 지정(2026-10-19). ----
+/** 외부(KIS) 요청 누적 상한(회차 합산)과 연속 오류 중단 기준. */
+export const INVESTOR_FLOW_STOCK_REQUEST_TOTAL_CAP = 50_000;
+export const INVESTOR_FLOW_CONSEC_ERROR_STOP = 20;
+/** 한 회차 최대 실행 시간(워크플로 상한 5시간보다 짧게: 마지막 저장 여유 15분). */
+export const INVESTOR_FLOW_STOCK_RUN_MAX_MS = 4.75 * 3600e3;
+/** 저장 위치: 기존 주가 Parquet 버킷 안의 연구용 경로(기존 파일은 건드리지 않는다). */
+export const INVESTOR_FLOW_STOCK_STORE_BUCKET = "stock-daily-prices";
+export const INVESTOR_FLOW_STOCK_STORE_PREFIX = "research/investor_flow_stock";
+export const INVESTOR_FLOW_STOCK_FIRST_YEAR = 2010;
+/** 진행 저장 주기: 완료 종목 수 또는 경과 시간 중 먼저 오는 쪽. */
+export const INVESTOR_FLOW_CHECKPOINT_STOCKS = 10;
+export const INVESTOR_FLOW_CHECKPOINT_MS = 20 * 60e3;
+/** 오류 응답 뒤 같은 요청을 다시 보내기 전 대기. */
+export const INVESTOR_FLOW_ERROR_RETRY_MS = 2_000;

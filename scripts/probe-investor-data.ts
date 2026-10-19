@@ -12,7 +12,7 @@ import {
 } from "@/lib/investorProbeConfig";
 
 const T0 = Date.now();
-const PHASE = process.env.PHASE === "B" ? "B" : "A";
+const PHASE = process.env.PHASE === "C" ? "C" : process.env.PHASE === "B" ? "B" : "A";
 let krxReq = 0;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const used = (): number => krxReq + getKisCallStats().total;
@@ -89,6 +89,10 @@ async function main(): Promise<void> {
     for (const rows of series.values()) { stockDays += rows.length; perStock.push(rows.length); for (const r of rows) dates.add(r.tradeDate); }
     console.log(`Parquet 2010~: 종목 ${series.size}개, 종목-일 ${stockDays}행, 거래일 ${dates.size}일`);
     (globalThis as { __est?: unknown }).__est = { stocks: series.size, stockDays, tradingDays: dates.size, perStock };
+  } else if (PHASE === "C") {
+    console.log("\n=== 가장 이른 날짜 확인 (KIS 일별 2종, 2010년 이전 기준일) ===");
+    for (const d of ["20050104", "20000104"]) res[`시장별 일별 ${d}`] = await kis(`시장별 투자자매매동향(일별) KOSPI ${d}`, MKT, "FHPTJ04040000", mkt(d, d));
+    for (const d of ["20050104", "20000104"]) res[`종목별 일별 ${d}`] = await kis(`종목별 투자자매매동향(일별) ${INVESTOR_PROBE_STOCK} ${d}`, STK, "FHPTJ04160001", stk(d));
   } else {
     console.log("\n=== 장 마감 후 재확인 (KIS 일별 2종) ===");
     for (const d of ["20100104", "20261016"]) res[`시장별 일별 ${d}`] = await kis(`시장별 투자자매매동향(일별) KOSPI ${d}`, MKT, "FHPTJ04040000", mkt(d, d));

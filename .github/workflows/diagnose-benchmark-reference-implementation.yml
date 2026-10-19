@@ -69,14 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KRX ETF 일별 수집 (새 표 etf_krx_daily, KRX 4,500건 이하)
+      - name: 업종 ETF 모멘텀 S1~S3 (read-only, 외부 요청 0)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-krx-etf-daily.ts
+        run: npx tsx --conditions=react-server scripts/research-sector-etf-momentum.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

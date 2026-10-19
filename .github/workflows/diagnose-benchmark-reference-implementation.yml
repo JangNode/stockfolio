@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 계절성 전략 H1·H2 (read-only, 외부 요청 0, 사전등록 2f69f8ed 이후)
+      - name: 10/19 주간 배치 후 peg_lynch 화면 수치 확인 (read-only, 외부 요청 0, DB 쓰기 0)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-seasonality.ts
+        run: npx tsx --conditions=react-server scripts/check-peg-screen.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

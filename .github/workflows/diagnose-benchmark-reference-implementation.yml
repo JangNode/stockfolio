@@ -69,13 +69,15 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 중형주 저변동성·영업이익 N1~N3 (0단계 포함, 읽기 전용, 외부 요청 0건)
+      - name: 공매도·신용잔고 수집 (KIS, Storage Parquet 저장, 이어받기)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-midcap-lowvol-sop.ts
+        run: npx tsx --conditions=react-server scripts/collect-short-credit.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

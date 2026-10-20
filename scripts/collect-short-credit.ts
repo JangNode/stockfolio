@@ -80,8 +80,16 @@ async function download(path: string): Promise<ArrayBuffer | null> {
   return data.arrayBuffer();
 }
 async function upload(path: string, body: ArrayBuffer | Uint8Array): Promise<void> {
-  const { error } = await bucket().upload(path, body, { contentType: "application/octet-stream", upsert: true });
-  if (error) throw new Error(`Storage 업로드 실패 ${path}: ${error.message}`);
+  // 1회차(2026-10-20)에 메시지 없는 일시 오류로 중단된 적이 있어, 같은 업로드를 최대 4번 시도한다(외부 KIS 요청 아님).
+  let lastMsg = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { error } = await bucket().upload(path, body, { contentType: "application/octet-stream", upsert: true });
+    if (!error) return;
+    lastMsg = error.message;
+    console.log(`  [Storage 업로드 재시도 ${attempt + 1}/4] ${path}: ${lastMsg || "<none>"}`);
+    await sleep(3_000 * 2 ** attempt);
+  }
+  throw new Error(`Storage 업로드 실패 ${path}: ${lastMsg}`);
 }
 function encodeYear(k: Kind, rows: Map<string, Row>): ArrayBuffer {
   const dc = SPEC[k].dateCol;

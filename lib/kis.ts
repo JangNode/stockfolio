@@ -205,9 +205,10 @@ async function kisFetch(
   accessToken: string,
   appKey: string,
   appSecret: string,
-  priority: KisCallPriority = "user"
+  priority: KisCallPriority = "user",
+  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES
 ): Promise<KisResponse> {
-  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRateLimitRetries; attempt++) {
     await acquireSlot(priority);
     kisCallStats.total++;
 
@@ -231,7 +232,7 @@ async function kisFetch(
       // KIS가 JSON이 아닌 응답(예: 게이트웨이 오류 페이지)을 준 경우도 있다.
     }
 
-    if (body?.msg_cd === RATE_LIMIT_MSG_CODE && attempt < RATE_LIMIT_MAX_RETRIES) {
+    if (body?.msg_cd === RATE_LIMIT_MSG_CODE && attempt < maxRateLimitRetries) {
       kisCallStats.retried++;
       await new Promise((resolve) =>
         setTimeout(resolve, RATE_LIMIT_BACKOFF_MS * 2 ** attempt)
@@ -705,13 +706,14 @@ export async function getDailyPricesRangeForResearch(
 export async function kisGetForResearch(
   path: string,
   trId: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES
 ): Promise<Record<string, unknown>> {
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
   const url = new URL(path, KIS_BASE_URL);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const data = await kisFetch(url, trId, accessToken, appKey, appSecret, "batch");
+  const data = await kisFetch(url, trId, accessToken, appKey, appSecret, "batch", maxRateLimitRetries);
   return data as unknown as Record<string, unknown>;
 }
 

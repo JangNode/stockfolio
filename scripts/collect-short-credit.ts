@@ -2,7 +2,7 @@
  * [연구용] 공매도(FHPST04830000)·신용잔고(FHPST04760000) 종목별 일별추이를 Supabase Storage 연도별 Parquet로 저장한다.
  * 대상: 2010-01 이후 한 번이라도 PIT 유니버스(직전 행 시총 5천억 + 20일 평균 거래대금 5억)에 든 종목(상장폐지 포함).
  * 기간: 2009-10-01~2016-12-31만(요청·저장 모두). 공매도 전 종목을 먼저 끝낸 뒤 신용잔고, 종목코드 오름차순. DB 표 생성·쓰기 없음.
- * 이어받기: Storage 진행 파일(_progress.json)과 연도 Parquet로 받은 종목·날짜를 건너뛴다. 14:00~14:30 KST 호출 금지.
+ * 이어받기: Storage 진행 파일(_progress.json)과 연도 Parquet로 받은 종목·날짜를 건너뛴다. 14:00~15:40 KST 호출 금지.
  * 중단: 연속 오류 20건, rate limit, TIME LIMIT, 요청 누적 상한, 회차 시간 상한, Storage 800MB 초과 예상. 백테스트·스캔 없음. 키 값 출력 금지.
  */
 import { parquetWriteBuffer } from "hyparquet-writer";
@@ -16,13 +16,14 @@ import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
 import { SCAN_CAP_EOK } from "@/lib/signalScanConfig";
 import {
-  INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_BLOCK_UTC_FROM_MIN, INVESTOR_FLOW_BLOCK_UTC_TO_MIN, INVESTOR_FLOW_CONSEC_ERROR_STOP,
+  INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_CONSEC_ERROR_STOP,
   INVESTOR_FLOW_CHECKPOINT_STOCKS, INVESTOR_FLOW_CHECKPOINT_MS, INVESTOR_FLOW_ERROR_RETRY_MS,
 } from "@/lib/investorFlowConfig";
 import {
   SC_COLLECT_FROM, SC_COLLECT_TO, SC_COLLECT_SHORT_PAGE_ROWS, SC_COLLECT_CREDIT_PAGE_ROWS, SC_COLLECT_CREDIT_SCR_DIV, SC_COLLECT_REQUEST_TOTAL_CAP,
   SC_COLLECT_RUN_MAX_MS, SC_COLLECT_STORAGE_CAP_BYTES, SC_COLLECT_ASSUMED_BYTES_PER_ROW, SC_SHORT_PREFIX, SC_CREDIT_PREFIX, SC_PROGRESS_FILE,
-  SC_FIRST_YEAR, SC_LAST_YEAR, SC_PRICE_DATA_START, SC_COLLECT_LOG_EVERY_REQ,
+  SC_FIRST_YEAR, SC_LAST_YEAR, SC_PRICE_DATA_START, SC_COLLECT_LOG_EVERY_REQ, SC_COLLECT_BLOCK_UTC_FROM_MIN, SC_COLLECT_BLOCK_UTC_TO_MIN,
+  SC_COLLECT_RL_WAITS_MS, SC_COLLECT_RL_WINDOW_MS, SC_COLLECT_RL_WINDOW_MAX,
 } from "@/lib/shortCreditCollectConfig";
 
 const T0 = Date.now();
@@ -53,7 +54,7 @@ const SPEC: Record<Kind, KindSpec> = {
   },
 };
 interface StockState { cursor: string | null; done: boolean; skipped: boolean; rows: number; requests: number }
-interface RunLog { startedAt: string; shortReq: number; creditReq: number; shortRows: number; creditRows: number; stocksDone: number; errors: number; stop: string }
+interface RunLog { startedAt: string; shortReq: number; creditReq: number; shortRows: number; creditRows: number; stocksDone: number; errors: number; rlEvents: number; rlRetries: number; rlWaitSec: number; stop: string }
 interface Progress { requestsTotal: number; stocks: Record<string, StockState>; runs: RunLog[]; dbBaselineBytes: number | null; bytesPerRow: number | null; stlmOrderViolations: number }
 
 const rowsBy: Record<Kind, Map<number, Map<string, Row>>> = { short: new Map(), credit: new Map() };
@@ -62,7 +63,7 @@ const progress: Record<Kind, Progress> = {
   short: { requestsTotal: 0, stocks: {}, runs: [], dbBaselineBytes: null, bytesPerRow: null, stlmOrderViolations: 0 },
   credit: { requestsTotal: 0, stocks: {}, runs: [], dbBaselineBytes: null, bytesPerRow: null, stlmOrderViolations: 0 },
 };
-const run = { rows: { short: 0, credit: 0 } as Record<Kind, number>, req: { short: 0, credit: 0 } as Record<Kind, number>, errors: 0, consec: 0, stocksDone: 0, outOfRange: 0 };
+const run = { rows: { short: 0, credit: 0 } as Record<Kind, number>, req: { short: 0, credit: 0 } as Record<Kind, number>, errors: 0, consec: 0, stocksDone: 0, outOfRange: 0, rlEvents: 0, rlRetries: 0, rlWaitMs: 0, rlEpisodes: 0, rlTimes: [] as number[] };
 let stopReason: string | null = null;
 let loaded = false;
 let lastLog = 0;
@@ -180,9 +181,9 @@ const cumReq = (): number => progress.short.requestsTotal + progress.credit.requ
 async function waitIfBlocked(): Promise<void> {
   for (;;) {
     const n = new Date(), m = n.getUTCHours() * 60 + n.getUTCMinutes();
-    if (m >= INVESTOR_FLOW_BLOCK_UTC_FROM_MIN && m < INVESTOR_FLOW_BLOCK_UTC_TO_MIN) {
+    if (m >= SC_COLLECT_BLOCK_UTC_FROM_MIN && m < SC_COLLECT_BLOCK_UTC_TO_MIN) {
       if (Date.now() - T0 >= SC_COLLECT_RUN_MAX_MS) return;
-      console.log(`  [대기] KST ${kst()} — 14:00~14:30 호출 금지 시간대, 30초 후 재확인`); await sleep(30_000);
+      console.log(`  [대기] KST ${kst()} — 14:00~15:40 호출 금지 시간대, 30초 후 재확인`); await sleep(30_000);
     } else return;
   }
 }
@@ -192,30 +193,47 @@ function stopCheck(): boolean {
   else if (cumReq() >= SC_COLLECT_REQUEST_TOTAL_CAP) stopReason = "요청 누적 상한";
   return stopReason !== null;
 }
+const isRateLimitMsg = (msg: string): boolean => /EGW00201|rate\s*limit|too\s*many|초당|429/i.test(msg);
 async function callKis(k: Kind, code: string, params: Record<string, string>): Promise<Rec[] | null> {
-  await waitIfBlocked();
-  if (stopCheck()) return null;
-  const r0 = getKisCallStats().total;
-  try {
-    const body = k === "short"
-      ? await kisGetForResearch(SHORT_PATH, "FHPST04830000", { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: code, ...params })
-      : await kisGetForResearch(CREDIT_PATH, "FHPST04760000", { FID_COND_MRKT_DIV_CODE: "J", FID_COND_SCR_DIV_CODE: SC_COLLECT_CREDIT_SCR_DIV, FID_INPUT_ISCD: code, ...params });
-    run.consec = 0;
-    const d = getKisCallStats().total - r0;
-    run.req[k] += d; progress[k].requestsTotal += d;
-    if (getKisCallStats().retried > 0) stopReason = "rate limit 응답(재시도 발생)";
-    return ((k === "short" ? body.output2 : body.output) as Rec[] | undefined) ?? [];
-  } catch (e) {
-    const d = getKisCallStats().total - r0;
-    run.req[k] += d; progress[k].requestsTotal += d;
-    const msg = e instanceof Error ? e.message.slice(0, 200) : String(e);
-    run.errors++; run.consec++;
-    console.log(`  [오류 KST ${kst()}] ${k} ${code} ${JSON.stringify(params)}: ${msg} (연속 ${run.consec})`);
-    if (/time\s*limit/i.test(msg)) stopReason = "TIME LIMIT 응답";
-    else if (/EGW00201|rate\s*limit|too\s*many|초당|429/i.test(msg)) stopReason = "rate limit 응답";
-    else if (run.consec >= INVESTOR_FLOW_CONSEC_ERROR_STOP) stopReason = `연속 오류 ${INVESTOR_FLOW_CONSEC_ERROR_STOP}건`;
-    if (!stopReason) await sleep(INVESTOR_FLOW_ERROR_RETRY_MS);
-    return null;
+  // rate limit 응답은 KIS 클라이언트의 내부 재시도 없이(0회) 받아 여기서 5초 → 15초 → 60초 쉬고 재시도한다(최대 3회).
+  for (let rl = 0; ; rl++) {
+    await waitIfBlocked();
+    if (stopCheck()) return null;
+    const r0 = getKisCallStats().total;
+    try {
+      const body = k === "short"
+        ? await kisGetForResearch(SHORT_PATH, "FHPST04830000", { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: code, ...params }, 0)
+        : await kisGetForResearch(CREDIT_PATH, "FHPST04760000", { FID_COND_MRKT_DIV_CODE: "J", FID_COND_SCR_DIV_CODE: SC_COLLECT_CREDIT_SCR_DIV, FID_INPUT_ISCD: code, ...params }, 0);
+      run.consec = 0;
+      const d = getKisCallStats().total - r0;
+      run.req[k] += d; progress[k].requestsTotal += d;
+      return ((k === "short" ? body.output2 : body.output) as Rec[] | undefined) ?? [];
+    } catch (e) {
+      const d = getKisCallStats().total - r0;
+      run.req[k] += d; progress[k].requestsTotal += d;
+      const msg = e instanceof Error ? e.message.slice(0, 200) : String(e);
+      if (!/time\s*limit/i.test(msg) && isRateLimitMsg(msg)) {
+        const now = Date.now();
+        run.rlEvents++;
+        if (rl === 0) run.rlEpisodes++;
+        run.rlTimes.push(now);
+        while (run.rlTimes.length && now - run.rlTimes[0] > SC_COLLECT_RL_WINDOW_MS) run.rlTimes.shift();
+        console.log(`  [rate limit KST ${kst()}] ${k} ${code} ${JSON.stringify(params)}: ${msg} (이번 요청 ${rl + 1}번째 실패, 최근 10분 ${run.rlTimes.length}회)`);
+        if (run.rlTimes.length >= SC_COLLECT_RL_WINDOW_MAX) { stopReason = `rate limit 10분 안에 ${run.rlTimes.length}회`; return null; }
+        if (rl >= SC_COLLECT_RL_WAITS_MS.length) { stopReason = `rate limit ${SC_COLLECT_RL_WAITS_MS.length}회 연속 재시도 실패`; return null; }
+        const w = SC_COLLECT_RL_WAITS_MS[rl];
+        run.rlRetries++; run.rlWaitMs += w;
+        console.log(`  [rate limit 대기] ${w / 1000}초 쉬고 재시도 ${rl + 1}/${SC_COLLECT_RL_WAITS_MS.length}`);
+        await sleep(w);
+        continue;
+      }
+      run.errors++; run.consec++;
+      console.log(`  [오류 KST ${kst()}] ${k} ${code} ${JSON.stringify(params)}: ${msg} (연속 ${run.consec})`);
+      if (/time\s*limit/i.test(msg)) stopReason = "TIME LIMIT 응답";
+      else if (run.consec >= INVESTOR_FLOW_CONSEC_ERROR_STOP) stopReason = `연속 오류 ${INVESTOR_FLOW_CONSEC_ERROR_STOP}건`;
+      if (!stopReason) await sleep(INVESTOR_FLOW_ERROR_RETRY_MS);
+      return null;
+    }
   }
 }
 
@@ -321,7 +339,7 @@ async function main(): Promise<void> {
   const doneS = mark("short"), doneC = mark("credit");
   const partial = (k: Kind): number => pool.filter((c) => progress[k].stocks[c] && !progress[k].stocks[c].done).length;
   const stop = stopReason ?? (doneS === pool.length && doneC === pool.length ? "전 종목 완료" : "알 수 없음");
-  const log: RunLog = { startedAt: new Date(T0).toISOString(), shortReq: run.req.short, creditReq: run.req.credit, shortRows: run.rows.short, creditRows: run.rows.credit, stocksDone: run.stocksDone, errors: run.errors, stop };
+  const log: RunLog = { startedAt: new Date(T0).toISOString(), shortReq: run.req.short, creditReq: run.req.credit, shortRows: run.rows.short, creditRows: run.rows.credit, stocksDone: run.stocksDone, errors: run.errors, rlEvents: run.rlEvents, rlRetries: run.rlRetries, rlWaitSec: run.rlWaitMs / 1000, stop };
   progress.short.runs.push(log); progress.credit.runs.push(log);
   await checkpoint("회차 종료");
   const stor = await storageTotal(), db = await dbBytes();
@@ -329,7 +347,7 @@ async function main(): Promise<void> {
   const base = progress.short.dbBaselineBytes ?? BASELINE_FALLBACK;
   const allReq = cumReq();
   console.log(`\n=== 회차 결과 ===\n| 항목 | 공매도 | 신용잔고 |\n|---|---|---|\n| 이번 회차 요청 | ${run.req.short} | ${run.req.credit} |\n| 이번 회차 새로 저장한 행 | ${run.rows.short} | ${run.rows.credit} |\n| 누적 완료 종목 | ${doneS}/${pool.length} (${((doneS / pool.length) * 100).toFixed(1)}%) | ${doneC}/${pool.length} (${((doneC / pool.length) * 100).toFixed(1)}%) |\n| 진행 중(중간까지) 종목 | ${partial("short")} | ${partial("credit")} |\n| 기간 겹침 없음(요청 없음) 종목 | ${noOverlap} | ${noOverlap} |\n| 누적 요청 | ${progress.short.requestsTotal} | ${progress.credit.requestsTotal} |\n| 저장 행 누계 | ${rowsOf("short")} | ${rowsOf("credit")} |`);
-  console.log(`| 항목 | 값 |\n|---|---|\n| 이번 회차 완료 종목(공매도+신용 합산 횟수) | ${run.stocksDone} |\n| 이번 회차 오류 응답 | ${run.errors} |\n| 이번 회차 기간 밖 행(저장 안 함) | ${run.outOfRange} |\n| 신용잔고 결제일 비단조 쌍(누계) | ${progress.credit.stlmOrderViolations} |\n| 중단 사유 | ${stop} |\n| 누적 요청 합계 | ${allReq}/${SC_COLLECT_REQUEST_TOTAL_CAP} |\n| Storage 총량 | ${stor} B (${mb(stor)} MiB), 정리본 포함 예상 최종 ${mb(storageProjectedLast)} MiB / ${mb(SC_COLLECT_STORAGE_CAP_BYTES)} MiB |\n| DB 전체 | ${db} B (${mb(db)} MiB), 첫 회차 시작 기준 ${base} B 대비 ${db - base >= 0 ? "+" : ""}${db - base} B |\n| 쓴 DB 행 | 0 |\n| 소요 | ${((Date.now() - T0) / 60e3).toFixed(1)}분 |`);
+  console.log(`| 항목 | 값 |\n|---|---|\n| 이번 회차 완료 종목(공매도+신용 합산 횟수) | ${run.stocksDone} |\n| 이번 회차 오류 응답(rate limit 제외) | ${run.errors} |\n| 이번 회차 rate limit 응답 | ${run.rlEvents}회(발생한 요청 ${run.rlEpisodes}건) |\n| 이번 회차 rate limit 재시도 | ${run.rlRetries}회, 대기 시간 합계 ${(run.rlWaitMs / 1000).toFixed(0)}초 |\n| 이번 회차 기간 밖 행(저장 안 함) | ${run.outOfRange} |\n| 신용잔고 결제일 비단조 쌍(누계) | ${progress.credit.stlmOrderViolations} |\n| 중단 사유 | ${stop} |\n| 누적 요청 합계 | ${allReq}/${SC_COLLECT_REQUEST_TOTAL_CAP} |\n| Storage 총량 | ${stor} B (${mb(stor)} MiB), 정리본 포함 예상 최종 ${mb(storageProjectedLast)} MiB / ${mb(SC_COLLECT_STORAGE_CAP_BYTES)} MiB |\n| DB 전체 | ${db} B (${mb(db)} MiB), 첫 회차 시작 기준 ${base} B 대비 ${db - base >= 0 ? "+" : ""}${db - base} B |\n| 쓴 DB 행 | 0 |\n| 소요 | ${((Date.now() - T0) / 60e3).toFixed(1)}분 |`);
   const remaining = pool.filter((c) => !progress.short.stocks[c]?.done).length;
   if (remaining > 0 && remaining <= 60) console.log(`공매도 남은 종목: ${pool.filter((c) => !progress.short.stocks[c]?.done).join(",")}`);
 }

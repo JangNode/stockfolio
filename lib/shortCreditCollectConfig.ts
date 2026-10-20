@@ -29,3 +29,11 @@ export const SC_LAST_YEAR = 2016;
 export const SC_PRICE_DATA_START = "2010-01-04";
 /** 마지막 호출 로그 간격(요청 수). */
 export const SC_COLLECT_LOG_EVERY_REQ = 200;
+
+/** 호출 금지 시간대(2026-10-20 사용자 변경): KST 14:00~15:40 = UTC 05:00~06:40 (운영 14:10 루틴·14:30 장중 판정과 겹치지 않게). */
+export const SC_COLLECT_BLOCK_UTC_FROM_MIN = 5 * 60;
+export const SC_COLLECT_BLOCK_UTC_TO_MIN = 6 * 60 + 40;
+/** rate limit 응답 처리(2026-10-20 사용자 지정): 5초 → 15초 → 60초 쉬고 같은 요청을 재시도(최대 3회). 3회 연속 재시도 실패, 또는 10분 안에 rate limit 응답이 5번 이상이면 그 회차를 멈춘다. */
+export const SC_COLLECT_RL_WAITS_MS = [5_000, 15_000, 60_000] as const;
+export const SC_COLLECT_RL_WINDOW_MS = 10 * 60e3;
+export const SC_COLLECT_RL_WINDOW_MAX = 5;

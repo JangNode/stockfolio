@@ -69,15 +69,13 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 공매도·신용잔고 수집 (KIS, Storage Parquet 저장, 이어받기)
+      - name: 공매도·신용잔고 정리본 생성 (주가 거래일 대조, 외부 요청 0건, DB 쓰기 0)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-short-credit.ts
+        run: npx tsx --conditions=react-server scripts/clean-short-credit.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

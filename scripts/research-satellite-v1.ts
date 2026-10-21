@@ -1,0 +1,451 @@
+/**
+ * [임시 연구 — 병합 금지, 읽기 전용, 외부 요청 0건(Storage 다운로드 제외)] 위성 전략 v1 백테스트(누적 시도 137).
+ * 사전 등록: research/satellite-v1-prereg.md (커밋 21ee3e0). 정의·참고 기준·비중 선택 규칙은 그 문서가 고정한다. 숫자와 표, O/X만 출력한다.
+ */
+import { parquetReadObjects } from "hyparquet";
+import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
+import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
+import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
+import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
+import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
+import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
+import { computeIndexDailyReturnsPct } from "@/lib/benchmarkSummary";
+import { computeEffectiveBuyPrice, computeEffectiveSellPrice } from "@/lib/transactionCost";
+import { ETF_SPIKE_MIN_ABS_RET, ETF_SPIKE_MAX_NET_ABS, ETF_SPIKE_KOSPI_EXEMPT_RATIO, ETF_TRADING_DAYS_PER_YEAR } from "@/lib/etfAllocationConfig";
+import { SEASON_STOCK_CODE } from "@/lib/seasonalityConfig";
+import { INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_STOCK_FIRST_YEAR } from "@/lib/investorFlowConfig";
+import { SCAN_CAP_EOK, SCAN_POOL_SIZE } from "@/lib/signalScanConfig";
+import { FLOW_TILT_ENDED_GRACE_DAYS, FLOW_TILT_CLEAN_PREFIX } from "@/lib/foreignFlowTiltConfig";
+import { LV_QUARTER_MONTHS, LV_FIRST_SIGNAL_MONTH, LV_LEARN, LV_CONFIRM, LV_HOLDOUT_FROM, LV_QUARTERS_PER_YEAR, LV_VOL_DAYS, LV_MIN_PRICE_DAY_RATIO } from "@/lib/smallcapLowvolConfig";
+import { SCS_CREDIT_LAG_DAYS, SCS_CREDIT_CARRY_MAX_DAYS, SCS_CREDIT_CLEAN_PREFIX } from "@/lib/shortCreditScanConfig";
+import { CT_CREDIT_FIRST_YEAR, CT_CREDIT_LAST_YEAR } from "@/lib/creditTiltConfig";
+import {
+  SAT_HOLD_COUNT, SAT_KEEP_RANK, SAT_C1_EXCLUDE_PARTS, SAT_FLOW_DAYS, SAT_FLOW_TOP_PARTS, SAT_BUY_DELAY_DAYS, SAT_MIX_WEIGHTS, SAT_MIX_BAND, SAT_ETF_COST_PER_SIDE,
+  SAT_MIX_CAGR_TOL_PP, SAT_MIX_DEFAULT_W, SAT_REF_PEW_MARGIN_PP, SAT_REF_MDD_MARGIN_PP, SAT_REF_MAX_DELAY_DROP_PP, SAT_SPAC_NAME_KEYWORDS,
+} from "@/lib/satelliteV1Config";
+
+const T0 = Date.now();
+const MS_DAY = 86_400_000;
+const f2 = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : "-");
+const ox = (b: boolean): string => (b ? "O" : "X");
+const dayDiff = (a: string, b: string): number => (Date.parse(b) - Date.parse(a)) / MS_DAY;
+const dbRead: Record<string, number> = {};
+const dl = { creditBytes: 0, creditRows: 0, flowBytes: 0, flowRows: 0 };
+async function selectAll<T>(label: string, build: (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await build(from, from + 999);
+    if (error) throw new Error(`${label}: ${error.message}`);
+    out.push(...(data ?? []));
+    dbRead[label] = (dbRead[label] ?? 0) + (data?.length ?? 0);
+    if ((data?.length ?? 0) < 1000) break;
+  }
+  return out;
+}
+
+interface S { code: string; idx: Map<string, number>; close: Float64Array; closeA: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; last: string; CR: Float64Array; lastCr: Int32Array; flowCum: Float64Array | null }
+interface Target { w: Map<string, number>; n: number; delayed: Set<string> }
+interface Out { dates: string[]; ret: number[]; costFrac: number[]; turn: { d: string; v: number }[]; nPos: number[]; liq: string[]; delayedBought: number; delayedMissed: number }
+interface Win { from: string; to: string }
+interface Pick { code: string; c1: number; vol: number; score: number }
+
+async function main(): Promise<void> {
+  console.log(`위성 전략 v1 시작(읽기 전용): ${new Date().toISOString()} (사전등록 21ee3e0 이후)`);
+  const adjustments = await loadAppliedAdjustments();
+  dbRead["stock_price_adjustment_events(applied)"] = [...adjustments.values()].reduce((a, l) => a + l.length, 0);
+  const series = await loadAllStockSeriesFromParquet(2010, new Date().getUTCFullYear());
+  const today = new Date().toISOString().slice(0, 10);
+  const kospi = await getIndexPriceSeries("KOSPI", "2009-01-01", today);
+  dbRead["beta_price_history(KOSPI)"] = kospi.length;
+
+  // ---- 신용잔고 정리본 (2009~2026, 신용잔고율만) ----
+  const creditBy = new Map<string, Map<string, number>>();
+  for (let y = CT_CREDIT_FIRST_YEAR; y <= CT_CREDIT_LAST_YEAR; y++) {
+    const { data, error } = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(`${SCS_CREDIT_CLEAN_PREFIX}/${y}.parquet`);
+    if (error) { console.log(`${SCS_CREDIT_CLEAN_PREFIX}/${y}.parquet 없음`); continue; }
+    const buf = await data.arrayBuffer();
+    dl.creditBytes += buf.byteLength;
+    for (const r of (await parquetReadObjects({ file: buf, columns: ["stock_code", "deal_date", "whol_loan_rmnd_rate"] })) as { stock_code: string; deal_date: string; whol_loan_rmnd_rate: number | null }[]) {
+      dl.creditRows++;
+      let m = creditBy.get(r.stock_code);
+      if (!m) { m = new Map(); creditBy.set(r.stock_code, m); }
+      m.set(r.deal_date, r.whol_loan_rmnd_rate === null ? NaN : Number(r.whol_loan_rmnd_rate));
+    }
+  }
+  console.log(`신용잔고 정리본(2009~2026): 종목 ${creditBy.size}개, ${dl.creditRows}행, 다운로드 ${dl.creditBytes} B (${(dl.creditBytes / 1048576).toFixed(2)} MiB)`);
+
+  // ---- 외국인 수급 정리본 ----
+  const flowBy = new Map<string, Map<string, number>>();
+  for (let y = INVESTOR_FLOW_STOCK_FIRST_YEAR; y <= new Date().getUTCFullYear(); y++) {
+    const { data, error } = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(`${FLOW_TILT_CLEAN_PREFIX}/${y}.parquet`);
+    if (error) { console.log(`${FLOW_TILT_CLEAN_PREFIX}/${y}.parquet 없음`); continue; }
+    const buf = await data.arrayBuffer();
+    dl.flowBytes += buf.byteLength;
+    for (const r of (await parquetReadObjects({ file: buf, columns: ["stock_code", "trade_date", "frgn_ntby_amt"] })) as { stock_code: string; trade_date: string; frgn_ntby_amt: number | null }[]) {
+      dl.flowRows++;
+      let m = flowBy.get(r.stock_code);
+      if (!m) { m = new Map(); flowBy.set(r.stock_code, m); }
+      m.set(r.trade_date, r.frgn_ntby_amt === null ? 0 : Number(r.frgn_ntby_amt));
+    }
+  }
+  console.log(`외국인 수급 정리본: 종목 ${flowBy.size}개, ${dl.flowRows}행, 다운로드 ${dl.flowBytes} B (${(dl.flowBytes / 1048576).toFixed(2)} MiB)`);
+
+  interface Row0 { code: string; dates: string[]; close: Float64Array; mcap: Float64Array; avgTv: Float64Array }
+  const rows0: Row0[] = [];
+  const calSet = new Set<string>();
+  for (const [code, rows] of series) {
+    series.delete(code);
+    if (!rows.length) continue;
+    const adj = rows.map((r) => ({ ...r }));
+    const al = adjustments.get(code);
+    if (al) applyAdjustmentsInPlace(adj, al);
+    for (const r of rows) if (r.tradeDate >= "2010-01-01") calSet.add(r.tradeDate);
+    rows0.push({ code, dates: rows.map((r) => r.tradeDate), close: Float64Array.from(adj.map((r) => r.closePrice)), mcap: Float64Array.from(rows.map((r) => r.marketCapEok)), avgTv: computeTrailingAvgTradingValue(adj, PIT_LIQUIDITY_LOOKBACK_DAYS) });
+  }
+  const CAL = [...calSet].sort();
+  const nCal = CAL.length, dataEnd = CAL[nCal - 1];
+  const calIdx = new Map(CAL.map((d, i) => [d, i]));
+  const monthEnds: string[] = [];
+  for (let k = 0; k + 1 < nCal; k++) if (CAL[k].slice(0, 7) !== CAL[k + 1].slice(0, 7)) monthEnds.push(CAL[k]);
+  const endedBefore = new Date(Date.parse(dataEnd) - FLOW_TILT_ENDED_GRACE_DAYS * MS_DAY).toISOString().slice(0, 10);
+  const firstSignal = monthEnds.find((d) => d.slice(0, 7) === LV_FIRST_SIGNAL_MONTH)!;
+  const quarterSignals = monthEnds.filter((d) => d >= firstSignal && (LV_QUARTER_MONTHS as readonly number[]).includes(Number(d.slice(5, 7))));
+  const firstExec = CAL[calIdx.get(firstSignal)! + 1];
+  console.log(`종목 ${rows0.length}개, 거래일(2010~) ${nCal}일 ${CAL[0]}~${dataEnd}, 분기 신호 ${quarterSignals.length}개(첫 신호 ${firstSignal}, 첫 체결 ${firstExec}, 마지막 신호 ${quarterSignals[quarterSignals.length - 1]})`);
+
+  const isElig = (r: { mcap: Float64Array; avgTv: Float64Array }, i: number): boolean => i >= 1 && r.mcap[i - 1] >= SCAN_CAP_EOK && r.avgTv[i] >= PIT_MIN_AVG_TRADING_VALUE_WON;
+  const cand = rows0.filter((r) => { for (let i = 1; i < r.dates.length; i++) if (r.dates[i] >= "2010-01-01" && isElig(r, i)) return true; return false; });
+  console.log(`PIT 적격이 된 적 있는 종목 ${cand.length}개`);
+  const stocks: S[] = cand.map((r) => {
+    const idx = new Map(r.dates.map((d, i) => [d, i]));
+    const closeA = new Float64Array(nCal).fill(NaN), CR = new Float64Array(nCal).fill(NaN), lastCr = new Int32Array(nCal).fill(-1);
+    const cm = creditBy.get(r.code), fm = flowBy.get(r.code);
+    const flowCum = fm ? new Float64Array(nCal + 1) : null;
+    let last = -1;
+    for (let c = 0; c < nCal; c++) {
+      const i = idx.get(CAL[c]);
+      if (i !== undefined && r.close[i] > 0) closeA[c] = r.close[i];
+      const v = cm?.get(CAL[c]);
+      if (v !== undefined) { CR[c] = v; last = c; }
+      lastCr[c] = last;
+      if (flowCum) flowCum[c + 1] = flowCum[c] + (fm!.get(CAL[c]) ?? 0);
+    }
+    return { code: r.code, idx, close: r.close, closeA, mcapRow: r.mcap, avgTvRow: r.avgTv, last: r.dates[r.dates.length - 1], CR, lastCr, flowCum };
+  });
+  stocks.sort((a, b) => (a.code < b.code ? -1 : 1));
+  const byCode = new Map(stocks.map((s) => [s.code, s]));
+  rows0.length = 0; creditBy.clear(); flowBy.clear();
+
+  // ---- 제외 규칙 식별 (우선주·ETF·스팩) ----
+  const codes = stocks.map((s) => s.code);
+  const prefSet = new Set(codes.filter((c) => c[c.length - 1] !== "0"));
+  const etfSet = new Set<string>();
+  const nameOf = new Map<string, string>();
+  for (let i = 0; i < codes.length; i += 200) {
+    const chunk = codes.slice(i, i + 200);
+    const a = await selectAll<{ isu_cd: string }>("etf_krx_daily(유니버스 코드와 겹치는 행)", (f, t) => supabaseAdmin.from("etf_krx_daily").select("isu_cd").in("isu_cd", chunk).order("isu_cd").order("bas_dd").range(f, t));
+    for (const r of a) etfSet.add(r.isu_cd);
+    const b = await selectAll<{ code: string }>("etf_daily_prices(유니버스 코드와 겹치는 행)", (f, t) => supabaseAdmin.from("etf_daily_prices").select("code").in("code", chunk).order("code").order("trade_date").range(f, t));
+    for (const r of b) etfSet.add(r.code);
+    const c = await selectAll<{ corp_code: string; corp_name: string; stock_code: string }>("dart_corp_codes(유니버스 코드)", (f, t) => supabaseAdmin.from("dart_corp_codes").select("corp_code, corp_name, stock_code").in("stock_code", chunk).order("corp_code").range(f, t));
+    for (const r of c) nameOf.set(r.stock_code, r.corp_name);
+  }
+  const spacSet = new Set(codes.filter((c) => { const n = nameOf.get(c); return n !== undefined && SAT_SPAC_NAME_KEYWORDS.some((k) => n.includes(k)); }));
+  const excluded = new Set([...prefSet, ...etfSet, ...spacSet]);
+  console.log(`\n=== 제외 규칙 식별 (PIT 적격이 된 적 있는 ${codes.length}개 기준) ===`);
+  console.log("| 규칙 | 식별 방법 | 해당 종목 수 |\n|---|---|---|");
+  console.log(`| 우선주 | 종목코드 끝자리 ≠ '0' | ${prefSet.size} |`);
+  console.log(`| ETF | 가격 Parquet 원천이 KRX 주식 일별매매정보(ETF 미포함) + etf_krx_daily·etf_daily_prices 코드와 겹침 | ${etfSet.size}${etfSet.size ? ` (${[...etfSet].join(", ")})` : ""} |`);
+  console.log(`| 스팩 | dart_corp_codes.corp_name에 ${SAT_SPAC_NAME_KEYWORDS.map((k) => `"${k}"`).join("/")} 포함 | ${spacSet.size}${spacSet.size ? ` (${[...spacSet].join(", ")})` : ""} |`);
+  console.log(`dart_corp_codes에 이름이 없는 코드(스팩 여부 확인 불가) ${codes.filter((c) => !nameOf.has(c)).length}개, 그중 우선주 아닌 코드 ${codes.filter((c) => !nameOf.has(c) && !prefSet.has(c)).length}개 | 제외 합계 ${excluded.size}개`);
+
+  // ---- 유니버스·신호 ----
+  const eCache = new Map<string, S[]>();
+  const eligAt = (d: string): S[] => {
+    let v = eCache.get(d);
+    if (!v) {
+      const e: { s: S; mcap: number }[] = [];
+      for (const s of stocks) { const i = s.idx.get(d); if (i !== undefined && isElig({ mcap: s.mcapRow, avgTv: s.avgTvRow }, i)) e.push({ s, mcap: s.mcapRow[i] }); }
+      v = e.sort((a, b) => b.mcap - a.mcap || (a.s.code < b.s.code ? -1 : 1)).map((x) => x.s);
+      eCache.set(d, v);
+    }
+    return v;
+  };
+  const uAt = (d: string): S[] => eligAt(d).filter((s) => !excluded.has(s.code));
+  const mcapAt = (s: S, d: string): number => s.mcapRow[s.idx.get(d)!];
+  const c1At = (s: S, d: string): number => {
+    const j = calIdx.get(d)! - SCS_CREDIT_LAG_DAYS;
+    if (j < 0) return NaN;
+    const li = s.lastCr[j];
+    if (li < 0 || j - li > SCS_CREDIT_CARRY_MAX_DAYS) return NaN;
+    return s.CR[li];
+  };
+  const volAt = (s: S, c: number): number => {
+    const N = LV_VOL_DAYS;
+    if (c - N + 1 < 0) return NaN;
+    const cl = s.closeA;
+    let days = 0, n = 0, sum = 0, sum2 = 0;
+    for (let j = c - N + 1; j <= c; j++) {
+      if (cl[j] > 0) { days++; if (j > c - N + 1 && cl[j - 1] > 0) { const r = cl[j] / cl[j - 1] - 1; n++; sum += r; sum2 += r * r; } }
+    }
+    if (days < Math.ceil(N * LV_MIN_PRICE_DAY_RATIO) || n < 2) return NaN;
+    const m = sum / n;
+    return Math.sqrt(Math.max((sum2 - n * m * m) / (n - 1), 0));
+  };
+  const byCodeAsc = (a: { code: string }, b: { code: string }): number => (a.code < b.code ? -1 : 1);
+
+  /** 분기별 위성 목표(보유 유지 규칙 때문에 순서대로 계산). */
+  const satTargets: Target[] = [], satPicks: Pick[][] = [], satNew: number[] = [], satN: number[] = [];
+  {
+    let prev = new Set<string>();
+    for (const d of quarterSignals) {
+      const c = calIdx.get(d)!;
+      const U = uAt(d);
+      const items = U.map((s) => ({ s, code: s.code, c1: c1At(s, d), vol: volAt(s, c) })).filter((x) => Number.isFinite(x.c1) && Number.isFinite(x.vol));
+      const byC1Desc = [...items].sort((a, b) => b.c1 - a.c1 || byCodeAsc(a, b));
+      const n = byC1Desc.length;
+      const rest = byC1Desc.filter((_, i) => Math.floor((i * SAT_C1_EXCLUDE_PARTS) / n) !== 0);
+      const rC = new Map([...rest].sort((a, b) => a.c1 - b.c1 || byCodeAsc(a, b)).map((x, i) => [x.code, i + 1]));
+      const rV = new Map([...rest].sort((a, b) => a.vol - b.vol || byCodeAsc(a, b)).map((x, i) => [x.code, i + 1]));
+      const ranked = rest.map((x) => ({ ...x, score: (rC.get(x.code)! + rV.get(x.code)!) / 2 })).sort((a, b) => a.score - b.score || a.vol - b.vol || byCodeAsc(a, b));
+      const kept = ranked.filter((x, i) => i < SAT_KEEP_RANK && prev.has(x.code)).slice(0, SAT_HOLD_COUNT);
+      const keptSet = new Set(kept.map((x) => x.code));
+      const chosen = [...kept];
+      for (const x of ranked) { if (chosen.length >= SAT_HOLD_COUNT) break; if (!keptSet.has(x.code)) chosen.push(x); }
+      chosen.sort((a, b) => a.score - b.score || a.vol - b.vol || byCodeAsc(a, b));
+      // 매수 지연 대상: 새 종목 중 F5/시총이 U(d)(정리본 있는 종목) 상위 10%
+      const fItems = U.filter((s) => s.flowCum).map((s) => ({ code: s.code, f: (s.flowCum![c + 1] - s.flowCum![Math.max(c + 1 - SAT_FLOW_DAYS, 0)]) / mcapAt(s, d) })).sort((a, b) => b.f - a.f || byCodeAsc(a, b));
+      const topF = new Set(fItems.filter((_, i) => Math.floor((i * SAT_FLOW_TOP_PARTS) / fItems.length) === 0).map((x) => x.code));
+      const newCodes = chosen.filter((x) => !prev.has(x.code)).map((x) => x.code);
+      const w = new Map(chosen.map((x) => [x.code, 1 / chosen.length]));
+      satTargets.push({ w, n: chosen.length, delayed: new Set(newCodes.filter((code) => topF.has(code))) });
+      satPicks.push(chosen.map((x) => ({ code: x.code, c1: x.c1, vol: x.vol, score: x.score })));
+      satNew.push(newCodes.length); satN.push(chosen.length);
+      prev = new Set(chosen.map((x) => x.code));
+    }
+  }
+  const pewTargets: Target[] = quarterSignals.map((d) => { const U = uAt(d); return { w: new Map(U.map((s) => [s.code, 1 / U.length])), n: U.length, delayed: new Set<string>() }; });
+  const poolTargets: Target[] = quarterSignals.map((d) => {
+    const P = eligAt(d).slice(0, SCAN_POOL_SIZE);
+    let tot = 0;
+    const w = new Map<string, number>();
+    for (const s of P) { const x = mcapAt(s, d); if (x > 0) { w.set(s.code, x); tot += x; } }
+    for (const [k, x] of w) w.set(k, x / tot);
+    return { w, n: w.size, delayed: new Set<string>() };
+  });
+
+  const buyRate = computeEffectiveBuyPrice(1) - 1;
+  const sellRate = (d: string): number => 1 - computeEffectiveSellPrice(1, d, "KR");
+
+  // ---- 엔진 (매수 지연 포함) ----
+  function run(targets: Target[], delay: boolean): Out {
+    const execAt = new Map<string, Target>();
+    quarterSignals.forEach((d, k) => { const j = calIdx.get(d)! + 1 + (delay ? 1 : 0); if (j < nCal) execAt.set(CAL[j], targets[k]); });
+    let cash = 1, prevV = 1;
+    const pos = new Map<string, { val: number; last: number }>();
+    let pending = new Map<string, { amt: number; day: number }>();
+    const out: Out = { dates: [], ret: [], costFrac: [], turn: [], nPos: [], liq: [], delayedBought: 0, delayedMissed: 0 };
+    for (let c = calIdx.get(firstExec)!; c < nCal; c++) {
+      const d = CAL[c];
+      const sr = sellRate(d);
+      let costF = 0;
+      for (const [code, p] of pos) {
+        const sk = byCode.get(code)!;
+        const i = sk.idx.get(d);
+        if (i !== undefined) { p.val = (p.val * sk.close[i]) / p.last; p.last = sk.close[i]; }
+        else if (sk.last < d && sk.last < endedBefore) { costF += (p.val * sr) / prevV; cash += p.val * (1 - sr); pos.delete(code); out.liq.push(d); }
+      }
+      const now = execAt.get(d);
+      if (now) {
+        out.delayedMissed += pending.size;
+        pending = new Map();
+        let V = cash;
+        for (const p of pos.values()) V += p.val;
+        const tg = new Map<string, number>();
+        for (const [code, w] of now.w) if (byCode.get(code)!.idx.has(d) && w > 0) tg.set(code, w);
+        let buyN = 0, sellN = 0;
+        for (const [code, p] of pos) if (!tg.has(code) || now.delayed.has(code)) sellN += p.val;
+        for (const [code, w] of tg) { if (now.delayed.has(code)) continue; const diff = w * V - (pos.get(code)?.val ?? 0); if (diff > 0) buyN += diff; else sellN += -diff; }
+        const C = buyN * buyRate + sellN * sr, scale = V > 0 ? (V - C) / V : 1;
+        pos.clear();
+        let inv = 0;
+        for (const [code, w] of tg) {
+          if (now.delayed.has(code)) { pending.set(code, { amt: w * V * scale, day: c + SAT_BUY_DELAY_DAYS }); continue; }
+          const sk = byCode.get(code)!; const val = w * V * scale; pos.set(code, { val, last: sk.close[sk.idx.get(d)!] }); inv += val;
+        }
+        cash = V - C - inv;
+        costF += V > 0 ? C / V : 0;
+        if (buyN + sellN > 0) out.turn.push({ d, v: V > 0 ? (buyN + sellN) / 2 / V : 0 });
+      } else if (pending.size) {
+        let V = cash;
+        for (const p of pos.values()) V += p.val;
+        for (const [code, p] of pending) {
+          if (p.day !== c) continue;
+          pending.delete(code);
+          const sk = byCode.get(code)!;
+          const i = sk.idx.get(d);
+          if (i === undefined) { out.delayedMissed++; continue; }
+          const C = p.amt * buyRate;
+          pos.set(code, { val: p.amt - C, last: sk.close[i] });
+          cash -= p.amt;
+          costF += C / prevV;
+          out.turn.push({ d, v: V > 0 ? p.amt / 2 / V : 0 });
+          out.delayedBought++;
+        }
+      }
+      let V = cash;
+      for (const p of pos.values()) V += p.val;
+      out.dates.push(d); out.ret.push((V / prevV - 1) * 100); out.costFrac.push(costF); out.nPos.push(pos.size);
+      prevV = V;
+    }
+    out.delayedMissed += pending.size;
+    return out;
+  }
+
+  // ---- 지표 ----
+  function st(o: { dates: string[]; ret: number[]; costFrac?: number[]; turn?: { d: string; v: number }[]; nPos?: number[] }, win: Win) {
+    const to = win.to > dataEnd ? dataEnd : win.to;
+    const idx: number[] = [];
+    for (let i = 0; i < o.dates.length; i++) if (o.dates[i] >= win.from && o.dates[i] <= win.to && o.dates[i] > firstExec) idx.push(i);
+    const r = idx.map((i) => o.ret[i]);
+    const { totalReturnPct, mddPct } = computeCumulativeAndMdd(r);
+    const cagr = computeCagrPct(totalReturnPct, win.from, to);
+    const m = r.reduce((a, x) => a + x, 0) / Math.max(r.length, 1);
+    const sd = Math.sqrt(r.reduce((a, x) => a + (x - m) ** 2, 0) / Math.max(r.length - 1, 1));
+    const yrs = Math.max(dayDiff(win.from, to) / 365.25, 1e-9);
+    return {
+      cagr, mdd: mddPct, sharpe: sd > 0 ? (m * ETF_TRADING_DAYS_PER_YEAR) / (sd * Math.sqrt(ETF_TRADING_DAYS_PER_YEAR)) : NaN, vol: sd * Math.sqrt(ETF_TRADING_DAYS_PER_YEAR),
+      turnover: o.turn ? (o.turn.filter((x) => x.d >= win.from && x.d <= win.to && x.d > firstExec).reduce((a, x) => a + x.v, 0) / (yrs * LV_QUARTERS_PER_YEAR)) * 100 : NaN,
+      cost: o.costFrac ? idx.reduce((a, i) => a + o.costFrac![i], 0) * 100 : NaN,
+      avgN: o.nPos ? idx.reduce((a, i) => a + o.nPos![i], 0) / Math.max(idx.length, 1) : NaN,
+    };
+  }
+  type Stat = ReturnType<typeof st>;
+  const yearRet = (o: { dates: string[]; ret: number[] }, y: number): number => computeCumulativeAndMdd(o.ret.filter((_, i) => o.dates[i].startsWith(`${y}-`) && o.dates[i] > firstExec)).totalReturnPct;
+
+  // ---- B&H, KOSPI ----
+  const rawEtf: { date: string; px: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin.from("etf_daily_prices").select("trade_date, adj_close").eq("code", SEASON_STOCK_CODE).order("trade_date").range(from, from + 999);
+    if (error) throw new Error(`etf_daily_prices: ${error.message}`);
+    for (const r of data ?? []) rawEtf.push({ date: r.trade_date as string, px: Number(r.adj_close) });
+    dbRead["etf_daily_prices(069500)"] = (dbRead["etf_daily_prices(069500)"] ?? 0) + (data?.length ?? 0);
+    if (!data || data.length < 1000) break;
+  }
+  const kRetByDate = new Map<string, number>();
+  for (let i = 1; i < kospi.length; i++) kRetByDate.set(kospi[i].tradeDate, kospi[i].closePrice / kospi[i - 1].closePrice - 1);
+  const etf = rawEtf.map((x) => ({ ...x }));
+  {
+    const r = rawEtf.map((x, i) => (i === 0 ? NaN : x.px / rawEtf[i - 1].px - 1));
+    let nCh = 0;
+    for (let t = 1; t + 1 < rawEtf.length; t++) {
+      if (!(Math.abs(r[t]) > ETF_SPIKE_MIN_ABS_RET) || !(Math.sign(r[t + 1]) === -Math.sign(r[t])) || !(Math.abs((1 + r[t]) * (1 + r[t + 1]) - 1) < ETF_SPIKE_MAX_NET_ABS)) continue;
+      const kr = kRetByDate.get(rawEtf[t].date);
+      if (kr !== undefined && Math.sign(kr) === Math.sign(r[t]) && Math.abs(kr) >= ETF_SPIKE_KOSPI_EXEMPT_RATIO * Math.abs(r[t])) continue;
+      etf[t].px = Math.sqrt(rawEtf[t - 1].px * rawEtf[t + 1].px); nCh++;
+    }
+    console.log(`069500 정제로 바꾼 날 ${nCh}개`);
+  }
+  const bh = { dates: etf.slice(1).map((x) => x.date), ret: etf.slice(1).map((x, i) => (x.px / etf[i].px - 1) * 100) };
+  const kp = kospi.filter((x) => x.tradeDate >= "2009-12-01");
+  const kos = { dates: kp.slice(1).map((x) => x.tradeDate), ret: computeIndexDailyReturnsPct(kp as never) };
+
+  // ---- 실행 ----
+  const SAT = run(satTargets, false), SATD = run(satTargets, true);
+  const PEW = run(pewTargets, false), PEWD = run(pewTargets, true);
+  const POOL = run(poolTargets, false), POOLD = run(poolTargets, true);
+
+  // ---- 조합 ----
+  const bhRetBy = new Map(bh.dates.map((d, i) => [d, bh.ret[i] / 100]));
+  const mix = (w: number): { dates: string[]; ret: number[]; rebals: number } => {
+    let E = 1 - w, Sv = w, prevV = 1, due = false, rebals = 0;
+    const out = { dates: [] as string[], ret: [] as number[], rebals: 0 };
+    for (let i = 0; i < SAT.dates.length; i++) {
+      const d = SAT.dates[i], c = calIdx.get(d)!;
+      if (i > 0) { E *= 1 + (bhRetBy.get(d) ?? 0); Sv *= 1 + SAT.ret[i] / 100; }
+      if (due) {
+        const V = E + Sv, x = Math.abs(Sv - w * V);
+        const C = x * SAT_ETF_COST_PER_SIDE + x * (Sv < w * V ? buyRate : sellRate(d));
+        if (x > 0) rebals++;
+        E = (1 - w) * (V - C); Sv = w * (V - C);
+        due = false;
+      }
+      const V = E + Sv;
+      out.dates.push(d); out.ret.push((V / prevV - 1) * 100);
+      prevV = V;
+      const yearEnd = c + 1 < nCal && CAL[c + 1].slice(0, 4) !== d.slice(0, 4);
+      if (yearEnd || Math.abs(Sv / V - w) >= SAT_MIX_BAND) due = true;
+    }
+    out.rebals = rebals;
+    return out;
+  };
+  const MIX = SAT_MIX_WEIGHTS.map((w) => ({ w, label: `P${Math.round((1 - w) * 100)}`, o: mix(w) }));
+
+  // ---- 출력 ----
+  const LEARN: Win = { ...LV_LEARN }, CONFIRM: Win = { ...LV_CONFIRM }, HOLD: Win = { from: LV_HOLDOUT_FROM, to: "9999-12-31" }, FULL: Win = { from: LV_LEARN.from, to: "9999-12-31" };
+  const WINS: [string, Win][] = [["학습", LEARN], ["확인", CONFIRM], ["2022~(참고)", HOLD], ["전 기간", FULL]];
+  const winLabel = (w: Win): string => `${w.from}~${w.to > dataEnd ? dataEnd : w.to}`;
+  for (const [name, win] of WINS) {
+    const s = st(SAT, win), sd = st(SATD, win), p = st(PEW, win), pd = st(PEWD, win), q = st(POOL, win), qd = st(POOLD, win), b = st(bh, win), k = st(kos, win);
+    const drop = s.cagr - sd.cagr;
+    const g = [s.cagr >= p.cagr + SAT_REF_PEW_MARGIN_PP, s.cagr > b.cagr, s.mdd <= b.mdd + SAT_REF_MDD_MARGIN_PP, drop <= SAT_REF_MAX_DELAY_DROP_PP];
+    console.log(`\n=== ${name} ${winLabel(win)} ===`);
+    console.log("| 구성 | CAGR % | MDD % | 샤프 | 연변동성 % | 분기 평균 회전율 % | 누적 비용 % | 평균 보유 종목 | 지연 CAGR % | 지연 하락 %p | 참고1 CAGR≥PEW+2 | 참고2 CAGR>B&H | 참고3 MDD≤B&H+10 | 참고4 지연 하락≤1 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    const row = (lab: string, x: Stat, xd: Stat | null, extra: string): string => `| ${lab} | ${f2(x.cagr)} | ${f2(x.mdd)} | ${f2(x.sharpe)} | ${f2(x.vol)} | ${f2(x.turnover)} | ${f2(x.cost)} | ${f2(x.avgN)} | ${xd ? f2(xd.cagr) : "-"} | ${xd ? f2(x.cagr - xd.cagr) : "-"} | ${extra}`;
+    console.log(row("위성", s, sd, `${g.map(ox).join(" | ")} |`));
+    console.log(row("PEW", p, pd, "| | | |"));
+    console.log(row("POOL", q, qd, "| | | |"));
+    console.log(row("B&H(069500)", b, null, "| | | |"));
+    console.log(row("KOSPI", k, null, "| | | |"));
+    console.log(`참고 기준값: CAGR ≥ ${f2(p.cagr + SAT_REF_PEW_MARGIN_PP)}, CAGR > ${f2(b.cagr)}, MDD ≤ ${f2(b.mdd + SAT_REF_MDD_MARGIN_PP)}, 지연 하락 ≤ ${SAT_REF_MAX_DELAY_DROP_PP}`);
+  }
+
+  // 비중 선택(학습만)
+  const bhL = st(bh, LEARN);
+  const learnRows = MIX.map((m) => { const s = st(m.o, LEARN); return { ...m, s, ok: s.cagr >= bhL.cagr - SAT_MIX_CAGR_TOL_PP && s.mdd <= bhL.mdd }; });
+  const okRows = learnRows.filter((r) => r.ok).sort((a, b) => b.s.sharpe - a.s.sharpe || a.w - b.w);
+  const selW = okRows.length ? okRows[0].w : SAT_MIX_DEFAULT_W;
+  const selLabel = MIX.find((m) => m.w === selW)!.label;
+  console.log(`\n=== 비중 선택 (학습 ${winLabel(LEARN)}; B&H CAGR ${f2(bhL.cagr)}, MDD ${f2(bhL.mdd)}, 샤프 ${f2(bhL.sharpe)}) ===`);
+  console.log(`| 비중 | 학습 CAGR % | 학습 MDD % | 학습 샤프 | CAGR ≥ ${f2(bhL.cagr - SAT_MIX_CAGR_TOL_PP)} | MDD ≤ ${f2(bhL.mdd)} | 후보 | 되돌림 횟수(전 기간) |\n|---|---|---|---|---|---|---|---|`);
+  for (const r of learnRows) console.log(`| ${r.label} | ${f2(r.s.cagr)} | ${f2(r.s.mdd)} | ${f2(r.s.sharpe)} | ${ox(r.s.cagr >= bhL.cagr - SAT_MIX_CAGR_TOL_PP)} | ${ox(r.s.mdd <= bhL.mdd)} | ${ox(r.ok)} | ${r.o.rebals} |`);
+  console.log(okRows.length ? `선택: ${selLabel} (후보 ${okRows.length}개 중 학습 샤프 최대 ${f2(okRows[0].s.sharpe)})` : `후보 없음 → 기본 표시 ${selLabel}`);
+
+  console.log("\n=== 7개 비중 구간별 CAGR % / MDD % / 샤프 ===");
+  console.log(`| 비중 | ${WINS.map(([n]) => `${n} CAGR | ${n} MDD | ${n} 샤프`).join(" | ")} |\n|---|${WINS.map(() => "---|---|---|").join("")}`);
+  for (const m of MIX) console.log(`| ${m.label}${m.w === selW ? "(선택)" : ""} | ${WINS.map(([, w]) => { const s = st(m.o, w); return `${f2(s.cagr)} | ${f2(s.mdd)} | ${f2(s.sharpe)}`; }).join(" | ")} |`);
+  {
+    const b = (w: Win): Stat => st(bh, w);
+    console.log(`| B&H(069500) | ${WINS.map(([, w]) => { const s = b(w); return `${f2(s.cagr)} | ${f2(s.mdd)} | ${f2(s.sharpe)}`; }).join(" | ")} |`);
+  }
+  const selMix = MIX.find((m) => m.w === selW)!.o;
+  console.log(`\n=== 선택된 비중 ${selLabel} 참고 기준 (채점용) ===`);
+  console.log("| 구간 | CAGR % | MDD % | 샤프 | B&H CAGR % | B&H MDD % | B&H 샤프 | CAGR ≥ B&H − 0.5 | 샤프 > B&H | MDD ≤ B&H |\n|---|---|---|---|---|---|---|---|---|---|");
+  for (const [n, w] of WINS) {
+    const s = st(selMix, w), b = st(bh, w);
+    console.log(`| ${n} | ${f2(s.cagr)} | ${f2(s.mdd)} | ${f2(s.sharpe)} | ${f2(b.cagr)} | ${f2(b.mdd)} | ${f2(b.sharpe)} | ${ox(s.cagr >= b.cagr - SAT_MIX_CAGR_TOL_PP)} | ${ox(s.sharpe > b.sharpe)} | ${ox(s.mdd <= b.mdd)} |`);
+  }
+
+  console.log(`\n=== 연도별 수익률 % ===\n| 연도 | 위성 | ${selLabel}(선택) | PEW | B&H |\n|---|---|---|---|---|`);
+  for (let y = Number(firstExec.slice(0, 4)); y <= Number(dataEnd.slice(0, 4)); y++) console.log(`| ${y} | ${f2(yearRet(SAT, y))} | ${f2(yearRet(selMix, y))} | ${f2(yearRet(PEW, y))} | ${f2(yearRet(bh, y))} |`);
+
+  const avg = (a: number[]): number => a.reduce((x, y) => x + y, 0) / Math.max(a.length, 1);
+  const nDelayed = satTargets.reduce((a, t) => a + t.delayed.size, 0);
+  console.log("\n=== 분기 구성 ===");
+  console.log(`분기 ${quarterSignals.length}개 | 선정 종목 수 평균 ${f2(avg(satN))} (최소 ${Math.min(...satN)}, 최대 ${Math.max(...satN)}) | 교체(새 종목) 수 평균 ${f2(avg(satNew))} (첫 분기 제외 ${f2(avg(satNew.slice(1)))})`);
+  console.log(`매수 지연 대상(신호 기준) ${nDelayed}건 / 새 종목 ${satNew.reduce((a, b) => a + b, 0)}건 | 기본: 지연 매수 ${SAT.delayedBought}건, 지연 후 미매수 ${SAT.delayedMissed}건 | 지연 변형: 지연 매수 ${SATD.delayedBought}건, 미매수 ${SATD.delayedMissed}건`);
+  console.log(`폐지 청산: 위성 ${SAT.liq.length}건, PEW ${PEW.liq.length}건, POOL ${POOL.liq.length}건`);
+
+  const lastK = quarterSignals.length - 1;
+  console.log(`\n=== 가장 최근 리밸런싱 (신호 ${quarterSignals[lastK]}, 체결 ${CAL[calIdx.get(quarterSignals[lastK])! + 1] ?? "-"}) 위성 ${satPicks[lastK].length}종목 ===`);
+  console.log("| 순서 | 코드 | 이름 | C1 신용잔고율 % | VOL 일표준편차 % | 점수 | 매수 지연 대상 |\n|---|---|---|---|---|---|---|");
+  satPicks[lastK].forEach((x, i) => console.log(`| ${i + 1} | ${x.code} | ${nameOf.get(x.code) ?? "-"} | ${f2(x.c1)} | ${f2(x.vol * 100)} | ${f2(x.score)} | ${satTargets[lastK].delayed.has(x.code) ? "O" : ""} |`));
+
+  console.log("\n=== 실행 지표 ===");
+  console.log(`Supabase 읽은 행: ${Object.entries(dbRead).map(([k, v]) => `${k} ${v}`).join(" | ")} | 합계 ${Object.values(dbRead).reduce((a, b) => a + b, 0)}`);
+  console.log(`Storage 다운로드: 신용잔고 정리본 ${dl.creditRows}행 ${(dl.creditBytes / 1048576).toFixed(2)} MiB, 외국인 수급 정리본 ${dl.flowRows}행 ${(dl.flowBytes / 1048576).toFixed(2)} MiB | Supabase 쓴 행: 0 | 외부 요청 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+}
+
+main().catch((e) => { console.error(e instanceof Error ? e.stack : e); process.exit(1); });

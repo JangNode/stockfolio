@@ -69,18 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 월말 시장 구분 수집 (KRX Open API만, 최대 500건, Storage Parquet만 저장)
+      - name: KODEX 200 + 업종 모멘텀 위성 v3 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/collect-market-membership.ts
-        env:
-          NODE_OPTIONS: --max-old-space-size=12288
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-      - name: 업종 모멘텀 틸트 v2.1 - 월말 시장 목록 (읽기 전용, 외부 요청 0건)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-sector-mom-tilt-v2_1-mm.ts
+        run: npx tsx --conditions=react-server scripts/research-kodex-sector-satellite-v3.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

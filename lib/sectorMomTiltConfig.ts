@@ -26,3 +26,8 @@ export const SMT_R3_DRAWS = 1000;
 export const SMT_R3_SEED = 20261021;
 /** 월 회전율 환산(연 12회). */
 export const SMT_MONTHS_PER_YEAR = 12;
+
+// ---- v2.1 (research/sector-mom-tilt-v2_1-prereg.md, 사용자 지정 2026-10-21) ----
+/** 바탕 K200P 종목 수(KOSPI 시총 상위), 0단계 시장 미상 시총 비율 상한(%). */
+export const SMT21_K_SIZE = 200;
+export const SMT21_STAGE0_MAX_UNKNOWN_PCT = 5;

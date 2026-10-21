@@ -69,9 +69,9 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 대형주 업종 모멘텀 틸트 v2 (읽기 전용, 외부 요청 0건)
+      - name: 업종 모멘텀 틸트 v2.1 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-sector-mom-tilt.ts
+        run: npx tsx --conditions=react-server scripts/research-sector-mom-tilt-v2_1.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

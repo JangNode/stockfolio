@@ -15,3 +15,13 @@ export const KSS_R1_LOOKBACKS = [3, 12] as const;
 export const KSS_R1_TOP_KS = [2, 4] as const;
 export const KSS_R3_DRAWS = 1000;
 export const KSS_R3_SEED = 20261022;
+
+// ---- v3.1 (research/kodex-sector-satellite-v3_1-prereg.md, 사용자 지정 2026-10-22) ----
+/** 업종별 위성 종목 수(시총 상위)와 R1 주변 값. */
+export const KSS31_PER_SECTOR = 3;
+export const KSS31_R1_LOOKBACKS = [3, 9, 12] as const;
+export const KSS31_R1_PER_SECTOR = [2, 5] as const;
+/** 실투자 점검: 최소 운용 금액 집계 시작 월, 계좌 크기(원), 최근 신호일 수. */
+export const KSS31_PRACTICAL_FROM = "2024-01";
+export const KSS31_ACCOUNTS_WON = [10_000_000, 30_000_000, 100_000_000] as const;
+export const KSS31_RECENT_SIGNALS = 12;

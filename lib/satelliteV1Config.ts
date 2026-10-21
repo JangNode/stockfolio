@@ -51,3 +51,13 @@ export const SAT_KSIC_DIVISION_NAMES: Record<string, string> = {
   "72": "건축기술·엔지니어링", "73": "기타 전문·과학·기술 서비스", "74": "사업시설 관리·조경", "75": "사업 지원 서비스", "76": "임대(부동산 제외)",
   "84": "공공 행정", "85": "교육", "86": "보건", "87": "사회복지", "90": "창작·예술·여가", "91": "스포츠·오락", "94": "협회·단체", "95": "개인·소비용품 수리", "96": "기타 개인 서비스",
 };
+
+// ---- v1.2a·v1.2b (research/satellite-v1_2-prereg.md, 사용자 지정 2026-10-21) ----
+/** 부동산·인프라 제외(부분 일치 없음): 이름이 이 말로 끝남, 업종 코드 접두, 명시 코드(맥쿼리인프라·KB발해인프라·맵스리얼티). */
+export const SAT_REIT_NAME_SUFFIX = "리츠";
+export const SAT_REIT_KSIC_PREFIXES = ["642", "681"] as const;
+export const SAT_REIT_EXPLICIT_CODES = ["088980", "415640", "094800"] as const;
+/** 업종 상한(같은 업종 최대 종목 수, 업종 = induty_code 앞 2자리, 없으면 미분류 한 그룹)과 R1 주변 값. */
+export const SAT_SECTOR_CAP = 4;
+export const SAT_R1_SECTOR_CAPS = [3, 5] as const;
+export const SAT_SECTOR_UNCLASSIFIED = "미분류";

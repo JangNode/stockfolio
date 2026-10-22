@@ -49,3 +49,16 @@ export const BC_C2_EXPOSURE = 0.7;
 export const BC_C_G1_MIN_CAGR = 5;
 export const BC_C_G2_MAX_MDD = 15;
 export const BC_C_G3_MIN_WORST12 = -15;
+
+// ---- 연구 D (docs/research/d-frequency-prereg.md, 5194e70) ----
+/** 069500 원 종가 이동평균 거래일 수(기본, R1 이웃값). */
+export const D_SMA_DAYS = 20;
+export const D_R1_SMA_DAYS = [10, 40] as const;
+/** D3 계좌 손절 비율(고점 대비, 기본, R1 이웃값). */
+export const D_STOP = 0.1;
+export const D_R1_STOPS = [0.07, 0.15] as const;
+/** R3 백분위 하한. */
+export const D_R3_MIN_PCTILE = 95;
+/** 추가 보고 구간: 2026-09-30 종가 → 2026-10-15 종가. */
+export const D_RECENT_FROM = "2026-09-30";
+export const D_RECENT_TO = "2026-10-15";

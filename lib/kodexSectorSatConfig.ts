@@ -131,3 +131,26 @@ export const F_TESTS = 4;
 export const F_PRIOR_TESTS = 157;
 export const F_TOP_TRADES_N = 10;
 export const F_LONG_HOLD_DAYS = 250;
+
+// ---- 연구 H (docs/research/h-divergence-impulse-prereg.md, da471da) ----
+/** MACD(12,26,9)·주봉 임펄스용 EMA 기간, 일봉 목표 채널 EMA. 일봉 인덱스 60 미만·주봉 인덱스 35 미만은 지표를 쓰지 않는다(초기값 영향). */
+export const H_MACD_FAST = 12;
+export const H_MACD_SLOW = 26;
+export const H_MACD_SIGNAL = 9;
+export const H_WEEKLY_EMA = 13;
+export const H_TARGET_EMA = 26;
+export const H_DAILY_WARMUP_ROWS = 60;
+export const H_WEEKLY_VALID_FROM = 35;
+/** 다이버전스: A·C 런 간격(거래일, 기본·R1 이웃값), 목표 채널(EMA26 위 비율), 시간 청산(거래일). */
+export const H_GAP = 60;
+export const H_R1_GAPS = [40, 80] as const;
+export const H_TARGET_CH = 0.06;
+export const H_R1_TARGETS = [0.05, 0.07] as const;
+export const H_TIME_DAYS = 60;
+export const H_R1_TIMES = [40, 80] as const;
+/** 표본 게이트(전 기간 진입 건수 하한), 이번 라운드 후보 수·직전 누적 시험. */
+export const H_MIN_ENTRIES = 100;
+export const H_TESTS = 4;
+export const H_PRIOR_TESTS = 161;
+/** F 연구 G4 로그(run 39728013417) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
+export const H_REPRO_G4: Record<string, [number, number]> = { 학습: [4.96, 21.35], 확인: [9.17, 40.51], 보류: [10.58, 26.64], "전 기간": [7.87, 40.51] };

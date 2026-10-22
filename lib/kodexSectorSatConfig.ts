@@ -213,3 +213,26 @@ export const I_MIN_ENTRIES = 100;
 /** 이번 라운드 후보 수·직전 누적 시험. */
 export const I_TESTS = 5;
 export const I_PRIOR_TESTS = 167;
+
+// ---- 연구 J (docs/research/j-turtle-prereg.md, defc459) ----
+/** 시스템1(J1·J3) 진입 채널 L / 청산 채널 M, 시스템2(J2·J4), R1 이웃값 (L, M). */
+export const J_SYS1 = { L: 20, M: 10 } as const;
+export const J_SYS2 = { L: 55, M: 20 } as const;
+export const J_R1_LM1 = [[15, 7], [30, 15]] as const;
+export const J_R1_LM2 = [[40, 15], [70, 25]] as const;
+/** ATR(종가 기준 |종가−전일종가| 평균) 기간, 손절 배수와 R1 이웃값. */
+export const J_ATR_N = 20;
+export const J_ATR_MULT = 2;
+export const J_R1_ATR_MULTS = [1.5, 2.5] as const;
+/** 실적 필터: 직전 분기 영업이익 전년 동기 대비 증가율 하한과 R1 이웃값, 공시 후 사용 한도(일, 기존 분기 실적 연구와 같음). */
+export const J_EARN_THR = 0.25;
+export const J_R1_EARN_THRS = [0.15, 0.35] as const;
+export const J_EARN_STALE_DAYS = 150;
+/** 연평균 커버리지(%)가 이 값 미만인 해는 실적 필터 후보 "실행 불가". */
+export const J_COVERAGE_MIN_PCT = 70;
+/** 표본 게이트(전 기간 진입 건수), 상위 거래 비중 개수. */
+export const J_MIN_ENTRIES = 100;
+export const J_TOP_TRADES_SHARE_N = 10;
+/** 이번 라운드 후보 수·직전 누적 시험. */
+export const J_TESTS = 4;
+export const J_PRIOR_TESTS = 172;

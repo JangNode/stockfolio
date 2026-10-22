@@ -236,3 +236,18 @@ export const J_TOP_TRADES_SHARE_N = 10;
 /** 이번 라운드 후보 수·직전 누적 시험. */
 export const J_TESTS = 4;
 export const J_PRIOR_TESTS = 172;
+
+// ---- 연구 K (docs/research/k-turtle-sizing-prereg.md, eca1c82) ----
+/** 리스크 사이징: 진입 비중 w = 리스크율 ÷ (ATR 배수 × ATR20 / 진입가), 상한은 F_ENTRY_FRAC. 리스크율과 R1 이웃값. */
+export const K_RISK_K1 = 0.01;
+export const K_RISK_K2 = 0.005;
+export const K_R1_RISK_K1 = [0.007, 0.015] as const;
+export const K_R1_RISK_K2 = [0.0035, 0.007] as const;
+/** K3(사이징 없음): 동시 보유 슬롯과 종목당 고정 비중. */
+export const K3_SLOTS = 10;
+export const K3_FRAC = 0.1;
+/** 이번 라운드 후보 수·직전 누적 시험. */
+export const K_TESTS = 4;
+export const K_PRIOR_TESTS = 176;
+/** J 연구 로그의 J2(run 39802050442) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
+export const K_REPRO_J2: Record<string, [number, number]> = { 학습: [3.76, 43.12], 확인: [37.02, 44.08], 보류: [9.2, 58.02], "전 기간": [14.7, 65.89] };

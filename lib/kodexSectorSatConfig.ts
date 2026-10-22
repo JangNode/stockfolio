@@ -251,3 +251,24 @@ export const K_TESTS = 4;
 export const K_PRIOR_TESTS = 176;
 /** J 연구 로그의 J2(run 39802050442) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
 export const K_REPRO_J2: Record<string, [number, number]> = { 학습: [3.76, 43.12], 확인: [37.02, 44.08], 보류: [9.2, 58.02], "전 기간": [14.7, 65.89] };
+
+// ---- 연구 M (docs/research/m-breadth-prereg.md, 9c5e24a) ----
+/** 시장 폭 필터: B50 진입 임계(≥)와 R1 이웃값, M2 시장 청산 임계(< 이면 전량 청산)와 R1 이웃값. */
+export const M_B50_ENTRY = 40;
+export const M_R1_B50_ENTRY = [30, 50] as const;
+export const M_B50_EXIT = 20;
+export const M_R1_B50_EXIT = [15, 25] as const;
+/** M3: NH(55일 신고가 수 − 신저가 수) > 임계. M4: B200 ≥ 임계, B200이 정의되는 첫 날(그날 K200P 중 200일선 정의 종목이 95% 이상). */
+export const M_NH_THR = 0;
+export const M_R1_NH = [-5, 5] as const;
+export const M_B200_THR = 50;
+export const M_R1_B200 = [40, 60] as const;
+export const M_B200_FIRST = "2010-11-15";
+/** R1 동시 보유 이웃값(K3의 기본은 K3_SLOTS = 10, 종목당 K3_FRAC), 시장 청산 후 K3 기준 수익률을 보는 거래일 수. */
+export const M_R1_POS = [7, 13] as const;
+export const M_POST_EXIT_DAYS = 20;
+/** 이번 라운드 후보 수·직전 누적 시험. */
+export const M_TESTS = 4;
+export const M_PRIOR_TESTS = 180;
+/** K 연구 로그의 K3(run 39803792355) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
+export const M_REPRO_K3: Record<string, [number, number]> = { 학습: [4.62, 31.93], 확인: [29.48, 31.54], 보류: [5.8, 44.08], "전 기간": [12.06, 49.56] };

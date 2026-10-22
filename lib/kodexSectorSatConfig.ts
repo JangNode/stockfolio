@@ -154,3 +154,36 @@ export const H_TESTS = 4;
 export const H_PRIOR_TESTS = 161;
 /** F 연구 G4 로그(run 39728013417) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
 export const H_REPRO_G4: Record<string, [number, number]> = { 학습: [4.96, 21.35], 확인: [9.17, 40.51], 보류: [10.58, 26.64], "전 기간": [7.87, 40.51] };
+
+// ---- 연구 W (docs/research/w-walkforward-prereg.md, acd11e3) ----
+/** 선정 연도: 평가 첫 해, 1년 지연 변형용 직전 선정 연도(2014). */
+export const W_FIRST_EVAL_YEAR = 2015;
+export const W_LAG_FIRST_SELECT_YEAR = 2014;
+/** 점수: 과거 구간 진입 건수 하한, Calmar의 MDD(%) 하한(0 나눗셈 방지). */
+export const W_MIN_ENTRIES_SCORE = 30;
+export const W_CALMAR_MDD_FLOOR_PCT = 0.01;
+/** W1 격자(648점): 이동평균 (단기, 장기), 상위 업종 수, 동시 보유, 손절, 트레일링, 임펄스 필터. 순서형 좌표. */
+export const W1_MA_PAIRS = [[40, 150], [50, 200], [60, 250]] as const;
+export const W1_TOPS = [2, 3, 4] as const;
+export const W1_POS = [3, 5, 7] as const;
+export const W1_STOPS = [0.07, 0.1, 0.13] as const;
+export const W1_TRAILS = [0.2, 0.25, 0.3, 0.35] as const;
+export const W1_IMPULSE = [false, true] as const;
+/** W2 격자(144점): 모멘텀 (기간, 건너뛰기) 개월, 업종 수, 업종당 종목 수, 가중(시총/동일), 현금 필터. */
+export const W2_MOMS = [[3, 0], [6, 1], [9, 1], [12, 1]] as const;
+export const W2_SECTORS = [2, 3, 4] as const;
+export const W2_PER = [2, 3, 4] as const;
+export const W2_WEIGHTS = ["mcap", "equal"] as const;
+export const W2_CASH_FILTER = [false, true] as const;
+/** 판정: 이어 붙인 결과 기준. B 구간 분할일(앞 구간 끝), G(W1) 진입 하한, R3 횟수·참고 백분위, E 대체 개수. */
+export const W_A_EXCESS_PP = 2;
+export const W_B_SPLIT_END = "2019-12-31";
+export const W_B_LATE_FROM = "2020-01-01";
+export const W_C_MAX_CAGR_DROP = 1;
+export const W_C_MAX_MDD_WORSEN = 2;
+export const W_E_TOP = 3;
+export const W_F_DRAWS = 200;
+export const W_F_MIN_PCTILE = 95;
+export const W1_MIN_ENTRIES = 100;
+export const W_TESTS = 2;
+export const W_PRIOR_TESTS = 165;

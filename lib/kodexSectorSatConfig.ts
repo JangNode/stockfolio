@@ -34,3 +34,18 @@ export const KSS32_R1_TRIMS = [0.005, 0.02] as const;
 export const KSS32_SEEDS_WON = [1_000_000, 3_000_000, 5_000_000, 7_000_000, 10_000_000] as const;
 export const KSS32_SAT_CAP = 0.3;
 export const KSS32_ETF_SLIPPAGE = 0.0005;
+
+// ---- 연구 B·C (docs/research/bc-weight-defense-prereg.md, a28dfbd) ----
+/** B: 새로 실행하는 비중 변형(069500:위성 = 60:40)과 그 정수 주 모의의 위성 평가 상한(= 위성 목표 + 10%p). */
+export const BC_B_WEIGHT = 0.4;
+export const BC_B_SAT_CAP = 0.5;
+/** B의 R 통과 기준(이번 사전등록에서 새로 정함): R3 CAGR 백분위 하한. R1·R2는 B&H 가격 전 기간 CAGR 초과. */
+export const BC_R3_MIN_PCTILE = 95;
+/** C: 069500 월말 원 종가 이동평균 개월 수(기본, R1 이웃값), C2의 "위" 노출. */
+export const BC_C_MA_MONTHS = 10;
+export const BC_C_R1_MA_MONTHS = [8, 12] as const;
+export const BC_C2_EXPOSURE = 0.7;
+/** C 판정: G1 CAGR ≥ 5%, G2 일별 MDD ≤ 15%, G3 최악 12개월 ≥ −15%. */
+export const BC_C_G1_MIN_CAGR = 5;
+export const BC_C_G2_MAX_MDD = 15;
+export const BC_C_G3_MIN_WORST12 = -15;

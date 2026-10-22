@@ -41,9 +41,11 @@ jobs:
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
 
+      # [임시 — 정리 커밋에서 되돌림] KODEX 업종 모멘텀 KRX·운영 경로 진단
       - name: Run benchmark reference implementation
-        run: npm run diagnose:benchmark-reference-implementation
+        run: npm run diagnose:kodex-sector-krx
         env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

@@ -28,6 +28,7 @@
     "backfill:stock-annual-fundamentals": "tsx --conditions=react-server scripts/backfill-stock-annual-fundamentals.ts",
     "backfill:stock-dividends": "tsx --conditions=react-server scripts/backfill-stock-dividends.ts",
     "seed:stock-daily-prices-recent": "tsx --conditions=react-server scripts/seed-stock-daily-prices-recent.ts",
+    "diagnose:kodex-sector-krx": "tsx --conditions=react-server scripts/diagnose-kodex-sector-krx.ts",
     "kodex:sector-signal": "tsx --conditions=react-server scripts/kodex-sector-signal.ts",
     "update:stock-daily-prices-recent": "tsx --conditions=react-server scripts/update-stock-daily-prices-recent.ts",
     "archive:stock-daily-prices": "tsx --conditions=react-server scripts/archive-stock-daily-prices.ts",

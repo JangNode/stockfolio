@@ -100,3 +100,34 @@ export const E_D_MAX_MDD = 35;
 export const E_E_MIN_CAGR = 13;
 export const E_F_MIN_PCTILE = 95;
 export const E_PRIOR_TESTS = 153;
+
+// ---- 연구 F (docs/research/f-daily-trend-prereg.md, b4378c4) ----
+/** 골든크로스 이동평균(기본, R1 이웃값), 상위 업종 수, 동시 보유, 신규 진입 비중, 재진입 쿨다운(거래일). */
+export const F_SHORT = 50;
+export const F_LONG = 200;
+export const F_R1_MAS = [[40, 150], [60, 250]] as const;
+export const F_TOP_SECTORS = 3;
+export const F_R1_TOPS = [2, 4] as const;
+export const F_MAX_POS = 5;
+export const F_R1_POS = [3, 7] as const;
+export const F_ENTRY_FRAC = 0.2;
+export const F_COOLDOWN = 20;
+/** 손절·트레일링(진입가 대비 / 최고 종가 대비 하락 비율)과 R1 이웃값(G4 트레일링 이웃값은 기본 −30% ±5%p). */
+export const F_STOP = 0.1;
+export const F_R1_STOPS = [0.07, 0.13] as const;
+export const F_TRAIL_G2 = 0.25;
+export const F_R1_TRAIL_G2 = [0.2, 0.3] as const;
+export const F_TRAIL_G4 = 0.3;
+export const F_R1_TRAIL_G4 = [0.25, 0.35] as const;
+/** 판정: A 초과 CAGR %p, B 충족 구간 수, C 지연 시 CAGR 하락·MDD 악화 한도 %p, E 대체 거래 수, F 백분위. */
+export const F_A_EXCESS_PP = 2;
+export const F_B_MIN_PERIODS = 2;
+export const F_C_MAX_CAGR_DROP = 1;
+export const F_C_MAX_MDD_WORSEN = 2;
+export const F_E_TOP_TRADES = 3;
+export const F_F_MIN_PCTILE = 95;
+/** 이번 라운드 후보 수·직전 누적 시험, 보고용: 상위 거래 수, 장기 보유 거래일. */
+export const F_TESTS = 4;
+export const F_PRIOR_TESTS = 157;
+export const F_TOP_TRADES_N = 10;
+export const F_LONG_HOLD_DAYS = 250;

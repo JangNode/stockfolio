@@ -25,3 +25,12 @@ export const KSS31_R1_PER_SECTOR = [2, 5] as const;
 export const KSS31_PRACTICAL_FROM = "2024-01";
 export const KSS31_ACCOUNTS_WON = [10_000_000, 30_000_000, 100_000_000] as const;
 export const KSS31_RECENT_SIGNALS = 12;
+
+// ---- v3.2 (research/kodex-sector-satellite-v3_2-prereg.md, 사용자 지정 2026-10-22) ----
+/** A 정리 기준: 80:20 기준 계좌 전체 비중이 이 값 미만인 위성 종목 제외. R1 주변 값. */
+export const KSS32_TRIM_MIN_WEIGHT = 0.01;
+export const KSS32_R1_TRIMS = [0.005, 0.02] as const;
+/** B 실제 시드(원), 위성 실제 비중 상한, 069500 슬리피지(편도). 주식 비용은 lib/transactionCost.ts. */
+export const KSS32_SEEDS_WON = [1_000_000, 3_000_000, 5_000_000, 7_000_000, 10_000_000] as const;
+export const KSS32_SAT_CAP = 0.3;
+export const KSS32_ETF_SLIPPAGE = 0.0005;

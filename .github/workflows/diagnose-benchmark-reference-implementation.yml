@@ -71,7 +71,7 @@ jobs:
 
       - name: KODEX 200 + 업종 모멘텀 위성 v3.2 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-d-frequency.ts
+        run: npx tsx --conditions=react-server scripts/research-e-new-goal.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

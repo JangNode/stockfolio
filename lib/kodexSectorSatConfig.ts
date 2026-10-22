@@ -62,3 +62,41 @@ export const D_R3_MIN_PCTILE = 95;
 /** 추가 보고 구간: 2026-09-30 종가 → 2026-10-15 종가. */
 export const D_RECENT_FROM = "2026-09-30";
 export const D_RECENT_TO = "2026-10-15";
+
+// ---- 연구 E (docs/research/e-new-goal-prereg.md, 9def1f0) ----
+/** 보유 종목 수(기본, R1 이웃값), 1종목 상한. */
+export const E_K = 10;
+export const E_R1_KS = [8, 12] as const;
+export const E_MAX_WEIGHT = 0.2;
+/** 모멘텀 L·스킵(거래일), 52주 창 W(거래일), 창 안 행 비율 하한, E3 모멘텀 상위 비율, 60일 변동성. */
+export const E_MOM_L = 252;
+export const E_R1_MOM_LS = [189, 126] as const;
+export const E_MOM_SKIP = 21;
+export const E_HIGH_W = 252;
+export const E_R1_HIGH_WS = [126, 189] as const;
+export const E_MIN_ROW_RATIO = 2 / 3;
+export const E3_TOP_PCT = 0.3;
+export const E3_R1_TOP_PCTS = [0.2, 0.4] as const;
+export const E_VOL_DAYS = 60;
+export const E_VOL_MIN_DAYS = 40;
+/** 외국인 20일 순매수 창, 창 안 수급 행 하한. */
+export const E5_FLOW_DAYS = 20;
+export const E5_FLOW_MIN_DAYS = 14;
+/** 분기 영업이익 레코드 신선도(일) — 기존 스캔·smallcap과 같은 값(lib/signalScanConfig.ts SCAN_QUARTER_FRESH_DAYS). */
+export const E3_QUARTER_FRESH_DAYS = 150;
+/** 데이터 게이트: E5 상위 30종목 중 수급 자료 비율 연평균 하한, E3 모멘텀 상위 30% 중 SOP 계산 가능 비율 연평균 하한. */
+export const E5_GATE_TOPN = 30;
+export const E5_GATE_MIN_COVER = 0.9;
+export const E3_GATE_MIN_COVER = 0.5;
+/** 판정 기준(%): A 전 기간, B 구간(069500 원주가 대비 초과 %p, 구간 수), C 지연, D 이웃값, E R2, F R3 백분위. */
+export const E_A_MIN_CAGR = 15;
+export const E_A_MAX_MDD = 30;
+export const E_B_EXCESS_PP = 3;
+export const E_B_MIN_PERIODS = 2;
+export const E_C_MIN_CAGR = 13;
+export const E_C_MAX_MDD = 32;
+export const E_D_MIN_CAGR = 12;
+export const E_D_MAX_MDD = 35;
+export const E_E_MIN_CAGR = 13;
+export const E_F_MIN_PCTILE = 95;
+export const E_PRIOR_TESTS = 153;

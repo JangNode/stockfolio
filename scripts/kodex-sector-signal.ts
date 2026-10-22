@@ -1,19 +1,21 @@
 /**
  * KODEX 200 + 업종 모멘텀 위성 전략(연구 v3.2, 사전등록 d70b1fd) 월간 신호 배치.
- * pg_cron이 평일 16:30 KST에 .github/workflows/kodex-sector-signal.yml을 부르고, 이 스크립트는
- * krx_trading_calendar로 "오늘이 그 달 마지막 거래일"일 때만 계산한다(아니면 바로 끝).
+ * pg_cron이 평일 08:10 KST에 .github/workflows/kodex-sector-signal.yml을 부르고, 이 스크립트는
+ * krx_trading_calendar로 "오늘이 그 달 첫 거래일"일 때만 계산한다(아니면 바로 끝). 신호일은 직전 거래일
+ * (전월 마지막 거래일), 매매는 오늘(첫 거래일) 종가 — 연구 규칙(월말 신호 → 다음 거래일 종가 체결) 그대로다.
  *
- * 마지막 거래일이면:
- * 1. KRX sto/stk_bydd_trd(오늘) 1회로 KOSPI 목록·오늘 종가·시총·거래대금을 받고, etp/etf_bydd_trd(오늘)로
+ * 첫 거래일이면:
+ * 1. KRX sto/stk_bydd_trd(신호일) 1회로 KOSPI 목록·신호일 종가·시총·거래대금을 받고, etp/etf_bydd_trd(신호일)로
  *    069500 종가를 받는다. 빈 응답·이상 응답이면 그 달 신호는 저장하지 않고 오류만 기록한다.
  * 2. 그 전 시세(stock_daily_prices_recent ∪ Parquet)로 신호를 계산해 kodex_sector_signals에 저장한다.
- * 3. 직전 신호의 체결일(다음 거래일) 종가로 시드별 모의 계좌를 리밸런싱해 kodex_sector_track에 저장한다
- *    (오늘 종가로 평가). 첫 운영 신호 이전 백필은 하지 않는다.
+ *    hot 표는 신호일 14:30 스크리닝 배치가 신호일 전 거래일까지 채워둔 상태여야 한다(아니면 오류).
+ * 3. 직전 신호의 체결일 종가로 시드별 모의 계좌를 리밸런싱해 kodex_sector_track에 저장한다(이번 신호일 종가로
+ *    평가). 첫 운영 신호 이전 백필은 하지 않는다.
  * KIS는 호출하지 않는다.
  *
  *   tsx --conditions=react-server scripts/kodex-sector-signal.ts
  * 필요 환경변수: KRX_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
- * 선택: KSS_SIGNAL_DATE(YYYY-MM-DD) — 그날 실행이 실패했을 때 그 월말로 다시 계산(수동 복구용).
+ * 선택: KSS_SIGNAL_DATE(YYYY-MM-DD, 월 마지막 거래일) — 첫 거래일 실행이 실패했을 때 그 신호를 다시 계산(수동 복구용).
  */
 import { isKrxTradingDay } from "@/lib/krxTradingCalendar";
 import { applyKssShareAdjustments, computeKssSignal, monthEndMonthsBefore, rebalanceKssAccount, type KssAccount } from "@/lib/kodexSectorSatellite";
@@ -43,15 +45,15 @@ function todayKst(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
-/** 체결일이 오늘 이전인데 추적 행이 없는 신호를 순서대로 리밸런싱한다. 평가일 = 다음 신호일(오늘이면 오늘 KRX 종가). */
-async function runTrack(today: string, kospiToday: KrxStockDayRow[], etfToday: number, apiKey: string): Promise<Omit<KssTrackRow, "computed_at">[]> {
+/** 체결일이 이번 신호일 이전인데 추적 행이 없는 신호를 순서대로 리밸런싱한다. 평가일 = 다음 신호일(이번 신호일이면 그날 KRX 종가). */
+async function runTrack(signalDate: string, kospiSignal: KrxStockDayRow[], etfSignal: number, apiKey: string): Promise<Omit<KssTrackRow, "computed_at">[]> {
   const signals = (await listKssSignals()).reverse();
   const track = await listKssTrack();
   const done = new Set(track.map((r) => r.trade_date));
-  const pending = signals.filter((s) => s.trade_date < today && !done.has(s.trade_date));
+  const pending = signals.filter((s) => s.trade_date < signalDate && !done.has(s.trade_date));
   if (pending.length === 0) return [];
 
-  const todayClose = new Map(kospiToday.map((r) => [r.code, r.close]));
+  const signalClose = new Map(kospiSignal.map((r) => [r.code, r.close]));
   const allCodes = new Set<string>();
   for (const s of pending) for (const h of s.holdings) allCodes.add(h.code);
   for (const r of track) for (const h of r.holdings) allCodes.add(h.code);
@@ -63,17 +65,17 @@ async function runTrack(today: string, kospiToday: KrxStockDayRow[], etfToday: n
 
   for (const s of pending) {
     const T = s.trade_date;
-    const markDate = signals.find((x) => x.signal_date > s.signal_date)?.signal_date ?? today;
+    const markDate = signals.find((x) => x.signal_date > s.signal_date)?.signal_date ?? signalDate;
     const etfT = await fetchKrxEtfClose(T, apiKey);
     if (etfT === null) throw new Error(`069500 ${T} 종가가 KRX 응답에 없습니다.`);
-    const etfMark = markDate === today ? etfToday : await fetchKrxEtfClose(markDate, apiKey);
+    const etfMark = markDate === signalDate ? etfSignal : await fetchKrxEtfClose(markDate, apiKey);
     if (etfMark === null) throw new Error(`069500 ${markDate} 종가가 KRX 응답에 없습니다.`);
 
     const codes = new Set(s.holdings.map((h) => h.code));
     for (const prev of latestBySeed.values()) for (const h of prev.holdings) codes.add(h.code);
     const pxT = await getRawClosesOnOrBefore([...codes], T);
     const pxMark = await getRawClosesOnOrBefore([...codes], markDate);
-    if (markDate === today) for (const c of codes) { const p = todayClose.get(c); if (p !== undefined) pxMark.set(c, p); }
+    if (markDate === signalDate) for (const c of codes) { const p = signalClose.get(c); if (p !== undefined) pxMark.set(c, p); }
 
     for (const seed of KSS_SEEDS_WON) {
       const prev = latestBySeed.get(seed);
@@ -112,32 +114,44 @@ async function runTrack(today: string, kospiToday: KrxStockDayRow[], etfToday: n
 async function main(): Promise<void> {
   const apiKey = process.env.KRX_API_KEY;
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
-  const signalDate = process.env.KSS_SIGNAL_DATE?.trim() || todayKst();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(signalDate)) throw new Error(`KSS_SIGNAL_DATE 형식 오류: ${signalDate}`);
+  const manual = process.env.KSS_SIGNAL_DATE?.trim();
+  if (manual && !/^\d{4}-\d{2}-\d{2}$/.test(manual)) throw new Error(`KSS_SIGNAL_DATE 형식 오류: ${manual}`);
 
-  if (!(await isKrxTradingDay(signalDate))) {
-    console.log(`${signalDate}: 휴장일 — 종료`);
-    return;
-  }
-  const tradeDate = await getNextTradingDay(signalDate);
-  if (tradeDate === null) {
-    const msg = `${signalDate} 다음 거래일을 krx_trading_calendar에서 찾지 못했습니다 — 캘린더 동기화 확인 필요`;
-    await recordKssAttempt(msg, null);
-    throw new Error(msg);
-  }
-  if (tradeDate.slice(0, 7) === signalDate.slice(0, 7)) {
-    console.log(`${signalDate}: 그 달 마지막 거래일 아님(다음 거래일 ${tradeDate}) — 종료`);
-    return;
+  let signalDate: string, tradeDate: string;
+  if (manual) {
+    // 수동 복구: 지정한 날이 그 달 마지막 거래일인지 확인하고, 체결일은 그다음 거래일.
+    const next = await getNextTradingDay(manual);
+    if (next === null || next.slice(0, 7) === manual.slice(0, 7)) throw new Error(`${manual}은 그 달 마지막 거래일이 아닙니다(다음 거래일 ${next ?? "없음"}).`);
+    signalDate = manual;
+    tradeDate = next;
+  } else {
+    const today = todayKst();
+    if (!(await isKrxTradingDay(today))) {
+      console.log(`${today}: 휴장일 — 종료`);
+      return;
+    }
+    const prev = await getPrevTradingDay(today);
+    if (prev === null) {
+      const msg = `${today} 직전 거래일을 krx_trading_calendar에서 찾지 못했습니다 — 캘린더 동기화 확인 필요`;
+      await recordKssAttempt(msg, null);
+      throw new Error(msg);
+    }
+    if (prev.slice(0, 7) === today.slice(0, 7)) {
+      console.log(`${today}: 그 달 첫 거래일 아님(직전 거래일 ${prev}) — 종료`);
+      return;
+    }
+    signalDate = prev;
+    tradeDate = today;
   }
 
-  console.log(`${signalDate}: 그 달 마지막 거래일 — 신호 계산(체결 ${tradeDate})`);
+  console.log(`신호일 ${signalDate}(전월 마지막 거래일) — 신호 계산, 체결 ${tradeDate} 종가`);
   try {
     const prevDay = await getPrevTradingDay(signalDate);
     const latestHot = await getLatestHotDate();
     if (prevDay && (!latestHot || latestHot < prevDay)) throw new Error(`stock_daily_prices_recent가 ${prevDay}까지 갱신되지 않았습니다(최신 ${latestHot ?? "없음"}).`);
 
     const kospiDay = await fetchKrxKospiDay(signalDate, apiKey);
-    if (kospiDay.length < KSS_KRX_KOSPI_MIN_ROWS) throw new Error(`KRX stk_bydd_trd(${signalDate}) 행 ${kospiDay.length}개 < ${KSS_KRX_KOSPI_MIN_ROWS} — 정산 전 또는 응답 이상`);
+    if (kospiDay.length < KSS_KRX_KOSPI_MIN_ROWS) throw new Error(`KRX stk_bydd_trd(${signalDate}) 행 ${kospiDay.length}개 < ${KSS_KRX_KOSPI_MIN_ROWS} — 미반영 또는 응답 이상`);
     const etfClose = await fetchKrxEtfClose(signalDate, apiKey);
     if (etfClose === null) throw new Error(`KRX etf_bydd_trd(${signalDate})에 ${KSS_ETF_CODE} 종가가 없습니다.`);
     console.log(`KRX: KOSPI ${kospiDay.length}종목, ${KSS_ETF_CODE} 종가 ${etfClose.toLocaleString("ko-KR")}`);

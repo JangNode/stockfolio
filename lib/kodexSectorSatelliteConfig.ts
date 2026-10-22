@@ -70,7 +70,7 @@ export const KSS_RESEARCH_SCORECARD = {
 export const KSS_KRX_KOSPI_MIN_ROWS = 700;
 // 모멘텀 시작 월말 앞 여유(달력 일). "시작 월말 이하 마지막 행"을 찾기 위해 그 달 전체를 더 읽는다.
 export const KSS_HISTORY_PAD_DAYS = 31;
-// 다음 거래일(체결일)을 캘린더에서 찾는 범위(달력 일). 설·추석 연휴도 10일 안에 끝난다.
+// 직전·다음 거래일(신호일·체결일)을 캘린더에서 찾는 범위(달력 일). 설·추석 연휴도 10일 안에 끝난다.
 export const KSS_NEXT_TRADING_DAY_SEARCH_DAYS = 10;
 // 모의 추적에서 그날 행이 없는 종목(거래정지 등)의 직전 종가를 찾는 범위(달력 일, 연구 B는 기간 제한 없는 직전 종가).
 export const KSS_PRICE_LOOKBACK_DAYS = 31;

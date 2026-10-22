@@ -117,7 +117,7 @@ function SeedCalculator({ signal }: { signal: KssSignalRow }) {
 
 function TrackSummary({ track }: { track: KssTrackRow[] }) {
   if (track.length === 0) {
-    return <p className="text-sm text-ink-muted">아직 모의 추적 기록이 없습니다. 첫 운영 신호의 체결 결과는 그다음 월말 신호 때 함께 기록됩니다.</p>;
+    return <p className="text-sm text-ink-muted">아직 모의 추적 기록이 없습니다. 첫 운영 신호의 체결 결과는 그다음 달 신호 때 함께 기록됩니다.</p>;
   }
   const rows = KSS_SEEDS_WON.map((seed) => {
     const list = track.filter((r) => r.seed_won === seed);
@@ -166,8 +166,8 @@ export default function KodexSectorSatellite() {
       <p className="text-base font-semibold text-ink">KODEX 200 + 업종 모멘텀</p>
       <p className="mt-1 text-xs text-ink-muted">
         {KSS_ETF_NAME}({KSS_ETF_CODE}) 80% + 위성 20%. 위성 = 코스피 시총 상위 200(우선주·리츠 제외, 20일 평균 거래대금 5억 이상) 중 업종
-        모멘텀(6개월 전~1개월 전 업종 시총가중 수익률) 상위 3개 업종의 시총 상위 3종목, 계좌 비중 1% 미만 정리. 매월 마지막 거래일 장 마감 후 신호,
-        다음 거래일 체결.
+        모멘텀(6개월 전~1개월 전 업종 시총가중 수익률) 상위 3개 업종의 시총 상위 3종목, 계좌 비중 1% 미만 정리. 매월 첫 거래일 오전에 전월 마지막 거래일 종가로
+        신호를 계산하고, 그날 종가에 매매.
       </p>
 
       {isLoading ? (
@@ -185,7 +185,7 @@ export default function KodexSectorSatellite() {
           <section className="mt-4">
             <p className="mb-2 text-sm font-medium text-ink">최근 신호</p>
             {!latest ? (
-              <p className="text-sm text-ink-muted">아직 운영 신호가 없습니다. 첫 신호는 다음 월말 거래일 장 마감 후 계산됩니다.</p>
+              <p className="text-sm text-ink-muted">아직 운영 신호가 없습니다. 첫 신호는 다음 달 첫 거래일 오전에 계산됩니다.</p>
             ) : (
               <>
                 <p className="mb-2 text-xs text-ink-muted">

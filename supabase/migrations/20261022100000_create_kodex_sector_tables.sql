@@ -1,6 +1,6 @@
 -- KODEX 200 + 업종 모멘텀 위성 전략(연구 v3.2, 사전등록 d70b1fd) 운영 표.
--- scripts/kodex-sector-signal.ts가 매월 마지막 거래일 장 마감 후 신호를 계산해
--- kodex_sector_signals에 한 행을 쓰고, 직전 신호의 체결일(다음 거래일) 종가로 시드별
+-- scripts/kodex-sector-signal.ts가 매월 첫 거래일 오전에 전월 마지막 거래일(신호일) 기준 신호를 계산해
+-- kodex_sector_signals에 한 행을 쓰고, 직전 신호의 체결일(신호 다음 거래일) 종가로 시드별
 -- 모의 계좌를 리밸런싱해 kodex_sector_track에 쓴다. 과거 백필 없이 첫 운영 신호부터 쌓는다.
 --
 -- 행 수: 신호 월 1행 + 추적 월 5행(시드 5개) — 연 72행 수준이라 보관 기간 정책을 두지

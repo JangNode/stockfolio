@@ -153,8 +153,9 @@ export interface KssLoadedInput {
 }
 
 /**
- * 신호일 입력을 모은다: 신호일 행(KRX 응답) + 그 전 행(모멘텀 시작 월말 한 달 전부터, Parquet ∪ hot 표,
- * 같은 날짜는 hot 표 우선, 거래량 0 행 제외) → 분할·병합 조정 → 직전 20개 행 평균 거래대금.
+ * 신호일 입력을 모은다: 신호일 행(KRX 응답) + 그 전 행(모멘텀 시작 월말 한 달 전부터, hot 표 ∪ Parquet,
+ * 같은 날짜는 Parquet 우선 — hot 표는 2026-09-29 이전 행에 거래대금(trading_value)이 비어 있어 종가×거래량으로
+ * 대체되므로, 연구와 같은 값인 Parquet를 쓴다. 거래량 0 행 제외) → 분할·병합 조정 → 직전 20개 행 평균 거래대금.
  * 종목은 신호일 KOSPI 응답 종목만(K200P가 KOSPI 안에서만 뽑히므로).
  */
 export async function loadKssSignalInput(signalDate: string, momentumFrom: string, kospiDay: KrxStockDayRow[]): Promise<KssLoadedInput> {
@@ -168,8 +169,8 @@ export async function loadKssSignalInput(signalDate: string, momentumFrom: strin
     if (!m) { m = new Map(); byCode.set(r.stockCode, m); }
     m.set(r.tradeDate, r);
   };
-  for (let y = Number(fromDate.slice(0, 4)); y <= Number(signalDate.slice(0, 4)); y++) for (const r of await downloadYearPrices(y)) put(r);
   for (const r of await loadHotRows(codes, fromDate, signalDate)) put(r);
+  for (let y = Number(fromDate.slice(0, 4)); y <= Number(signalDate.slice(0, 4)); y++) for (const r of await downloadYearPrices(y)) put(r);
 
   const adjustments = await loadAppliedAdjustmentsForCodes(codes);
   const series = new Map<string, KssStockSeries>();

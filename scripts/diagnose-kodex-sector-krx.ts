@@ -14,11 +14,10 @@ import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS } from "@/lib/strategyBacktestSummaryConfig";
 import { buildK200P, computeKssSignal, monthEndMonthsBefore, type KssSignal, type KssStockSeries } from "@/lib/kodexSectorSatellite";
-import { fetchKrxEtfClose, fetchKrxKospiDay, getLatestHotDate, loadKssSignalInput } from "@/lib/kodexSectorStorage";
-import { KSS_KRX_BASE_URL, KSS_MOMENTUM_LOOKBACK_MONTHS } from "@/lib/kodexSectorSatelliteConfig";
+import { fetchKrxKospiDay, loadKssSignalInput } from "@/lib/kodexSectorStorage";
+import { KSS_MOMENTUM_LOOKBACK_MONTHS } from "@/lib/kodexSectorSatelliteConfig";
 
 const SIGNAL = "2026-09-30";
-const PREV_DAY = "20261021";
 const EXP = {
   ranks: [{ sector: "26", n: 16, mom: 75.3 }, { sector: "62", n: 2, mom: 53.05 }, { sector: "65", n: 8, mom: 38.58 }],
   pre: [["005930", 50.63], ["000660", 41.84], ["009150", 3.64], ["032830", 1.82], ["000810", 0.91], ["018260", 0.55], ["005830", 0.39], ["064400", 0.21]] as [string, number][],
@@ -51,29 +50,10 @@ async function main(): Promise<void> {
   if (!apiKey) throw new Error("KRX_API_KEY 환경 변수가 없습니다.");
   console.log(`진단 시작: ${new Date().toISOString()} (KST ${new Date().toLocaleString("sv-SE", { timeZone: "Asia/Seoul" })})`);
 
-  // ---- 1. 전 거래일 아침 데이터 ----
-  const res = await fetch(`${KSS_KRX_BASE_URL}/sto/stk_bydd_trd?basDd=${PREV_DAY}`, { headers: { AUTH_KEY: apiKey } });
-  krxCalls++;
-  const body = (await res.json()) as Record<string, unknown>;
-  const rows = (body.OutBlock_1 as Record<string, string>[] | undefined) ?? [];
-  const mkt = new Map<string, number>();
-  for (const r of rows) mkt.set(r.MKT_NM ?? "(없음)", (mkt.get(r.MKT_NM ?? "(없음)") ?? 0) + 1);
-  const valid = rows.filter((r) => r.TDD_CLSPRC && r.TDD_CLSPRC !== "-" && Number(r.ACC_TRDVOL) > 0).length;
-  const dates = new Set(rows.map((r) => r.BAS_DD));
-  console.log(`\n=== 1. KRX sto/stk_bydd_trd basDd=${PREV_DAY} ===`);
-  console.log(`HTTP ${res.status} | 응답 헤더 date=${res.headers.get("date")} last-modified=${res.headers.get("last-modified") ?? "-"}`);
-  console.log(`최상위 키: ${Object.keys(body).join(", ")}`);
-  console.log(`OutBlock_1 행 ${rows.length} | 시장 구분(MKT_NM): ${[...mkt].map(([k, v]) => `${k} ${v}`).join(", ") || "-"} | 종가·거래량 있는 행 ${valid} | BAS_DD 값: ${[...dates].join(", ") || "-"}`);
-  console.log(`행 필드: ${rows[0] ? Object.keys(rows[0]).join(", ") : "-"}`);
-  console.log(`시각 관련 필드(이름에 TM·TIME·UPD·DT 포함): ${rows[0] ? Object.keys(rows[0]).filter((k) => /TM|TIME|UPD|_DT$/i.test(k)).join(", ") || "없음" : "-"}`);
-  console.log(`hot 표 최신 날짜: ${await getLatestHotDate()}`);
-
   // ---- 2. 운영 경로 ----
   const kospiDay = await fetchKrxKospiDay(SIGNAL, apiKey);
   krxCalls++;
-  const etfClose = await fetchKrxEtfClose(SIGNAL, apiKey);
-  krxCalls++;
-  console.log(`\n=== 2. 운영 경로 입력 ===\nKRX stk_bydd_trd(${SIGNAL}) 사용 행 ${kospiDay.length}, 069500 종가 ${etfClose}`);
+  console.log(`\n=== 2. 운영 경로 입력(재실행: Parquet 우선 수정 후, KRX 1건) ===\nKRX stk_bydd_trd(${SIGNAL}) 사용 행 ${kospiDay.length}`);
   const input = await loadKssSignalInput(SIGNAL, monthEndMonthsBefore(SIGNAL, KSS_MOMENTUM_LOOKBACK_MONTHS), kospiDay);
   const prodIn = { signalDate: SIGNAL, series: input.series, kospiCodes: new Set(kospiDay.map((r) => r.code)), names: input.names, induty: input.induty };
   const prod = computeKssSignal(prodIn);

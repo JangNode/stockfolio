@@ -71,11 +71,13 @@ jobs:
 
       - name: KODEX 200 + 업종 모멘텀 위성 v3.2 (읽기 전용, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-k-turtle-sizing.ts
+        run: npx tsx --conditions=react-server scripts/probe-l0-data-availability.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

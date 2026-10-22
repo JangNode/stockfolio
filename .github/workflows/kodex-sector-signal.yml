@@ -1,0 +1,43 @@
+name: KODEX 200 + 업종 모멘텀 월간 신호
+
+# 매월 마지막 거래일 장 마감 후 신호를 계산한다(scripts/kodex-sector-signal.ts). 신호는 다음
+# 거래일 체결이라 몇 시간 밀리면 안 돼 GitHub schedule을 두지 않고, Supabase pg_cron이 평일
+# 16:30 KST(UTC 07:30)에 workflow_dispatch를 부른다(supabase/migrations의
+# 20261022100100_add_kodex_sector_dispatch_cron.sql). 마지막 거래일이 아니면 스크립트가 바로 끝난다.
+# 외부 호출은 KRX Open API만(KIS 없음).
+on:
+  workflow_dispatch:
+    inputs:
+      signal_date:
+        description: "신호일(YYYY-MM-DD). 비우면 오늘(KST). 그날 실행이 실패한 월말을 다시 계산할 때만 쓴다."
+        type: string
+        default: ""
+
+concurrency:
+  group: kodex-sector-signal
+  cancel-in-progress: false
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute monthly signal
+        run: npm run kodex:sector-signal
+        env:
+          KSS_SIGNAL_DATE: ${{ inputs.signal_date }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

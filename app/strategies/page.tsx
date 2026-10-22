@@ -4,6 +4,7 @@ import { useSession } from "@/lib/useSession";
 import AppHeader from "@/components/AppHeader";
 import RequireApproved from "@/components/RequireApproved";
 import StrategyManager from "@/components/StrategyManager";
+import KodexSectorSatellite from "@/components/KodexSectorSatellite";
 
 export default function StrategiesPage() {
   const { user } = useSession();
@@ -15,6 +16,7 @@ export default function StrategiesPage() {
       <main className="flex flex-1 flex-col items-center gap-6 p-4 sm:p-6">
         <RequireApproved>
           {user && <StrategyManager user={user} />}
+          {user && <KodexSectorSatellite />}
         </RequireApproved>
       </main>
     </div>

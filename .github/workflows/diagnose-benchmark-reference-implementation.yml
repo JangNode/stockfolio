@@ -41,9 +41,8 @@ jobs:
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
 
-      # [임시 — 정리 커밋에서 되돌림] KODEX 업종 모멘텀 운영 모듈 검증
       - name: Run benchmark reference implementation
-        run: npm run verify:kodex-sector-satellite
+        run: npm run diagnose:benchmark-reference-implementation
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

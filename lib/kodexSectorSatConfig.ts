@@ -187,3 +187,29 @@ export const W_F_MIN_PCTILE = 95;
 export const W1_MIN_ENTRIES = 100;
 export const W_TESTS = 2;
 export const W_PRIOR_TESTS = 165;
+
+// ---- 연구 I (docs/research/i-rsi-volume-prereg.md, cc8881f) ----
+/** RSI(Wilder) 기간·진입 임계(전일 ≤, 당일 >)·청산 임계(≥) 및 R1 이웃값. 이동평균·동시 보유·손절·진입 비율·쿨다운은 F_* 를 쓴다. */
+export const I_RSI_PERIOD = 14;
+export const I_R1_RSI_PERIODS = [9, 21] as const;
+export const I_ENTRY_T = 40;
+export const I_R1_ENTRY_TS = [35, 45] as const;
+export const I_EXIT_T = 70;
+export const I_R1_EXIT_TS = [65, 75, 80] as const;
+/** 거래량 확인: 직전 N개 행 평균 대비 배수(신호일 거래량 ≥ 평균 × 배수), R1 이웃값. */
+export const I_VOL_LOOKBACK = 20;
+export const I_VOL_MULT = 1.5;
+export const I_R1_VOL_MULTS = [1.2, 2.0] as const;
+/** 골든크로스 후 경과 상한(거래일)·R1 이웃값, 보유 기간 상한(거래일). */
+export const I_MAX_ELAPSED = 120;
+export const I_R1_ELAPSED = [60, 180] as const;
+export const I_TIME_DAYS = 120;
+/** I5(골든크로스 당일 진입)의 RSI 상한. */
+export const I5_RSI_GATE = 60;
+/** RSI 과매수 청산 후 수익률을 보는 거래일 수, 상위 거래 비중 개수, 표본 게이트(전 기간 진입 건수). */
+export const I_POST_EXIT_DAYS = 20;
+export const I_TOP_TRADES_SHARE_N = 10;
+export const I_MIN_ENTRIES = 100;
+/** 이번 라운드 후보 수·직전 누적 시험. */
+export const I_TESTS = 5;
+export const I_PRIOR_TESTS = 167;

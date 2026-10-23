@@ -7,7 +7,12 @@ name: 벤치마크 참조 구현 재실행 (검증, 영구 보존)
 # 다시 돌려 프로덕션 DB 값(benchmark_summary)과 교차검증하는 용도다. 순수
 # 조회+계산(쓰기 없음).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      pilot:
+        description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
+        required: false
+        default: "0"
 
 jobs:
   run:
@@ -69,11 +74,14 @@ jobs:
             echo "gate=ok" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KODEX 200 + 업종 모멘텀 위성 v3.2 (읽기 전용, 외부 요청 0건)
+      - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
-        run: npx tsx --conditions=react-server scripts/research-m-breadth.ts
+        run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          N_PILOT: ${{ inputs.pilot }}
+          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

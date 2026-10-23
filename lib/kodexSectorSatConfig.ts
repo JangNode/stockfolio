@@ -272,3 +272,31 @@ export const M_TESTS = 4;
 export const M_PRIOR_TESTS = 180;
 /** K 연구 로그의 K3(run 39803792355) — 같은 엔진 재현 확인용. [CAGR %, MDD %] */
 export const M_REPRO_K3: Record<string, [number, number]> = { 학습: [4.62, 31.93], 확인: [29.48, 31.54], 보류: [5.8, 44.08], "전 기간": [12.06, 49.56] };
+
+// ---- 연구 N (docs/research/n-book-canon-prereg.md, 6ce21dd) ----
+/** 수집 결과 저장 위치(버킷은 INVESTOR_FLOW_STOCK_STORE_BUCKET). */
+export const N_STORE_PREFIX = "research/n_book";
+/** 추가 저장 총량 상한(MiB), 전 버킷 합계 상한(바이트는 SC_COLLECT_STORAGE_CAP_BYTES 재사용: 800 MiB). */
+export const N_ADD_STORAGE_MIB = 150;
+/** DART 키당 하루(KST 일자) 호출 상한, 회차 소프트 데드라인(시간), 요청 사이 간격(ms), 체크포인트 주기. */
+export const N_DART_DAILY_PER_KEY = 18_000;
+export const N_RUN_SOFT_HOURS = 4.6;
+export const N_DART_GAP_MS = 150;
+export const N_CHECKPOINT_CALLS = 300;
+export const N_CHECKPOINT_MS = 10 * 60e3;
+/** 소속 구간 앞 여유(달력일): 처음 K200P였던 날보다 이만큼 이전 접수분부터 본문을 받는다. */
+export const N_SPAN_LEAD_DAYS = 200;
+/** 소속 종료일이 데이터 끝에서 이 일수 이내면 아직 소속 중으로 본다. */
+export const N_SPAN_OPEN_DAYS = 30;
+/** 구조화 API 시작일, 목록 시작일(2010-01-01). */
+export const N_STRUCT_FROM = "20150101";
+export const N_LIST_FROM = "20100101";
+/** 파싱 실패율 한도(초과 시 해당 항목 후보 실행 불가). */
+export const N_PARSE_FAIL_MAX = 0.1;
+/** KIS 보완: 하루 호출 상한, 재시도 대기(초), 구간 병합 간격·앞쪽 여유(거래일), 호출 금지 UTC 분 범위(14:00~15:40 KST). */
+export const N_KIS_DAILY_CAP = 3_000;
+export const N_KIS_RETRY_WAITS_SEC = [5, 15, 60] as const;
+export const N_KIS_MERGE_GAP = 20;
+export const N_KIS_LEAD_DAYS = 20;
+export const N_KIS_BLOCK_UTC_FROM_MIN = 5 * 60;
+export const N_KIS_BLOCK_UTC_TO_MIN = 6 * 60 + 40;

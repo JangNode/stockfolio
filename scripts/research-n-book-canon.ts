@@ -1174,6 +1174,7 @@ async function main(): Promise<void> {
   };
   const supF = failRate(tSupply), insF = failRate(tIns);
   console.log(`\n본문 파싱 실패율: 단일판매(P6) ${f2(supF.rate * 100)}% (시도 ${supF.n}건, 미처리 ${supF.pending}건) | 소유보고(P5) ${f2(insF.rate * 100)}% (시도 ${insF.n}건, 미처리 ${insF.pending}건) | 기준 ${f2(N_PARSE_FAIL_MAX * 100)}%`);
+  const ONLY = (process.env.N_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean), BEFORE = Number(process.env.N_BEFORE ?? 0);
   interface PSpec { id: PId; no: number; title: string; runnable: boolean; gate: { g: boolean; h: boolean } }
   const PS: PSpec[] = [
     { id: "P1", no: N_PRIOR_TESTS + 1, title: "M3 + 외국인·기관 20일 순매수금액 합 > 0", runnable: true, gate: { g: true, h: true } },
@@ -1187,6 +1188,9 @@ async function main(): Promise<void> {
     { id: "P9", no: N_PRIOR_TESTS + 9, title: "코너스 RSI2 (close>SMA200 ∧ RSI2<10, 상위 3업종 ∩ NH>0; 청산 RSI2>70·5거래일·−8%)", runnable: true, gate: { g: true, h: false } },
     { id: "P10", no: N_PRIOR_TESTS + 10, title: "와인스타인 Stage 2 (SMA150 상향 돌파 ∧ 기울기 상승; 청산 SMA150 이탈·ATR 손절)", runnable: true, gate: { g: true, h: false } },
   ];
+  const SEL = PS.filter((h) => ONLY.length === 0 || ONLY.includes(h.id));
+  const doneNow = BEFORE + SEL.length, cumNow = N_PRIOR_TESTS + doneNow;
+  console.log(`\n이번 차수 실행 후보: ${SEL.map((h) => `${h.id}(사전등록 번호 ${h.no})`).join(", ")} | 이전 차수까지 실행한 시험 ${BEFORE}개 → 이번 차수 후 누적 ${N_PRIOR_TESTS} + ${doneNow} = ${cumNow}`);
   const nPending = (r: PSpec): string => (r.id === "P5" && insF.pending > 0 ? `소유보고 본문 미처리 ${insF.pending}건 남음 — 수집 미완료` : r.id === "P6" && supF.pending > 0 ? `단일판매 본문 미처리 ${supF.pending}건 남음 — 수집 미완료` : "");
   console.log(`\n참고: 069500 원주가 평가 구간 — ${ALLN.map(([n, w]) => `${n} ${f2(st(bhP, w).cagr)} / ${f2(st(bhP, w).mdd)}`).join(" | ")}`);
   console.log(`\n##### M3 기준선 (평가 구간 ${N_EVAL_START}~, 시험 횟수에 넣지 않음) #####\n| 구간 | CAGR % | MDD % | 최악 12개월 % | 샤프 | 069500 원주가 CAGR / MDD |\n|---|---|---|---|---|---|`);
@@ -1222,7 +1226,7 @@ async function main(): Promise<void> {
 
   const summaryN: string[] = [];
   const candRuns = new Map<PId, MRun>();
-  for (const h of PS) {
+  for (const h of SEL) {
     const cfg = baseN(h.id);
     console.log(`\n##### ${h.id} (시험 ${h.no}) — ${h.title} #####`);
     if (!h.runnable) {
@@ -1289,14 +1293,14 @@ async function main(): Promise<void> {
     const fin = (a: number[]): number[] => a.filter((x) => Number.isFinite(x));
     console.log(`단일 종목 최대 비중(보유 있는 날) 평균 ${f2(avg(fin(o.wMax)) * 100)}% / 최대 ${f2(Math.max(...fin(o.wMax)) * 100)}% | 삼성전자+SK하이닉스 합산 비중(전체 날) 평균 ${f2(avg(o.wPair) * 100)}% / 최대 ${f2(Math.max(...o.wPair) * 100)}%`);
   }
-  console.log(`\n=== 요약 (누적 ${N_PRIOR_TESTS} + ${N_TESTS} = ${N_PRIOR_TESTS + N_TESTS}) ===\n| 후보 | A | B | C | D | E | F | G | H | F(참고, ≥ ${f2(bonfN)}) | 결과 | 탈락 사유 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${summaryN.join("\n")}\n(* G는 이 후보에서 판정 제외·보고만)`);
+  console.log(`\n=== 요약 (이번 차수 ${SEL.length}개, 누적 ${N_PRIOR_TESTS} + ${doneNow} = ${cumNow}) ===\n| 후보 | A | B | C | D | E | F | G | H | F(참고, ≥ ${f2(bonfN)}) | 결과 | 탈락 사유 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${summaryN.join("\n")}\n(* G는 이 후보에서 판정 제외·보고만)`);
   console.log("주의: 보류 구간(2022~)은 이미 여러 번 본 데이터라 순수 검증이 아니다.");
-  console.log(`누적 시험 ${N_PRIOR_TESTS + N_TESTS}번 중 우연히 걸릴 가능성: 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${N_PRIOR_TESTS + N_TESTS} × 0.05 = ${f2((N_PRIOR_TESTS + N_TESTS) * 0.05)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${N_PRIOR_TESTS + N_TESTS} = ${f2((1 - Math.pow(0.95, N_PRIOR_TESTS + N_TESTS)) * 100)}% (시험들이 독립이 아니므로 근사).`);
+  console.log(`누적 시험 ${cumNow}번 중 우연히 걸릴 가능성: 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${cumNow} × 0.05 = ${f2(cumNow * 0.05)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${cumNow} = ${f2((1 - Math.pow(0.95, cumNow)) * 100)}% (시험들이 독립이 아니므로 근사). 사전등록 전체 목표는 194번이다.`);
   console.log("통과 여부와 무관하게 운영 적용·PR 생성은 하지 않고 보고만 한다.");
 
   // ---- 시드 정수 주 모의 ----
   console.log(`\n=== 시드 정수 주 모의 (종목당 10% 내림, 남는 돈은 현금, 1주도 못 사면 다음 후보; 평가 구간 ${N_EVAL_START}~) ===\n| 후보 | 시드 | 2015~2016 CAGR / MDD | 2017~2021 CAGR / MDD | 2022~ CAGR / MDD | 평가 구간 CAGR / MDD | 최종 평가액(원) | 평균 보유 종목 수(전체 날 / 보유 있는 날) |\n|---|---|---|---|---|---|---|---|`);
-  for (const h of [{ id: "M3" as PId, runnable: true }, ...PS]) {
+  for (const h of [...(BEFORE === 0 ? [{ id: "M3" as PId, runnable: true }] : []), ...SEL]) {
     if (!h.runnable) continue;
     const cfg = baseN(h.id), candsOf = candsFor(cfg);
     for (const seed of KSS32_SEEDS_WON) {
@@ -1308,7 +1312,7 @@ async function main(): Promise<void> {
     }
   }
   console.log(`\n=== 최소 필요 금액(1주를 살 수 있는 계좌 = 진입일 원 종가 ÷ 0.10; ${KSS31_PRACTICAL_FROM} 이후 진입) ===\n| 후보 | 진입 건수 | 중앙값(원) | 최대(원) | 가장 최근 진입일 | 최근 값(원) | 종목 |\n|---|---|---|---|---|---|---|`);
-  for (const h of PS) {
+  for (const h of SEL) {
     const o = candRuns.get(h.id);
     if (!o) { console.log(`| ${h.id} | 실행 불가 | - | - | - | - | - |`); continue; }
     const all = [...o.trades].sort((a, b) => a.entryC - b.entryC).filter((t) => CAL[t.entryC].slice(0, 7) >= KSS31_PRACTICAL_FROM);

@@ -10,9 +10,17 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis 또는 verify"
+        description: "실행 선택: dart, kis, verify 또는 test"
         required: false
         default: "dart"
+      only:
+        description: "which=test: 이번 차수에 실행할 후보(쉼표 구분, 예 P3,P4)"
+        required: false
+        default: ""
+      before:
+        description: "which=test: 이전 차수까지 실행한 시험 개수"
+        required: false
+        default: "0"
       pilot:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
@@ -79,7 +87,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -105,6 +113,16 @@ jobs:
         run: npx tsx --conditions=react-server scripts/verify-n-collection.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: N 단계 2 후보 시험 (읽기 전용, 후보당 1회)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'test' }}
+        run: npx tsx --conditions=react-server scripts/research-n-book-canon.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          N_ONLY: ${{ inputs.only }}
+          N_BEFORE: ${{ inputs.before }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

@@ -29,7 +29,7 @@ import {
   SMT_MONTHS_PER_YEAR, SMT21_K_SIZE, SMT21_STAGE0_MAX_UNKNOWN_PCT,
 } from "@/lib/sectorMomTiltConfig";
 import { SAT_MIX_BAND, SAT_ETF_COST_PER_SIDE } from "@/lib/satelliteV1Config";
-import { KSS_TOP_K, KSS_MIX_WEIGHTS, KSS_DEFAULT_W, KSS_G1_MARGIN_PP, KSS_G2_MDD_MARGIN_PP, KSS_G4_MAX_DELAY_DROP_PP, KSS_R1_TOP_KS, KSS_R3_DRAWS, KSS_R3_SEED, KSS31_PER_SECTOR, KSS31_R1_LOOKBACKS, KSS31_PRACTICAL_FROM, KSS32_TRIM_MIN_WEIGHT, KSS32_R1_TRIMS, KSS32_SEEDS_WON, KSS32_ETF_SLIPPAGE, D_RECENT_FROM, D_RECENT_TO, F_SHORT, F_LONG, F_R1_MAS, F_TOP_SECTORS, F_R1_TOPS, F_MAX_POS, F_R1_POS, F_ENTRY_FRAC, F_COOLDOWN, F_STOP, F_R1_STOPS, F_TRAIL_G2, F_R1_TRAIL_G2, F_TRAIL_G4, F_R1_TRAIL_G4, F_A_EXCESS_PP, F_B_MIN_PERIODS, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_E_TOP_TRADES, F_F_MIN_PCTILE, F_TESTS, F_PRIOR_TESTS, F_TOP_TRADES_N, F_LONG_HOLD_DAYS, N_STORE_PREFIX, N_ADD_STORAGE_MIB, N_DART_DAILY_PER_KEY, N_RUN_SOFT_HOURS, N_DART_GAP_MS, N_CHECKPOINT_CALLS, N_CHECKPOINT_MS, N_SPAN_LEAD_DAYS, N_SPAN_OPEN_DAYS, N_STRUCT_FROM, N_LIST_FROM } from "@/lib/kodexSectorSatConfig";
+import { KSS_TOP_K, KSS_MIX_WEIGHTS, KSS_DEFAULT_W, KSS_G1_MARGIN_PP, KSS_G2_MDD_MARGIN_PP, KSS_G4_MAX_DELAY_DROP_PP, KSS_R1_TOP_KS, KSS_R3_DRAWS, KSS_R3_SEED, KSS31_PER_SECTOR, KSS31_R1_LOOKBACKS, KSS31_PRACTICAL_FROM, KSS32_TRIM_MIN_WEIGHT, KSS32_R1_TRIMS, KSS32_SEEDS_WON, KSS32_ETF_SLIPPAGE, D_RECENT_FROM, D_RECENT_TO, F_SHORT, F_LONG, F_R1_MAS, F_TOP_SECTORS, F_R1_TOPS, F_MAX_POS, F_R1_POS, F_ENTRY_FRAC, F_COOLDOWN, F_STOP, F_R1_STOPS, F_TRAIL_G2, F_R1_TRAIL_G2, F_TRAIL_G4, F_R1_TRAIL_G4, F_A_EXCESS_PP, F_B_MIN_PERIODS, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_E_TOP_TRADES, F_F_MIN_PCTILE, F_TESTS, F_PRIOR_TESTS, F_TOP_TRADES_N, F_LONG_HOLD_DAYS, N_STORE_PREFIX, N_ADD_STORAGE_MIB, N_DART_DAILY_PER_KEY, N_RUN_SOFT_HOURS, N_DART_GAP_MS, N_CHECKPOINT_CALLS, N_CHECKPOINT_MS, N_SPAN_LEAD_DAYS, N_SPAN_OPEN_DAYS, N_STRUCT_FROM, N_LIST_FROM, N_DART_FETCH_TIMEOUT_MS } from "@/lib/kodexSectorSatConfig";
 import { FEE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 
 const ETF_CODE = SEASON_STOCK_CODE;
@@ -712,6 +712,8 @@ async function main(): Promise<void> {
     console.log(`  [저장] ${why}: 테이블 5개 ${(bytes / MiB).toFixed(2)} MiB, 호출 오늘 ${keyNames.map((n) => `${n} ${progress.calls[n].n}`).join(" / ")}, KST ${kstTime()}`);
   }
   async function ckIfDue(): Promise<void> { if (pool.total - callsAtCk >= N_CHECKPOINT_CALLS || Date.now() - lastCk >= N_CHECKPOINT_MS) await checkpoint("주기 저장"); }
+  let failLogged = 0;
+  const logFail = (e: unknown): void => { if (failLogged++ < 8) { const err = e as { message?: string; cause?: { code?: string; message?: string } }; console.log(`  [호출 실패 ${failLogged}] ${String(err.message ?? e).replace(/crtfc_key=[^&\s"]*/g, "***").slice(0, 160)} | cause ${String(err.cause?.code ?? err.cause?.message ?? "-").slice(0, 100)}`); } };
   /** JSON 호출. null = 호출 못 함/실패(작업을 완료로 표시하지 않는다). */
   async function dartJson(url: (k: string) => string): Promise<Record<string, unknown> | null> {
     for (let attempt = 0; attempt <= 2;) {
@@ -720,7 +722,7 @@ async function main(): Promise<void> {
       if (!k) { stopWhy ??= pool.stopReason ?? "키 상한"; return null; }
       await slot();
       try {
-        const res = await fetch(url(k.value));
+        const res = await fetch(url(k.value), { signal: AbortSignal.timeout(N_DART_FETCH_TIMEOUT_MS) });
         const text = await res.text();
         if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
         const j = JSON.parse(text) as Record<string, unknown>;
@@ -729,7 +731,7 @@ async function main(): Promise<void> {
         if (j.status === "800") throw new Error("800");
         consecFail = 0;
         return j;
-      } catch { consecFail++; if (consecFail >= 20) { stopWhy ??= "연속 실패 20건"; return null; } if (attempt < 2) await sleep(1000 * 2 ** attempt); attempt++; }
+      } catch (e) { logFail(e); consecFail++; if (consecFail >= 20) { stopWhy ??= "연속 실패 20건"; return null; } if (attempt < 2) await sleep(1000 * 2 ** attempt); attempt++; }
     }
     return null;
   }
@@ -741,7 +743,7 @@ async function main(): Promise<void> {
       if (!k) { stopWhy ??= pool.stopReason ?? "키 상한"; return null; }
       await slot();
       try {
-        const res = await fetch(`${BASE}/document.xml?crtfc_key=${k.value}&rcept_no=${rceptNo}`);
+        const res = await fetch(`${BASE}/document.xml?crtfc_key=${k.value}&rcept_no=${rceptNo}`, { signal: AbortSignal.timeout(N_DART_FETCH_TIMEOUT_MS) });
         const buf = Buffer.from(await res.arrayBuffer());
         if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
         let zip: AdmZip;
@@ -757,7 +759,7 @@ async function main(): Promise<void> {
         if ((text.match(/�/g) ?? []).length > 20) text = new TextDecoder("euc-kr").decode(ent.getData());
         consecFail = 0;
         return text.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ");
-      } catch { consecFail++; if (consecFail >= 20) { stopWhy ??= "연속 실패 20건"; return null; } await sleep(1000); }
+      } catch (e) { logFail(e); consecFail++; if (consecFail >= 20) { stopWhy ??= "연속 실패 20건"; return null; } await sleep(1000); }
     }
     return null;
   }

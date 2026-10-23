@@ -300,3 +300,7 @@ export const N_KIS_MERGE_GAP = 20;
 export const N_KIS_LEAD_DAYS = 20;
 export const N_KIS_BLOCK_UTC_FROM_MIN = 5 * 60;
 export const N_KIS_BLOCK_UTC_TO_MIN = 6 * 60 + 40;
+/** N 단계 1(d) KIS 수급 보완: 시험 평가 구간(2015-01-05~)의 P1이 쓰는 20일 합을 만들 수 있게 이 날짜 이후의 K200P 소속 종목-일만 본다. */
+export const N_KIS_FROM = "2014-12-01";
+/** N DART 수집: 요청 한 건의 응답 대기 상한(밀리초). 걸리면 실패로 보고 재시도한다. */
+export const N_DART_FETCH_TIMEOUT_MS = 30_000;

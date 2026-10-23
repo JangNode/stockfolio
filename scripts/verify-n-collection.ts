@@ -644,9 +644,10 @@ async function main(): Promise<void> {
     const c = (s: string): number => base.filter((r) => r.status === s).length;
     return [base.length, c("ok"), c("fail"), c("nofile"), c("pending")];
   };
-  const pr = (a: [number, number, number, number, number]): (string | number)[] => { const done = a[1] + a[2]; return [...a, done ? (100 * a[2] / done).toFixed(2) : "-", a[0] ? (100 * a[4] / a[0]).toFixed(2) : "-"]; };
-  table("[2] 본문 파싱 (소속 구간 안·비정정)", ["항목", "대상", "성공", "실패", "파일 없음", "미처리", "파싱 실패율 %(성공+실패 기준)", "미처리율 %"], [["단일판매", ...pr(stat(tb.supply))], ["소유보고", ...pr(stat(tb.ins))]]);
-  const sFail = (() => { const a = stat(tb.supply); return a[1] + a[2] ? a[2] / (a[1] + a[2]) : 0; })(), iFail = (() => { const a = stat(tb.ins); return a[1] + a[2] ? a[2] / (a[1] + a[2]) : 0; })();
+  const pr = (a: [number, number, number, number, number]): (string | number)[] => { const done = a[1] + a[2] + a[3]; return [...a, done ? (100 * (a[2] + a[3]) / done).toFixed(2) : "-", a[0] ? (100 * a[4] / a[0]).toFixed(2) : "-"]; };
+  table("[2] 본문 파싱 (소속 구간 안·비정정)", ["항목", "대상", "성공", "실패", "파일 없음", "미처리", "파싱 실패율 %((실패+파일 없음) ÷ 시도)", "미처리율 %"], [["단일판매", ...pr(stat(tb.supply))], ["소유보고", ...pr(stat(tb.ins))]]);
+  const fr = (a: [number, number, number, number, number]): number => (a[1] + a[2] + a[3] ? (a[2] + a[3]) / (a[1] + a[2] + a[3]) : 0);
+  const sFail = fr(stat(tb.supply)), iFail = fr(stat(tb.ins));
   console.log(`판정: 단일판매(P6) 파싱 실패율 ${(100 * sFail).toFixed(2)}% → ${sFail > N_PARSE_FAIL_MAX ? "실행 불가(>10%)" : "실행 가능(≤10%)"} | 소유보고(P5) ${(100 * iFail).toFixed(2)}% → ${iFail > N_PARSE_FAIL_MAX ? "실행 불가(>10%)" : "실행 가능(≤10%)"}`);
   const reasons = new Map<string, number>();
   for (const r of tb.insrows) reasons.set(String(r.reason), (reasons.get(String(r.reason)) ?? 0) + 1);

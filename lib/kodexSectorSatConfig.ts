@@ -304,3 +304,71 @@ export const N_KIS_BLOCK_UTC_TO_MIN = 6 * 60 + 40;
 export const N_KIS_FROM = "2014-12-01";
 /** N DART 수집: 요청 한 건의 응답 대기 상한(밀리초). 걸리면 실패로 보고 재시도한다. */
 export const N_DART_FETCH_TIMEOUT_MS = 30_000;
+
+// ===== N 단계 2: 후보 P1~P10 (docs/research/n-book-canon-prereg.md) =====
+export const N_TESTS = 10;
+export const N_PRIOR_TESTS = 184;
+/** 평가 구간: 2015-01-02 종가에 현금 100%로 시작, 수익률은 2015-01-05부터 센다. 구간 구분은 [이름, 시작, 끝]. */
+export const N_EVAL_START = "2015-01-02";
+export const N_EVAL_FROM = "2015-01-05";
+export const N_SUBPERIODS: readonly (readonly [string, string, string])[] = [["2015~2016", "2015-01-05", "2016-12-31"], ["2017~2021", "2017-01-01", "2021-12-31"], ["2022~", "2022-01-01", "9999-12-31"]];
+/** M 연구 로그(run 8bd1ba2)의 M3: 구간별 [CAGR %, MDD %]. 재현 확인용(시험 횟수에 넣지 않음). */
+export const N_REPRO_M3: Record<string, readonly [number, number]> = { "학습": [2.82, 34.39], "확인": [24.13, 31.24], "보류": [10.42, 34.82], "전 기간": [11.24, 35.41] };
+export const N_MIN_ENTRIES = 100;
+/** 게이트 H(P1~P7): M3 기준선 대비 [CAGR +1%p 이상 ∧ MDD 악화 1%p 이하] 또는 [MDD 3%p 이상 낮음 ∧ CAGR 하락 1%p 이하]. */
+export const N_H_CAGR_GAIN_PP = 1;
+export const N_H_MDD_WORSEN_PP = 1;
+export const N_H_MDD_GAIN_PP = 3;
+export const N_H_CAGR_LOSS_PP = 1;
+/** P1 수급: 최근 W거래일(판단일 포함)에 수급 행이 W×비율 이상(올림)이고 (외국인+기관 순매수금액) 합 > 0. */
+export const N_FLOW_WIN = 20;
+export const N_FLOW_MIN_RATIO = 0.7;
+export const N_R1_FLOW_WINS = [10, 40] as const;
+/** P2 희석 회피: 최근 N거래일(접수일 순번 e가 c−N ≤ e < c)에 유상증자·CB·BW 결정 공시가 있으면 진입 금지. */
+export const N_DIL_DAYS = 120;
+export const N_R1_DIL_DAYS = [60, 180] as const;
+/** P3 실적: 직전 분기 영업이익 전년 동기 대비 증가율 ≥ 임계(전년 동기 영업이익 > 0), 접수일 < 판단일, 접수일이 판단일보다 STALE일 넘게 이전이면 자료 없음. */
+export const N_EARN_THR = 0.25;
+export const N_R1_EARN_THR = [0.15, 0.35] as const;
+export const N_EARN_STALE_DAYS = 150;
+/** P4 거래량: 신호일 거래량 ≥ 직전 N개 행 평균 × 배수. */
+export const N_VOL_AVG_ROWS = 20;
+export const N_VOL_MULT = 1.5;
+export const N_R1_VOL_MULT = [1.2, 2.0] as const;
+/** P5 내부자: 최근 N거래일에 접수된 비정정 소유보고의 보통주 장내매수−장내매도 수량 합 > 0. */
+export const N_INS_DAYS = 60;
+export const N_R1_INS_DAYS = [30, 90] as const;
+export const N_INS_BUY_REASON = "장내매수";
+export const N_INS_SELL_REASON = "장내매도";
+export const N_INS_KIND = "보통주";
+/** P6 공급계약: 최근 N거래일에 접수된 비정정 단일판매·공급계약 중 매출액 대비 % ≥ 임계인 것이 있음. */
+export const N_SUP_DAYS = 20;
+export const N_R1_SUP_DAYS = [10, 40] as const;
+export const N_SUP_RATIO_PCT = 10;
+export const N_R1_SUP_RATIO_PCT = [5, 20] as const;
+/** P7 CAN SLIM의 L: K200P 종목 중 6개월 수익률 순위 비율(더 높은 종목 수 ÷ 정의된 종목 수) < 임계. */
+export const N_L_MONTHS = 6;
+export const N_L_TOP = 0.2;
+export const N_R1_L_TOP = [0.1, 0.3] as const;
+/** P8 미너비니 추세 템플릿. 52주 = 종목 최근 252행 종가. */
+export const N_SMA_FAST = 50;
+export const N_SMA_MID = 150;
+export const N_SMA_SLOW = 200;
+export const N_SMA_SLOPE_ROWS = 20;
+export const N_ROWS_52W = 252;
+export const N_LOW52_MULT = 1.3;
+export const N_HIGH52_RATIO = 0.75;
+export const N_R1_HIGH52_RATIO = [0.7, 0.8] as const;
+/** P9 코너스 RSI2. */
+export const N_RSI_PERIOD = 2;
+export const N_RSI_IN = 10;
+export const N_R1_RSI_IN = [5, 15] as const;
+export const N_RSI_OUT = 70;
+export const N_R1_RSI_OUT = [60, 80] as const;
+export const N_RSI_HOLD_DAYS = 5;
+export const N_RSI_STOP_MULT = 0.92;
+export const N_RSI_SMA = 200;
+/** P10 와인스타인 Stage 2. */
+export const N_S2_SMA = 150;
+export const N_R1_S2_SMA = [100, 200] as const;
+export const N_S2_SLOPE_ROWS = 20;

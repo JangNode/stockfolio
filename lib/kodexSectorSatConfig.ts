@@ -372,3 +372,5 @@ export const N_RSI_SMA = 200;
 export const N_S2_SMA = 150;
 export const N_R1_S2_SMA = [100, 200] as const;
 export const N_S2_SLOPE_ROWS = 20;
+/** N DART 본문 수집: 동시에 보내는 요청 수(호출 간격과 키별 하루 상한은 그대로). */
+export const N_DART_DOC_CONCURRENCY = 4;

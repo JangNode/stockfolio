@@ -883,7 +883,7 @@ async function main(): Promise<void> {
       const rows = parseInsider(text);
       r.status = rows.length ? "ok" : "fail"; r.n_rows = rows.length;
       for (const x of rows) tables.insrows.set(`${r.rcept_no}|${x.trade}|${x.reason}|${x.kind}|${x.delta}`, { rcept_no: r.rcept_no, stock_code: r.stock_code, rcept_dt: r.rcept_dt, trade_date: x.trade, reason: x.reason, kind: x.kind, delta: x.delta, price: x.price });
-      if (!rows.length && PILOT && pilotLog.length < 12) pilotLog.push(`소유보고 실패 ${r.rcept_no} (${r.stock_code}): ${text.slice(0, 900)}`);
+      if (!rows.length && PILOT && pilotLog.length < 10) { const i = text.search(/세부\s*변동|변동\s*내역|변동일/); pilotLog.push(`소유보고 실패 ${r.rcept_no} (${r.stock_code}) [상세부 ${i}]: ${i >= 0 ? text.slice(i, i + 700) : text.slice(-700)}`); }
     }
     await ckIfDue();
   }

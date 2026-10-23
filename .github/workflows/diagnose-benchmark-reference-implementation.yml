@@ -9,6 +9,10 @@ name: 벤치마크 참조 구현 재실행 (검증, 영구 보존)
 on:
   workflow_dispatch:
     inputs:
+      which:
+        description: "수집기 선택: dart 또는 kis"
+        required: false
+        default: "dart"
       pilot:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
@@ -75,7 +79,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -84,6 +88,17 @@ jobs:
           DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: N 단계 1 KIS 수급 보완 수집 (Storage Parquet만 쓰기, pilot=1이면 추정만)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'kis' }}
+        run: npx tsx --conditions=react-server scripts/collect-n-kis-flow.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          N_PILOT: ${{ inputs.pilot }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

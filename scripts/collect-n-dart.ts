@@ -758,7 +758,7 @@ async function main(): Promise<void> {
         let text = new TextDecoder("utf-8").decode(ent.getData());
         if ((text.match(/�/g) ?? []).length > 20) text = new TextDecoder("euc-kr").decode(ent.getData());
         consecFail = 0;
-        return text.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ");
+        return text.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ");
       } catch (e) { logFail(e); consecFail++; if (consecFail >= 20) { stopWhy ??= "연속 실패 20건"; return null; } await sleep(1000); }
     }
     return null;
@@ -777,7 +777,7 @@ async function main(): Promise<void> {
     const per = text.match(/계약\s*기간\s*시작일\s*:?\s*(\d{4}[-.]\d{2}[-.]\d{2})\s*종료일\s*:?\s*(\d{4}[-.]\d{2}[-.]\d{2})/);
     return { ok: amount !== null && ratio !== null, amount, sales, ratio, src, counterparty: cp ? cp[1].trim().slice(0, 40) : null, start: per ? per[1].replace(/\./g, "-") : null, end: per ? per[2].replace(/\./g, "-") : null };
   }
-  const INS_RE = /([^\s()]{1,15})\(([+-])\)\s+(\d{4})\s*(?:년|[.\-])\s*(\d{1,2})\s*(?:월|[.\-])\s*(\d{1,2})\s*일?\s+(\S+)\s+(-|[\d,]+)\s+(-|-?[\d,]+)\s+(-|[\d,]+)\s+(?:\(\s*)?(-|[\d,]+)/g;
+  const INS_RE = /([^\s()]{1,15})\(([+-])\)\s+(\d{4})\s*(?:년|[.\-])\s*(\d{1,2})\s*(?:월|[.\-])\s*(\d{1,2})\s*일?\s+(\S+)\s+(-|[\d,]+)\s+(-|-?[\d,]+)\s+(-|[\d,]+)(?:\s+(?:\(\s*)?(-|[\d,]+))?/g;
   function parseInsider(text: string): { reason: string; trade: string; kind: string; delta: number | null; price: number | null }[] {
     const out: { reason: string; trade: string; kind: string; delta: number | null; price: number | null }[] = [];
     for (const m of text.matchAll(INS_RE)) {
@@ -872,7 +872,7 @@ async function main(): Promise<void> {
     else {
       const p = parseSupply(text);
       r.status = p.ok ? "ok" : "fail"; r.amount = p.amount; r.sales = p.sales; r.ratio_pct = p.ratio; r.ratio_src = p.src; r.counterparty = p.counterparty; r.start = p.start; r.end = p.end;
-      if (!p.ok && PILOT && pilotLog.length < 6) pilotLog.push(`단일판매 실패 ${r.rcept_no} (${r.stock_code}): ${text.slice(0, 700)}`);
+      if (!p.ok && PILOT && pilotLog.length < 6) { const i = text.search(/계약\s*(내용|금액)/); pilotLog.push(`단일판매 실패 ${r.rcept_no} (${r.stock_code}) [계약 위치 ${i}, 전체 ${text.length}]: ${i >= 0 ? text.slice(Math.max(0, i - 100), i + 700) : text.slice(0, 700)}`); };
     }
     await ckIfDue();
   }

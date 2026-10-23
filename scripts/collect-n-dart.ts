@@ -817,7 +817,7 @@ async function main(): Promise<void> {
         tables.b001.set(r.rcept_no, { corp_code: corp, stock_code: task.code, rcept_no: r.rcept_no, rcept_dt: rdt, kind, correction: corr ? "Y" : "N" });
       } else if (task.t === "I001") {
         bump("i001_rows");
-        if (/단일판매.{0,2}공급계약체결/.test(nm)) tables.supply.set(r.rcept_no, { corp_code: corp, stock_code: task.code, rcept_no: r.rcept_no, rcept_dt: rdt, correction: corr ? "Y" : "N", in_span: inSpan(task.code, rdt) ? "Y" : "N", status: "pending", amount: null, sales: null, ratio_pct: null, ratio_src: null, counterparty: null, start: null, end: null });
+        if (/단일판매.{0,2}공급계약체결/.test(nm)) tables.supply.set(r.rcept_no, { corp_code: corp, stock_code: task.code, rcept_no: r.rcept_no, rcept_dt: rdt, correction: corr ? "Y" : "N", in_span: inSpan(task.code, rdt) ? "Y" : "N", status: nm.includes("진행사항") ? "progress" : "pending", amount: null, sales: null, ratio_pct: null, ratio_src: null, counterparty: null, start: null, end: null });
       } else {
         if (/임원.{0,2}주요주주특정증권등소유상황보고서/.test(nm)) tables.ins.set(r.rcept_no, { corp_code: corp, stock_code: task.code, rcept_no: r.rcept_no, rcept_dt: rdt, correction: corr ? "Y" : "N", in_span: inSpan(task.code, rdt) ? "Y" : "N", status: "pending", n_rows: null });
         else bump("d002_other_rows");

@@ -634,7 +634,7 @@ async function main(): Promise<void> {
   const unmapped = targets.filter((c) => !corpOf.has(c));
   console.log(`\n대상: 월말 PIT로 K200P에 한 번이라도 든 종목 ${targets.length}개, corp_code 매핑 ${corpOf.size}개, 매핑 없음 ${unmapped.length}개${unmapped.length ? ` (${unmapped.slice(0, 15).join(",")}…)` : ""}`);
   targets = targets.filter((c) => corpOf.has(c));
-  if (PILOT) targets = ["005930", "000660", "005380", "035420", "006400", "000270"].filter((c) => corpOf.has(c));
+  if (PILOT) targets = ["005930", "035420", "012450", "064350", "010140", "034020"].filter((c) => corpOf.has(c));
   const openCut = new Date(Date.parse(dataEnd) - N_SPAN_OPEN_DAYS * MS_DAY).toISOString().slice(0, 10);
   const inSpan = (code: string, rcept: string): boolean => {
     const f = spanFirst.get(code), l = spanLast.get(code);
@@ -777,7 +777,7 @@ async function main(): Promise<void> {
     const per = text.match(/계약\s*기간\s*시작일\s*:?\s*(\d{4}[-.]\d{2}[-.]\d{2})\s*종료일\s*:?\s*(\d{4}[-.]\d{2}[-.]\d{2})/);
     return { ok: amount !== null && ratio !== null, amount, sales, ratio, src, counterparty: cp ? cp[1].trim().slice(0, 40) : null, start: per ? per[1].replace(/\./g, "-") : null, end: per ? per[2].replace(/\./g, "-") : null };
   }
-  const INS_RE = /([^\s()]{1,15})\(([+-])\)\s+(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s+(\S+)\s+(-|[\d,]+)\s+(-|-?[\d,]+)\s+(-|[\d,]+)\s+(-|[\d,]+)/g;
+  const INS_RE = /([^\s()]{1,15})\(([+-])\)\s+(\d{4})\s*(?:년|[.\-])\s*(\d{1,2})\s*(?:월|[.\-])\s*(\d{1,2})\s*일?\s+(\S+)\s+(-|[\d,]+)\s+(-|-?[\d,]+)\s+(-|[\d,]+)\s+(?:\(\s*)?(-|[\d,]+)/g;
   function parseInsider(text: string): { reason: string; trade: string; kind: string; delta: number | null; price: number | null }[] {
     const out: { reason: string; trade: string; kind: string; delta: number | null; price: number | null }[] = [];
     for (const m of text.matchAll(INS_RE)) {
@@ -850,7 +850,7 @@ async function main(): Promise<void> {
       tables.struct.set(r.rcept_no, row);
     }
     structDone.add(task.key);
-    if (PILOT && ++pilotStruct >= 8) break;
+    if (PILOT && ++pilotStruct >= 16) break;
     await ckIfDue();
   }
   // 구조화 행의 정정 여부는 B001 목록과 접수번호로 대조한다.
@@ -858,11 +858,12 @@ async function main(): Promise<void> {
 
   // ---- 7. 단계 D: 본문 파싱 (단일판매 → 소유보고), 비정정 ∧ 소속 구간 안 ----
   const pilotLog: string[] = [];
+  const stride = <T,>(q: T[], n: number): T[] => (PILOT ? q.filter((_, i) => i % Math.max(1, Math.floor(q.length / n)) === 0).slice(0, n) : q);
   const supplyQueue = [...tables.supply.values()].filter((r) => r.status === "pending" && r.correction === "N" && r.in_span === "Y").sort((a, b) => (String(a.rcept_dt) < String(b.rcept_dt) ? 1 : -1));
   const insQueue = [...tables.ins.values()].filter((r) => r.status === "pending" && r.correction === "N" && r.in_span === "Y").sort((a, b) => (String(a.rcept_dt) < String(b.rcept_dt) ? 1 : -1));
   console.log(`[단계 D] 본문 대기: 단일판매 ${supplyQueue.length}건, 소유보고 ${insQueue.length}건 (비정정·소속 구간 안)`);
   let docs = 0;
-  for (const r of PILOT ? supplyQueue.slice(0, 40) : supplyQueue) {
+  for (const r of stride(supplyQueue, 40)) {
     if (stopWhy) break;
     const text = await dartDoc(String(r.rcept_no));
     if (text === null) continue;
@@ -875,7 +876,7 @@ async function main(): Promise<void> {
     }
     await ckIfDue();
   }
-  for (const r of PILOT ? insQueue.slice(0, 60) : insQueue) {
+  for (const r of stride(insQueue, 60)) {
     if (stopWhy) break;
     const text = await dartDoc(String(r.rcept_no));
     if (text === null) continue;

@@ -374,3 +374,22 @@ export const N_R1_S2_SMA = [100, 200] as const;
 export const N_S2_SLOPE_ROWS = 20;
 /** N DART 본문 수집: 동시에 보내는 요청 수(호출 간격과 키별 하루 상한은 그대로). */
 export const N_DART_DOC_CONCURRENCY = 4;
+
+// ===== Q: 유니버스 확장(KOSPI+KOSDAQ)과 독립 재현 Q1~Q3 (docs/research/q-universe-prereg.md) =====
+export const Q_TESTS = 3;
+export const Q_PRIOR_TESTS = 194;
+/** Q1·Q3 유니버스: 시총(억 원) 하한. 가격 Parquet의 marketCapEok 단위. */
+export const Q_MCAP_MIN_EOK = 5000;
+/** Q2 유니버스: 전 시장 시총 순위(1부터) 범위. */
+export const Q_RANK_FROM = 201;
+export const Q_RANK_TO = 500;
+/** 슬리피지(매수·매도 각). Q1·Q3은 기존 0.1%, Q2는 0.2%. */
+export const Q_SLIPPAGE_Q1 = 0.001;
+export const Q_SLIPPAGE_Q2 = 0.002;
+/** 업종 보유율(시총 비율) 연도 평균이 이 값(%) 미만인 해가 있으면 그 유니버스의 후보는 실행 불가(J_COVERAGE_MIN_PCT와 같은 기준). */
+export const Q_COVERAGE_MIN_PCT = 70;
+/** D 이웃값: 상위 업종 수. */
+export const Q_R1_TOPK = [2, 4] as const;
+/** 체결 가능성 보고: 진입 금액 ÷ 20일 평균 거래대금 경고 비율, 기준 시드(원). */
+export const Q_ORDER_RATIO_FLAGS = [0.01, 0.05] as const;
+export const Q_ORDER_SEED_WON = 10_000_000;

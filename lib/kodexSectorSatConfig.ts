@@ -393,3 +393,18 @@ export const Q_R1_TOPK = [2, 4] as const;
 /** 체결 가능성 보고: 진입 금액 ÷ 20일 평균 거래대금 경고 비율, 기준 시드(원). */
 export const Q_ORDER_RATIO_FLAGS = [0.01, 0.05] as const;
 export const Q_ORDER_SEED_WON = 10_000_000;
+
+// ===== Q2 재시험: 업종 보완 수집(docs/research/q2-sector-fill-prereg.md) =====
+export const Q2F_STORE_PATH = "research/q2_sector_fill/induty.parquet";
+export const Q2F_PROGRESS_PATH = "research/q2_sector_fill/_progress.json";
+/** DART company.json 호출 총 상한(재시도 포함), 호출 간격, 재시도 횟수·대기(ms). */
+export const Q2F_CALL_CAP = 3000;
+export const Q2F_GAP_MS = 150;
+export const Q2F_RETRY_WAITS_MS = [1000, 2000] as const;
+export const Q2F_FETCH_TIMEOUT_MS = 30_000;
+/** 보완 파일 크기 상한(MiB). */
+export const Q2F_MAX_MIB = 5;
+export const Q2F_TESTS = 2;
+export const Q2F_PRIOR_TESTS = 197;
+/** 비교용 참조값(연구 Q 결과): Q3 전 기간 [CAGR %, MDD %]. K200P M3는 N_REPRO_M3["전 기간"]. */
+export const Q2F_REF_Q3: readonly [number, number] = [10.86, 36.68];

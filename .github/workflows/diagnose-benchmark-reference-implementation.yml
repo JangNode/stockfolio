@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test 또는 q"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill 또는 q2"
         required: false
         default: "dart"
       only:
@@ -87,7 +87,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -129,6 +129,24 @@ jobs:
       - name: Q 유니버스 확장 시험 Q1~Q3 (읽기 전용, 1회)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'q' }}
         run: npx tsx --conditions=react-server scripts/research-q-universe.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Q2 업종 보완 수집 (DART company.json, Storage Parquet만 쓰기)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'q2fill' }}
+        run: npx tsx --conditions=react-server scripts/collect-q2-sector-fill.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
+
+      - name: Q2 재시험 Q2·Q4 (읽기 전용, 1회)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'q2' }}
+        run: npx tsx --conditions=react-server scripts/research-q2-sector-fill.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

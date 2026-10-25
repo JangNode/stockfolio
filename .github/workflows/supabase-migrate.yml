@@ -23,15 +23,29 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: List pending migrations (dry run, read-only)
-        run: supabase db push --dry-run
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-
       - name: Push pending migrations
-        if: ${{ false }}
         run: supabase db push
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      # 임시(임시 브랜치 전용, 병합 금지): 적용 결과를 Supabase 관리 API(REST, 읽기 전용 SELECT)로 확인한다.
+      - name: Verify market_regime_daily (read-only catalog queries via Management API)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          q() {
+            echo "--- $1"
+            jq -n --arg q "$2" '{query: $q}' | curl -sS -X POST "https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- | jq -c '.'
+          }
+          q "RLS 플래그" "select c.relname, c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname in ('market_regime_daily','schedule_scrape_status') order by 1"
+          q "정책 수(select 정책 포함 전체)" "select tablename, policyname, cmd, roles from pg_policies where schemaname = 'public' and tablename = 'market_regime_daily'"
+          q "정책 개수" "select count(*) as policies from pg_policies where schemaname = 'public' and tablename = 'market_regime_daily'"
+          q "열" "select column_name, data_type, is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'market_regime_daily' order by ordinal_position"
+          q "표 제약" "select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.market_regime_daily'::regclass order by 1"
+          q "schedule_scrape_status 제약" "select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.schedule_scrape_status'::regclass order by 1"
+          q "schedule_scrape_status 행" "select source, last_attempt_at, last_success_at, last_error from public.schedule_scrape_status order by source"
+          q "표 권한(참고)" "select grantee, privilege_type from information_schema.role_table_grants where table_schema = 'public' and table_name = 'market_regime_daily' order by 1, 2"
+          q "행 수" "select count(*) as rows from public.market_regime_daily"
+          q "최근 적용된 마이그레이션 버전" "select version from supabase_migrations.schema_migrations order by version desc limit 3"

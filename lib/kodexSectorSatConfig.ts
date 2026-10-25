@@ -408,3 +408,54 @@ export const Q2F_TESTS = 2;
 export const Q2F_PRIOR_TESTS = 197;
 /** 비교용 참조값(연구 Q 결과): Q3 전 기간 [CAGR %, MDD %]. K200P M3는 N_REPRO_M3["전 기간"]. */
 export const Q2F_REF_Q3: readonly [number, number] = [10.86, 36.68];
+
+// ===== R: 전체 상장사 재무 재수집 + 소형주·품질·가치 조합 R0~R4 (docs/research/r-allcap-fundamentals-prereg.md) =====
+export const R_STORE_PREFIX = "research/r_allcap";
+/** 사업연도 범위와 보고서 코드(1분기·반기·3분기·사업). */
+export const R_YEAR_FROM = 2014;
+export const R_YEAR_TO = 2025;
+export const R_REPRT_CODES = ["11013", "11012", "11014", "11011"] as const;
+/** 수집할 주요 계정 이름(공백 제거 후 일치). */
+export const R_ACCOUNTS = ["매출액", "영업이익", "당기순이익", "자산총계", "부채총계", "자본총계"] as const;
+/** DART 호출 한도: 키당 하루, 총합(재시도·파일럿 포함), 호출 간격, 동시 요청 수, 응답 대기 상한, 재시도 대기(ms). */
+export const R_DAILY_PER_KEY = 18_000;
+export const R_TOTAL_CALL_CAP = 100_000;
+export const R_GAP_MS = 150;
+export const R_CONCURRENCY = 4;
+export const R_FETCH_TIMEOUT_MS = 30_000;
+export const R_RETRY_WAITS_MS = [1000, 2000] as const;
+export const R_SOFT_HOURS = 4.6;
+export const R_CHECKPOINT_CALLS = 400;
+export const R_CHECKPOINT_MS = 600_000;
+export const R_MULTI_BATCH = 100;
+/** 추가 저장 상한(MiB)과 Storage 전 버킷 합계 상한은 SC_COLLECT_STORAGE_CAP_BYTES. */
+export const R_ADD_STORAGE_MIB = 50;
+/** 파일럿: 회사 수, 사업연도, 가격 행 기준일, 일치 기준(비율). */
+export const R_PILOT_N = 20;
+export const R_PILOT_YEAR = 2023;
+export const R_PILOT_DATE = "2023-12-28";
+export const R_PILOT_MATCH_MIN = 0.995;
+/** corp_code 매핑 없는 종목 비율 상한. */
+export const R_UNMAPPED_MAX = 0.1;
+/** 재무 지표 사용 기간 상한(접수일 이후 일수), 수익성·성장 임계. */
+export const R_STALE_DAYS = 200;
+export const R_ROE_MIN = 0.08;
+export const R_R1_ROE = [0.06, 0.1] as const;
+export const R_GROWTH_MIN = 0.25;
+export const R_R1_GROWTH = [0.15, 0.35] as const;
+/** 소형주 유니버스(억 원, 억 원, 원) 와 대형 유니버스. */
+export const R_SMALL_MCAP_MIN_EOK = 1000;
+export const R_SMALL_MCAP_MAX_EOK = 5000;
+export const R_SMALL_TV_MIN_WON = 200_000_000;
+export const R_SMALL_PRICE_MIN_WON = 1000;
+export const R_SMALL_SLIPPAGE = 0.002;
+export const R_LARGE_SLIPPAGE = 0.001;
+export const R_COVERAGE_MIN_PCT = 70;
+export const R_TESTS = 5;
+export const R_PRIOR_TESTS = 199;
+/** H 게이트: 필터 정보 가치. */
+export const R_H_CAGR_GAIN_PP = 2;
+export const R_H_MDD_WORSEN_PP = 1;
+export const R_H_MDD_GAIN_PP = 5;
+export const R_H_CAGR_LOSS_PP = 1;
+export const R_ORDER_RATIO_FLAG = 0.01;

@@ -64,3 +64,7 @@ export const REGIME_BACKFILL_MEMBERSHIP_PATH = "research/market_membership/month
 export const REGIME_INDEX_FROM = "2009-01-01";
 /** 종목 시세 Parquet 시작 연도(연구 자료와 같은 2010년부터). */
 export const REGIME_PRICE_FROM_YEAR = 2010;
+
+// ---- 화면(카드) ----
+/** 마지막 계산일이 가장 최근 완료 거래일보다 이 거래일 수 이상 오래되면 카드 상단에 갱신 지연 경고를 띄운다. 일일 계산이 아직 안 돈 날 하루는 정상적으로 뒤처질 수 있어 2로 둔다. */
+export const REGIME_STALE_WARN_TRADING_DAYS = 2;

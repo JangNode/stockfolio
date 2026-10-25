@@ -41,3 +41,12 @@ jobs:
           echo "[원격에만]"; comm -23 r2.txt local.txt
           echo "[로컬에만]"; comm -13 r2.txt local.txt
           echo "--- 비교 끝"
+          q() {
+            echo "--- $1"
+            jq -n --arg q "$2" '{query: $q}' | curl -sS -X POST "https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- | jq -c '.'
+          }
+          q "market_regime_daily 요약" "select count(*) as rows, min(trade_date) as first_date, max(trade_date) as last_date, count(*) filter (where source = 'backfill') as backfill_rows, count(*) filter (where source = 'daily') as daily_rows from public.market_regime_daily"
+          q "국면별 일수" "select regime, count(*) as days from public.market_regime_daily group by regime order by regime"
+          q "최신 5행" "select trade_date, regime, raw_regime, kospi_close, b50, nh, member_count, source from public.market_regime_daily order by trade_date desc limit 5"
+          q "RLS·정책" "select c.relrowsecurity as rls_enabled, (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = 'market_regime_daily') as policies from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'market_regime_daily'"

@@ -6,6 +6,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { authJsonFetcher } from "@/lib/authFetch";
 import { pickValueAsOf, pickValueBefore, buildMeetingResultDates } from "@/lib/rateChangeDetection";
 import MarketBriefingSection from "@/components/MarketBriefingSection";
+import MarketRegimeCard from "@/components/MarketRegimeCard";
 import { etDateTimeToUtcIso } from "@/lib/usMarketCalendar";
 import { toKstDateString, formatKstTime, formatKstDateTime } from "@/lib/formatKst";
 import { FOMC_ANNOUNCEMENT_ET_HOUR, FOMC_ANNOUNCEMENT_ET_MINUTE } from "@/lib/rateConfig";
@@ -208,6 +209,8 @@ export default function MarketIndicators() {
   return (
     <div className="w-full max-w-4xl">
       <MarketBriefingSection />
+
+      <MarketRegimeCard />
 
       <div className="mb-6 flex items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
         <p className="text-sm text-ink-muted">

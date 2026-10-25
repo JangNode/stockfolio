@@ -3,8 +3,8 @@
  * .github/workflows/market-regime.yml이 평일 16:40 KST에 pg_cron으로 실행한다(등록은 docs/market-regime/pg_cron_register.sql).
  *
  * 구성 종목: 현재 코스피 구성(KIS 종목마스터 파일 다운로드) ∩ 20일 평균 거래대금 ≥ 5억 ∩ 제외 규칙 ∩ 시총 상위 200.
- * 시세: 연도 Parquet을 읽기만 한다(갱신·쓰기 없음 — 현재 연도 파일은 주간 배치가 채운다). 지수: KRX idx API로 beta_price_history에 KOSPI를
- * 증분 insert(이미 있는 날짜는 무시).
+ * 시세: 연도 Parquet을 이 스크립트는 읽기만 한다(현재 연도 파일은 워크플로의 직전 단계가 backfill:stock-daily-prices로 증분 갱신). 지수: KRX idx
+ * API로 beta_price_history에 KOSPI를 증분 insert(이미 있는 날짜는 무시).
  * 계산 대상 거래일의 Parquet 시세가 없거나 구성 종목이 200개 미만이면 그날은 저장하지 않고 schedule_scrape_status('MARKET_REGIME')에 오류만 남긴다.
  *
  * 실행: tsx --conditions=react-server scripts/market-regime.ts
@@ -63,7 +63,7 @@ async function run(): Promise<void> {
   console.log(`Parquet 종목 ${book.size}개 로드(${targetYear - 1}~${targetYear}), 계산 대상 ${pending.join(", ")}`);
   // Parquet은 읽기만 한다 — 아직 들어오지 않은 날은 저장하지 않고 오류로 남긴다(앞쪽의 시세가 있는 날까지만 이어서 저장).
   const { available, missing } = splitByParquetAvailability(book, pending);
-  const parquetFailure = missing.length > 0 ? `Parquet에 ${missing.join(", ")} 시세가 없습니다(읽기 전용이라 갱신하지 않음; 현재 연도 파일은 주간 배치가 채움) — 그날은 저장하지 않습니다.` : null;
+  const parquetFailure = missing.length > 0 ? `Parquet에 ${missing.join(", ")} 시세가 없습니다(이 스크립트는 읽기 전용 — 워크플로의 Parquet 갱신 단계가 실패했거나 KRX 자료가 아직 없음) — 그날은 저장하지 않습니다.` : null;
   if (available.length === 0) throw new Error(parquetFailure ?? "계산할 날짜가 없습니다.");
 
   const master = await getAllStocks();

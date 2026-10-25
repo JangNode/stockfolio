@@ -224,6 +224,12 @@ async function backfillYear(
       const existingKeys = new Set(existingRows.map((r) => `${r.stockCode}:${r.tradeDate}`));
       const added = yearRows.filter((r) => !existingKeys.has(`${r.stockCode}:${r.tradeDate}`));
       console.log(`  ${year}년 병합: 기존 ${existingRows.length}행 보존 + 신규 ${added.length}행 추가`);
+      if (added.length === 0) {
+        // 새 행이 없으면 같은 내용을 다시 올릴 이유가 없다 — 올리면 파일 변경 판별값만 바뀌어 다른 배치의 디스크 캐시가
+        // 무효화되고(연도 파일 14~18 MiB 재다운로드) 불필요한 업로드 대역폭만 쓴다.
+        console.log(`  ${year}년: 새 행이 없어 업로드하지 않음(파일 그대로)`);
+        return { rows: 0, errors };
+      }
       await uploadYearPrices(year, [...existingRows, ...added]);
       return { rows: added.length, errors };
     }

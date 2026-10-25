@@ -3,21 +3,13 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { authJsonFetcher } from "@/lib/authFetch";
-import { REGIME_LABELS, type Regime } from "@/lib/marketRegime";
+import { REGIME_LABELS } from "@/lib/marketRegime";
 import type { MarketRegimeResponse } from "@/lib/marketRegimeApiTypes";
 import { REGIME_TOP_N } from "@/lib/marketRegimeConfig";
+import { seriesToDays } from "@/lib/marketRegimeChart";
 import { currentStreak, regimeReason, staleness, withWeekday } from "@/lib/marketRegimeView";
-
-/** 국면별 색: 한국 시장 관례(상승=빨강, 하락=파랑)를 따르는 디자인 토큰만 쓴다(색 하드코딩 금지). */
-const BADGE_CLASS: Record<Regime, string> = {
-  bull: "bg-rise-soft text-rise",
-  neutral: "bg-surface-sunken text-ink-muted",
-  bear: "bg-fall-soft text-fall",
-  crisis: "bg-est-soft text-est",
-  undefined: "bg-surface-sunken text-ink-faint",
-};
-const STRIP_CLASS: Record<Regime, string> = { bull: "bg-rise", neutral: "bg-ink-faint", bear: "bg-fall", crisis: "bg-est", undefined: "bg-border" };
-const LEGEND: Regime[] = ["bull", "neutral", "bear", "crisis"];
+import MarketRegimeChart from "@/components/MarketRegimeChart";
+import { BADGE_CLASS } from "@/components/marketRegimeStyles";
 
 const fmt = (v: number | null | undefined, digits = 2): string => (v === null || v === undefined || !Number.isFinite(v) ? "-" : v.toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const pct = (v: number | null | undefined): string => (v === null || v === undefined || !Number.isFinite(v) ? "-" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
@@ -38,15 +30,8 @@ export default function MarketRegimeCard() {
   // 갱신 지연 판정에 쓰는 "지금"(렌더마다 바뀌지 않게 한 번만 잡는다).
   const [now] = useState(() => new Date());
 
-  // 타임라인을 같은 국면이 이어지는 구간으로 묶어 띠로 그린다.
-  const runs = useMemo(() => {
-    const out: { regime: Regime; start: string; end: string; days: number }[] = [];
-    for (const d of data?.timeline ?? []) {
-      const last = out[out.length - 1];
-      if (last && last.regime === d.regime) { last.end = d.date; last.days++; } else out.push({ regime: d.regime, start: d.date, end: d.date, days: 1 });
-    }
-    return out;
-  }, [data]);
+  // 차트·N거래일째가 같이 쓰는 전체 이력(열 배열을 날짜별 객체로).
+  const days = useMemo(() => seriesToDays(data?.series), [data]);
 
   if (isLoading) {
     return <div className="mb-6 animate-pulse rounded-card border border-border bg-surface p-4"><div className="h-24 w-full rounded bg-surface-sunken" /></div>;
@@ -68,7 +53,7 @@ export default function MarketRegimeCard() {
   const vsMa50 = l.ma50 ? (l.kospiClose / l.ma50 - 1) * 100 : null;
   const pending = l.rawRegime !== l.regime && l.rawRegime !== "undefined";
   const stale = staleness(l.tradeDate, now);
-  const streak = currentStreak(data.timeline, l.regime);
+  const streak = currentStreak(days.length ? days : data.timeline, l.regime);
   const reason = regimeReason(l, t);
 
   return (
@@ -95,29 +80,7 @@ export default function MarketRegimeCard() {
         </p>
       )}
 
-      <div className="mt-5">
-        <div className="mb-1 flex items-baseline justify-between gap-2">
-          <p className="text-xs font-medium text-ink">최근 1년 국면</p>
-          <p className="text-xs text-ink-faint">전환 {data.timelineTransitions}회</p>
-        </div>
-        <div className="flex h-4 w-full overflow-hidden rounded">
-          {runs.map((r, i) => (
-            <div key={i} className={STRIP_CLASS[r.regime]} style={{ flexGrow: r.days, flexBasis: 0 }} title={`${REGIME_LABELS[r.regime]} ${r.start}~${r.end} (${r.days}거래일)`} />
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[11px] text-ink-faint">
-          <span>{data.timeline[0]?.date}</span>
-          <span>{data.timeline[data.timeline.length - 1]?.date}</span>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          {LEGEND.map((g) => (
-            <span key={g} className="flex items-center gap-1.5 text-xs text-ink-muted">
-              <span className={`inline-block h-2.5 w-2.5 rounded-sm ${STRIP_CLASS[g]}`} />
-              {REGIME_LABELS[g]}
-            </span>
-          ))}
-        </div>
-      </div>
+      <MarketRegimeChart days={days} />
 
       <details className="group mt-5 border-t border-border pt-3">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-ink [&::-webkit-details-marker]:hidden">

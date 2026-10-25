@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { indexStock } from "@/lib/marketRegime";
-import { candidatesOn, computeRegimeRows, type PriceBook } from "@/lib/marketRegimeCompute";
+import { backfillEndDate, candidatesOn, computeRegimeRows, datesMissingFromBook, splitByParquetAvailability, type PriceBook } from "@/lib/marketRegimeCompute";
 
 const N = 700;
 const dayOf = (i: number): string => new Date(Date.UTC(2018, 0, 1 + i)).toISOString().slice(0, 10);
@@ -49,5 +49,27 @@ describe("candidatesOn", () => {
     assert.equal(c.find((x) => x.code === "100000")!.isKospi, false);
     assert.equal(c.find((x) => x.code === "100010")!.excluded, true);
     assert.equal(candidatesOn(book, "1999-01-01", () => true, () => false).length, 0);
+  });
+});
+
+describe("Parquet 읽기 전용 처리", () => {
+  it("시세가 없는 날짜를 찾고, 앞에서부터 시세가 있는 날만 이어 계산 대상으로 남긴다", () => {
+    const want = [dates[10], dates[11], "2030-01-02", "2030-01-03"];
+    assert.deepEqual(datesMissingFromBook(book, want), ["2030-01-02", "2030-01-03"]);
+    assert.deepEqual(splitByParquetAvailability(book, want), { available: [dates[10], dates[11]], missing: ["2030-01-02", "2030-01-03"] });
+    // 첫 빈 날 뒤에 시세가 있는 날이 있어도 이어 계산할 수 없으므로 제외한다
+    assert.deepEqual(splitByParquetAvailability(book, [dates[10], "2030-01-02", dates[12]]), { available: [dates[10]], missing: ["2030-01-02"] });
+    assert.deepEqual(splitByParquetAvailability(book, ["2030-01-02"]), { available: [], missing: ["2030-01-02"] });
+    assert.deepEqual(splitByParquetAvailability(book, [dates[10]]), { available: [dates[10]], missing: [] });
+  });
+});
+
+describe("백필 마지막 날", () => {
+  it("일일 행이 없으면 시세 마지막 날, 있으면 첫 일일 행의 전날과 시세 마지막 날 중 이른 날", () => {
+    assert.equal(backfillEndDate("2026-10-15", null), "2026-10-15");
+    assert.equal(backfillEndDate("2026-10-15", "2026-10-16"), "2026-10-15");
+    assert.equal(backfillEndDate("2026-10-15", "2026-10-14"), "2026-10-13");
+    assert.equal(backfillEndDate("2026-10-15", "2026-03-01"), "2026-02-28");
+    assert.equal(backfillEndDate("2026-10-15", "2026-01-01"), "2025-12-31");
   });
 });

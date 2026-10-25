@@ -82,7 +82,7 @@ async function fetchKospiClose(basDd: string, apiKey: string): Promise<number | 
 
 /**
  * beta_price_history의 KOSPI를 target 날짜까지 증분 갱신한다(저장된 마지막 날 다음 평일부터, 빈 응답은 휴장일로 보고 건너뜀).
- * 기존 지수 갱신 배치와 같은 (market, trade_date) 표에 같은 값만 넣는다. 반환: 새로 저장한 일수.
+ * 기존 지수 갱신 배치와 같은 (market, trade_date) 표에 같은 값만, 충돌 시 무시(insert-only)로 넣는다. 반환: 새로 넣으려 한 일수.
  */
 export async function refreshKospiIndexUpTo(target: string, maxGapDays: number): Promise<number> {
   const apiKey = process.env.KRX_API_KEY;

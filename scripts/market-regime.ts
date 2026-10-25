@@ -3,8 +3,9 @@
  * .github/workflows/market-regime.yml이 평일 16:40 KST에 pg_cron으로 실행한다(등록은 docs/market-regime/pg_cron_register.sql).
  *
  * 구성 종목: 현재 코스피 구성(KIS 종목마스터 파일 다운로드) ∩ 20일 평균 거래대금 ≥ 5억 ∩ 제외 규칙 ∩ 시총 상위 200.
- * 시세: 연도 Parquet(워크플로가 직전 단계에서 현재 연도 파일을 증분 갱신). 지수: KRX idx API로 beta_price_history를 증분 갱신.
- * 직전 거래일 자료가 없거나 구성 종목이 200개 미만이면 그날은 저장하지 않고 schedule_scrape_status('MARKET_REGIME')에 오류를 남긴다.
+ * 시세: 연도 Parquet을 읽기만 한다(갱신·쓰기 없음 — 현재 연도 파일은 주간 배치가 채운다). 지수: KRX idx API로 beta_price_history에 KOSPI를
+ * 증분 insert(이미 있는 날짜는 무시).
+ * 계산 대상 거래일의 Parquet 시세가 없거나 구성 종목이 200개 미만이면 그날은 저장하지 않고 schedule_scrape_status('MARKET_REGIME')에 오류만 남긴다.
  *
  * 실행: tsx --conditions=react-server scripts/market-regime.ts
  * 환경변수: KRX_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -12,7 +13,7 @@
  */
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAllStocks } from "@/lib/stockMaster";
-import { computeRegimeRows } from "@/lib/marketRegimeCompute";
+import { computeRegimeRows, splitByParquetAvailability } from "@/lib/marketRegimeCompute";
 import { getLatestRegimeRows, recordRegimeAttempt, upsertRegimeRows } from "@/lib/marketRegimeStorage";
 import { loadKospiSeries, loadNamesAndKsic, loadPriceBook, refreshKospiIndexUpTo } from "@/lib/marketRegimeData";
 import { makeExcluder, membersOnDate } from "@/lib/marketRegimeMembers";
@@ -60,6 +61,10 @@ async function run(): Promise<void> {
   const targetYear = Number(target.slice(0, 4));
   const book = await loadPriceBook(targetYear - 1, targetYear);
   console.log(`Parquet 종목 ${book.size}개 로드(${targetYear - 1}~${targetYear}), 계산 대상 ${pending.join(", ")}`);
+  // Parquet은 읽기만 한다 — 아직 들어오지 않은 날은 저장하지 않고 오류로 남긴다(앞쪽의 시세가 있는 날까지만 이어서 저장).
+  const { available, missing } = splitByParquetAvailability(book, pending);
+  const parquetFailure = missing.length > 0 ? `Parquet에 ${missing.join(", ")} 시세가 없습니다(읽기 전용이라 갱신하지 않음; 현재 연도 파일은 주간 배치가 채움) — 그날은 저장하지 않습니다.` : null;
+  if (available.length === 0) throw new Error(parquetFailure ?? "계산할 날짜가 없습니다.");
 
   const master = await getAllStocks();
   const kospi = new Set(master.filter((s) => s.market === "KOSPI").map((s) => s.code));
@@ -69,7 +74,7 @@ async function run(): Promise<void> {
   console.log(`KIS 종목마스터 코스피 ${kospi.size}개`);
 
   const rows = computeRegimeRows({
-    index, book, dates: pending, source: "daily",
+    index, book, dates: available, source: "daily",
     membersOn: (d) => membersOnDate(book, d, (c) => kospi.has(c), excluded),
     seed: { prevRegime: last.regime, prevRaws: lastRows.map((r) => r.rawRegime) },
   });
@@ -83,6 +88,7 @@ async function run(): Promise<void> {
   for (const r of ok) console.log(`${r.tradeDate} ${r.regime}(신호 ${r.rawRegime}) KOSPI ${r.kospiClose} B50 ${r.b50?.toFixed(2)} B200 ${r.b200?.toFixed(2) ?? "-"} NH ${r.nh} 낙폭 ${r.drawdown?.toFixed(2) ?? "-"}% 구성 ${r.memberCount}`);
   if (!dry && ok.length > 0) await upsertRegimeRows(ok);
   if (failure) throw new Error(failure);
+  if (parquetFailure) throw new Error(parquetFailure);
   if (!dry) await recordRegimeAttempt(null, ok.length);
   console.log(`${dry ? "(DRY RUN) " : ""}저장 ${ok.length}행`);
 }

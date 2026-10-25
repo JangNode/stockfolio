@@ -38,6 +38,21 @@ export async function upsertRegimeRows(rows: RegimeRow[]): Promise<void> {
   }
 }
 
+/** 이미 있는 날짜는 건드리지 않고 없는 날짜만 넣는다(on conflict do nothing) — 이력 백필이 일일 배치 행을 덮어쓰지 않도록. */
+export async function insertRegimeRowsIgnoreConflicts(rows: RegimeRow[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const { error } = await supabaseAdmin.from(TABLE).upsert(rows.slice(i, i + UPSERT_BATCH).map(toDbRow), { onConflict: "trade_date", ignoreDuplicates: true });
+    if (error) throw new Error(`시장 국면 백필 저장 실패: ${error.message}`);
+  }
+}
+
+/** source='daily' 행 중 가장 이른 날짜(없으면 null) — 백필이 이 날 앞에서 멈추는 기준. */
+export async function getFirstDailyDate(): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.from(TABLE).select("trade_date").eq("source", "daily").order("trade_date", { ascending: true }).limit(1);
+  if (error) throw new Error(`시장 국면 일일 행 조회 실패: ${error.message}`);
+  return data && data.length > 0 ? (data[0].trade_date as string) : null;
+}
+
 /** 최근 n행(날짜 내림차순으로 읽어 오름차순으로 돌려준다). */
 export async function getLatestRegimeRows(n: number): Promise<RegimeRow[]> {
   const { data, error } = await supabaseAdmin.from(TABLE).select(COLUMNS).order("trade_date", { ascending: false }).limit(n);

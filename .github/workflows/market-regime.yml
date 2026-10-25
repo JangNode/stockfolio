@@ -3,6 +3,7 @@ name: Market Regime
 # 시장 국면(레짐) 카드용 일일 배치. 정시성이 필요해(직전 거래일 자료가 준비된 뒤 곧바로 계산) GitHub Actions 네이티브
 # schedule 대신 Supabase pg_cron이 평일 16:40 KST(07:40 UTC)에 이 워크플로의 workflow_dispatch를 직접 호출한다
 # (등록 SQL은 docs/market-regime/pg_cron_register.sql — 사용자 승인 전에는 등록하지 않는다).
+# 종목 시세 Parquet은 읽기만 한다(갱신하지 않음) — 현재 연도 파일은 주간 배치(compute-strategy-backtest-summary.yml)가 채운다.
 on:
   workflow_dispatch:
     inputs:
@@ -19,9 +20,14 @@ on:
         required: false
         default: "0"
       apply:
-        description: "mode=backfill: 1이면 market_regime_daily에 upsert(마이그레이션 적용 후에만)"
+        description: "mode=backfill: 1이면 market_regime_daily에 없는 날짜만 입력(충돌 시 무시, 마이그레이션 적용 후에만)"
         required: false
         default: "0"
+
+# 일일 계산과 백필이 겹쳐 같은 날짜를 동시에 쓰지 않도록 한 번에 하나만 실행한다(대기, 취소 안 함).
+concurrency:
+  group: market-regime
+  cancel-in-progress: false
 
 jobs:
   regime:
@@ -54,20 +60,6 @@ jobs:
 
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
-
-      # 일일 갱신 배치는 hot 표만 갱신하므로 Parquet 현재 연도 파일에 빠진 최근 거래일을 계산 직전에 채운다
-      # (기존 행은 보존하고 없는 날짜만 받는다 — 주간 백테스트 배치와 같은 방식, KRX Open API).
-      - name: Refresh current-year price parquet
-        if: ${{ inputs.mode != 'backfill' && inputs.dry_run != '1' }}
-        run: |
-          export BACKFILL_YEAR_RANGE_START=$(( $(date -u +%Y) - 1 ))
-          export BACKFILL_YEAR_RANGE_END=$(date -u +%Y)
-          npm run backfill:stock-daily-prices
-        env:
-          SKIP_EXISTING_DATES: "true"
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Compute market regime (daily)
         if: ${{ inputs.mode != 'backfill' }}

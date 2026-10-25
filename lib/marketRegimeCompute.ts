@@ -71,3 +71,27 @@ export function computeRegimeRows(a: ComputeArgs): RegimeRow[] {
   }
   return rows;
 }
+
+/** dates 중 종목 시세가 한 건도 없는 날짜(Parquet에 아직 안 들어온 날). */
+export function datesMissingFromBook(book: PriceBook, dates: string[]): string[] {
+  const present = new Set<string>();
+  for (const s of book.values()) for (const d of s.dates) present.add(d);
+  return dates.filter((d) => !present.has(d));
+}
+
+/** 계산 대상 날짜를 "앞에서부터 시세가 있는 날"(available)과 시세가 없는 날(missing)로 나눈다. 첫 번째 빈 날 뒤의 날짜는 이어 계산할 수 없어 available에서 뺀다. */
+export function splitByParquetAvailability(book: PriceBook, dates: string[]): { available: string[]; missing: string[] } {
+  const missing = datesMissingFromBook(book, dates);
+  const first = missing.length ? dates.indexOf(missing[0]) : dates.length;
+  return { available: dates.slice(0, first), missing };
+}
+
+/**
+ * 이력 백필의 마지막 날(포함): 시세 자료의 마지막 날과, 일일 행이 처음 생긴 날의 전날 중 이른 날.
+ * 일일 행이 이미 있으면 그 날부터는 일일 배치의 값을 덮어쓰지 않도록 백필이 그 앞에서 멈춘다.
+ */
+export function backfillEndDate(lastDataDate: string, firstDailyDate: string | null): string {
+  if (!firstDailyDate) return lastDataDate;
+  const dayBefore = new Date(Date.parse(`${firstDailyDate}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  return dayBefore < lastDataDate ? dayBefore : lastDataDate;
+}

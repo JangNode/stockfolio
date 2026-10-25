@@ -1,0 +1,105 @@
+name: Market Regime
+
+# 시장 국면(레짐) 카드용 일일 배치. 정시성이 필요해(직전 거래일 자료가 준비된 뒤 곧바로 계산) GitHub Actions 네이티브
+# schedule 대신 Supabase pg_cron이 평일 16:40 KST(07:40 UTC)에 이 워크플로의 workflow_dispatch를 직접 호출한다
+# (등록 SQL은 docs/market-regime/pg_cron_register.sql — 사용자 승인 전에는 등록하지 않는다).
+# 종목 시세 Parquet은 읽기만 한다(갱신하지 않음) — 현재 연도 파일은 주간 배치(compute-strategy-backtest-summary.yml)가 채운다.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "daily = 직전 거래일 한 행 계산·저장, backfill = 2010-07~ 이력 백필(기본 드라이런)"
+        required: false
+        default: "daily"
+      target:
+        description: "mode=daily: 기준일(YYYY-MM-DD), 비우면 직전 거래일"
+        required: false
+        default: ""
+      dry_run:
+        description: "mode=daily: 1이면 저장·지수 갱신 없이 계산만"
+        required: false
+        default: "0"
+      apply:
+        description: "mode=backfill: 1이면 market_regime_daily에 없는 날짜만 입력(충돌 시 무시, 마이그레이션 적용 후에만)"
+        required: false
+        default: "0"
+
+# 일일 계산과 백필이 겹쳐 같은 날짜를 동시에 쓰지 않도록 한 번에 하나만 실행한다(대기, 취소 안 함).
+concurrency:
+  group: market-regime
+  cancel-in-progress: false
+
+jobs:
+  regime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
+      PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Parquet cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            parquet-v1-${{ runner.os }}-
+
+      - name: Reset Parquet cache dirty marker
+        run: rm -f .parquet-cache/.dirty
+
+      - name: Compute market regime (daily)
+        if: ${{ inputs.mode != 'backfill' }}
+        run: npm run market-regime
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          MARKET_REGIME_TARGET: ${{ inputs.target }}
+          MARKET_REGIME_DRY_RUN: ${{ inputs.dry_run }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Backfill market regime history (dry run unless apply=1)
+        if: ${{ inputs.mode == 'backfill' }}
+        run: npm run backfill:market-regime
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          BACKFILL_APPLY: ${{ inputs.apply }}
+          BACKFILL_SQL_PATH: ${{ runner.temp }}/market_regime_backfill.sql
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Upload backfill SQL
+        if: ${{ inputs.mode == 'backfill' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-regime-backfill-sql
+          path: ${{ runner.temp }}/market_regime_backfill.sql
+          retention-days: 7
+
+      - name: Check Parquet cache changes
+        id: parquet_cache_state
+        if: ${{ always() }}
+        run: |
+          if [ -f .parquet-cache/.dirty ]; then echo "dirty=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save Parquet cache
+        if: ${{ always() && steps.parquet_cache_state.outputs.dirty == 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -604,8 +604,9 @@ async function main(): Promise<void> {
   };
 
   // ===================== R (8c88160): 전체 상장사 재무 + 소형주·품질·가치 =====================
-  const cS = calIdx.get(N_EVAL_START);
-  if (cS === undefined) throw new Error(`${N_EVAL_START}가 거래일 달력에 없음`);
+  const cS0 = calIdx.get(N_EVAL_START);
+  if (cS0 === undefined) throw new Error(`${N_EVAL_START}가 거래일 달력에 없음`);
+  const cS: number = cS0;
   const NW: [string, Win][] = N_SUBPERIODS.map(([n, f, t]) => [n, { from: f, to: t }]);
   const FULLN: Win = { from: N_EVAL_FROM, to: "9999-12-31" };
   const ALLN: [string, Win][] = [...NW, ["평가 구간 전체", FULLN]];

@@ -12,7 +12,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -42,15 +42,10 @@ jobs:
         run: rm -f .parquet-cache/.dirty
 
       - name: Run benchmark reference implementation
-        run: npx tsx --conditions=react-server scripts/backfill-market-regime.ts
+        run: npm run diagnose:benchmark-reference-implementation
         env:
-          NODE_OPTIONS: --max-old-space-size=12288
-          BACKFILL_SQL_PATH: ${{ runner.temp }}/market_regime_backfill.sql
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-      - name: Report backfill SQL size
-        run: ls -l "${{ runner.temp }}/market_regime_backfill.sql" && head -c 1500 "${{ runner.temp }}/market_regime_backfill.sql" && echo && tail -c 700 "${{ runner.temp }}/market_regime_backfill.sql"
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

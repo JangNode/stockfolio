@@ -42,11 +42,15 @@ jobs:
         run: rm -f .parquet-cache/.dirty
 
       - name: Run benchmark reference implementation
-        run: npx tsx --conditions=react-server scripts/diagnose-market-regime.ts
+        run: npx tsx --conditions=react-server scripts/backfill-market-regime.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          BACKFILL_SQL_PATH: ${{ runner.temp }}/market_regime_backfill.sql
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Report backfill SQL size
+        run: ls -l "${{ runner.temp }}/market_regime_backfill.sql" && head -c 1500 "${{ runner.temp }}/market_regime_backfill.sql" && echo && tail -c 700 "${{ runner.temp }}/market_regime_backfill.sql"
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

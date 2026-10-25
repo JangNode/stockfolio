@@ -162,6 +162,22 @@ jobs:
           DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
           DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
+      - name: R 단계 1 검증 보고 (읽기 전용)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'rverify' }}
+        run: npx tsx --conditions=react-server scripts/verify-r-collection.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: R 단계 2 시험 R0~R4 (읽기 전용, 1회)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'r' }}
+        run: npx tsx --conditions=react-server scripts/research-r-allcap.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Check Parquet cache changes
         id: parquet_cache_state
         if: ${{ always() }}

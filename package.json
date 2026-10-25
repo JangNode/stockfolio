@@ -35,7 +35,7 @@
     "backfill:index-daily-prices": "tsx --conditions=react-server scripts/backfill-index-daily-prices.ts",
     "market-regime": "tsx --conditions=react-server scripts/market-regime.ts",
     "backfill:market-regime": "tsx --conditions=react-server scripts/backfill-market-regime.ts",
-    "test:market-regime": "tsx --test lib/marketRegime.test.ts lib/marketRegimeCompute.test.ts",
+    "test:market-regime": "tsx --test lib/marketRegime.test.ts lib/marketRegimeCompute.test.ts lib/marketRegimeView.test.ts lib/marketRegimeChart.test.ts",
     "calc:stock-beta": "tsx --conditions=react-server scripts/calc-stock-beta.ts",
     "backfill:stock-industry-classification": "tsx --conditions=react-server scripts/backfill-stock-industry-classification.ts",
     "calc:industry-average-per": "tsx --conditions=react-server scripts/calc-industry-average-per.ts",

@@ -658,7 +658,7 @@ async function main(): Promise<void> {
   const listDone = new Set(prog.listDone), finDone = new Set(prog.finDone), indDone = new Set(prog.indDone);
   const FIN_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["reprt_code", "STRING"], ["fs_div", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["status", "STRING"],
     ...["rev", "oi", "ni"].flatMap((k) => ["c", "a", "p", "pa"].map((s) => [`${k}_${s}`, "DOUBLE"] as [string, "DOUBLE"])), ["assets_c", "DOUBLE"], ["liab_c", "DOUBLE"], ["eq_c", "DOUBLE"], ["eq_p", "DOUBLE"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));
-  const FIL_COLS: ColDef[] = [{ name: "corp_code", type: "STRING" }, { name: "rcept_no", type: "STRING" }, { name: "rcept_dt", type: "STRING" }, { name: "correction", type: "STRING" }];
+  const FIL_COLS: ColDef[] = [{ name: "corp_code", type: "STRING" }, { name: "rcept_no", type: "STRING" }, { name: "rcept_dt", type: "STRING" }, { name: "correction", type: "STRING" }, { name: "report_nm", type: "STRING" }];
   const IND_COLS: ColDef[] = [{ name: "stock_code", type: "STRING" }, { name: "corp_code", type: "STRING" }, { name: "induty_code", type: "STRING" }, { name: "status", type: "STRING" }];
   const loadMap = async (name: string, key: (r: Row) => string): Promise<Map<string, Row>> => { const b = await downloadBuf(rPath(name)); const m = new Map<string, Row>(); if (b) for (const r of await decodeTable(b)) m.set(key(r), r); return m; };
   const finRows = await loadMap("fin.parquet", (r) => `${r.corp_code}|${r.bsns_year}|${r.reprt_code}|${r.fs_div}`);
@@ -797,7 +797,7 @@ async function main(): Promise<void> {
       const nm = norm(r.report_nm ?? "");
       if (!/사업보고서|반기보고서|분기보고서/.test(nm)) continue;
       const corr = (r.rm ?? "").includes("정") || /정정/.test(nm);
-      filings.set(r.rcept_no, { corp_code: corp, rcept_no: r.rcept_no, rcept_dt: isoD(r.rcept_dt ?? ""), correction: corr ? "Y" : "N" });
+      filings.set(r.rcept_no, { corp_code: corp, rcept_no: r.rcept_no, rcept_dt: isoD(r.rcept_dt ?? ""), correction: corr ? "Y" : "N", report_nm: (r.report_nm ?? "").trim() });
     }
     listDone.add(corp);
     await ckIfDue();

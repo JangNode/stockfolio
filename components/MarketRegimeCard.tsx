@@ -159,6 +159,7 @@ export default function MarketRegimeCard() {
           구성 종목은 코스피 시총 상위 {REGIME_TOP_N}개(우선주·스팩·리츠 제외, 20일 평균 거래대금 5억 원 이상)입니다.
           {data.backfillThrough ? ` ${data.backfillThrough}까지의 이력은 월말 시장 구분 기준이고` : ""}
           {data.dailyFrom ? ` ${data.dailyFrom} 이후 일일 계산은 현재 코스피 구성 기준입니다.` : " 이후 일일 계산은 현재 코스피 구성 기준으로 이어집니다."}
+          {" "}일일 계산은 종목 시세 자료가 갱신된 뒤에 이어지므로 표시 날짜가 며칠 늦을 수 있습니다.
         </p>
         {data.status.lastError && <p className="text-est">최근 일일 계산 오류: {data.status.lastError}</p>}
       </div>

@@ -28,7 +28,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          jq -n --arg q "select version, name from supabase_migrations.schema_migrations order by version" \
+          jq -n --arg q "select version, name from supabase_migrations.schema_migrations order by version" '{query: $q}' \
             | curl -sS -X POST "https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- > remote.json
           head -c 300 remote.json; echo

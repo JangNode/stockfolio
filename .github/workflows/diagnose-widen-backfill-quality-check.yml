@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Diagnose widen backfill small-cap quality
-        run: npx tsx --conditions=react-server scripts/diagnose-parquet-status.ts
+        run: npx tsx --conditions=react-server scripts/diagnose-regime-q1.ts
         env:
           YEARS: ${{ inputs.years }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

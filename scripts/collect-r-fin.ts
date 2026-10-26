@@ -654,7 +654,7 @@ async function main(): Promise<void> {
   for (const d of mmTargets) { for (const s of stocks) { const i = s.idx.get(d); if (i === undefined || !everMarket.has(s.code) || excluded.has(s.code)) continue; capAll += s.mcapRow[i]; if (!corpOf.has(s.code)) capUnm += s.mcapRow[i]; } }
   console.log(`corp_code 매핑 ${corpOf.size}개, 매핑 없음 ${unmapped.length}개(${f2(unmappedRatio * 100)}%, 월말 시총 합 비중 ${f2((capUnm / Math.max(capAll, 1)) * 100)}%) | 기준 ${f2(R_UNMAPPED_MAX * 100)}%${unmapped.length ? ` | 예: ${unmapped.slice(0, 8).map((c) => `${c} ${nameOf.get(c) ?? ""}`).join(", ")}` : ""} (마지막 월말 ${lastMe})`);
   if (unmappedRatio > R_UNMAPPED_MAX) { console.log("매핑 없는 종목 비율이 10%를 넘음 → R0~R4 실행 불가 표시, 수집하지 않고 멈춥니다."); return finish(); }
-  const corps = [...new Set(targets.filter((c) => corpOf.has(c)).map((c) => corpOf.get(c)!))].sort();
+  let corps = [...new Set(targets.filter((c) => corpOf.has(c)).map((c) => corpOf.get(c)!))].sort();
   const stockOfCorp = new Map<string, string>();
   for (const c of targets) if (corpOf.has(c)) stockOfCorp.set(corpOf.get(c)!, c);
 
@@ -668,7 +668,15 @@ async function main(): Promise<void> {
   // 재수집 모드(R_REFETCH_FIN=1): 순이익 계정명 수정(R_FIX_ID) 뒤 주요계정 묶음만 처음부터 다시 받는다. 회사 목록·업종은 건드리지 않는다.
   // 수정 식별자가 진행 파일에 저장된 뒤의 재개 실행은 이미 다시 받은 묶음(finDone)을 이어서 쓴다.
   const fixMode = process.env.R_REFETCH_FIN === "1";
-  if (fixMode) { const same = corps.length === listDone.size && corps.every((c) => listDone.has(c)); console.log(`[재수집] 대상 회사 ${corps.length}개 vs 기존 목록 완료 ${listDone.size}개: ${same ? "일치(묶음 구성 동일)" : "불일치 — 묶음 번호가 달라질 수 있어 멈춤"}`); if (!same) return finish(); }
+  if (fixMode) {
+    // 월말 시장 목록이 새 날짜(2026-10-23)까지 늘어 대상이 3개 더 잡힐 수 있다. 묶음 번호를 바꾸지 않으려고 재수집은 기존 목록 완료 회사(listDone)만 같은 순서로 쓴다.
+    const extra = corps.filter((c) => !listDone.has(c)), missingNow = [...listDone].filter((c) => !corps.includes(c));
+    console.log(`[재수집] 대상 회사 ${corps.length}개 vs 기존 목록 완료 ${listDone.size}개: ${extra.length === 0 && missingNow.length === 0 ? "일치(묶음 구성 동일)" : `새로 잡힌 ${extra.length}개는 이번 재수집에서 제외(목록 미수집), 사라진 ${missingNow.length}개`}`);
+    if (missingNow.length) { console.log("기존 목록 완료 회사가 대상에서 빠짐 — 묶음 구성이 달라질 수 있어 멈춤"); return finish(); }
+    corps = [...listDone].sort();
+    stockOfCorp.clear();
+    for (const c of targets) if (corpOf.has(c) && listDone.has(corpOf.get(c)!)) stockOfCorp.set(corpOf.get(c)!, c);
+  }
   const acctFreq = new Map<string, number>(); // 원본 응답 계정명(sj_div|account_nm) 건수 — 로그용(이번 실행에서 받은 응답만)
   const FIN_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["reprt_code", "STRING"], ["fs_div", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["status", "STRING"],
     ...["rev", "oi", "ni"].flatMap((k) => ["c", "a", "p", "pa"].map((s) => [`${k}_${s}`, "DOUBLE"] as [string, "DOUBLE"])), ["assets_c", "DOUBLE"], ["liab_c", "DOUBLE"], ["eq_c", "DOUBLE"], ["eq_p", "DOUBLE"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));

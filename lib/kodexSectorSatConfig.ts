@@ -438,6 +438,9 @@ export const R_FIX_ID = "ni-name-v1";
 export const R_FIX_CHECKPOINT_CALLS = 700;
 export const R_FIX_CHECKPOINT_MS = 3_600_000;
 export const R_FIX_TRANSFER_CAP_MIB = 120;
+// 재수집 계획 계산용 가정(보고 전용, 호출에는 쓰이지 않음). 출처: 2026-10-25~26 실측 — 다중회사 API 약 1,356건/4.2시간(동시 4) ≈ 11초/건, 단일/company.json류 1,355건/약 4분 ≈ 0.18초/건
+export const R_PLAN_SEC_PER_MULTI = 11;
+export const R_PLAN_SEC_PER_SINGLE = 0.18;
 /** 파일럿: 회사 수, 사업연도, 가격 행 기준일, 일치 기준(비율). */
 export const R_PILOT_N = 20;
 export const R_PILOT_YEAR = 2023;

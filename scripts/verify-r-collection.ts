@@ -4,7 +4,7 @@
  */
 import { downloadBuf, decodeTable, type Row } from "@/lib/nBookStore";
 import { eventsByCorp, type FinRow, type FilingRow, type FinEvent } from "@/lib/rFinMetrics";
-import { N_EVAL_START, N_EVAL_FROM, N_SUBPERIODS, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_TOTAL_CALL_CAP, R_STALE_DAYS, R_ROE_MIN, R_R1_ROE, R_GROWTH_MIN, R_R1_GROWTH, R_SMALL_MCAP_MIN_EOK, R_SMALL_MCAP_MAX_EOK, R_SMALL_TV_MIN_WON, R_SMALL_PRICE_MIN_WON, R_SMALL_SLIPPAGE, R_LARGE_SLIPPAGE, R_COVERAGE_MIN_PCT, R_TESTS, R_PRIOR_TESTS, R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
+import { N_EVAL_START, N_EVAL_FROM, N_SUBPERIODS, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_TOTAL_CALL_CAP, R_MULTI_BATCH, R_PLAN_SEC_PER_MULTI, R_PLAN_SEC_PER_SINGLE, R_STALE_DAYS, R_ROE_MIN, R_R1_ROE, R_GROWTH_MIN, R_R1_GROWTH, R_SMALL_MCAP_MIN_EOK, R_SMALL_MCAP_MAX_EOK, R_SMALL_TV_MIN_WON, R_SMALL_PRICE_MIN_WON, R_SMALL_SLIPPAGE, R_LARGE_SLIPPAGE, R_COVERAGE_MIN_PCT, R_TESTS, R_PRIOR_TESTS, R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
 import { parquetReadObjects } from "hyparquet";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
 import { INVESTOR_FLOW_STOCK_STORE_BUCKET } from "@/lib/investorFlowConfig";
@@ -765,6 +765,33 @@ async function main(): Promise<void> {
     if (pj) {
       const p = JSON.parse(new TextDecoder().decode(pj)) as { pilot?: { compared: number; matched: number; rate: number; mode: string; note: string }; listDone: string[]; finDone: string[]; indDone: string[]; totalCalls: number; runs: { startedAt: string; calls: number; stop: string }[] };
       console.log(`\n=== 수집 진행 요약 ===\n누적 DART 호출 ${p.totalCalls}(상한 ${R_TOTAL_CALL_CAP}) | 회차 ${p.runs.length}회: ${p.runs.map((r) => `${r.startedAt.slice(0, 16)} ${r.calls}건(${r.stop})`).join(" / ")} | 목록 완료 ${p.listDone.length}개 회사, 주요계정 묶음 완료 ${p.finDone.length}개, 업종 완료 ${p.indDone.length}개 | 파일럿 ${p.pilot ? `${p.pilot.mode} (일치율 ${f2(p.pilot.rate * 100)}%, ${p.pilot.matched}/${p.pilot.compared}; ${p.pilot.note})` : "없음"}`);
+    }
+  }
+  // 영업이익(손실) 변형 재수집 계획(계산만 — 호출·쓰기 없음)
+  {
+    const pj = await downloadBuf(`${R_STORE_PREFIX}/_progress.json`);
+    if (pj) {
+      const p = JSON.parse(new TextDecoder().decode(pj)) as { listDone: string[]; totalCalls: number };
+      const corps = [...p.listDone].sort();
+      const batchOf = new Map<string, number>();
+      corps.forEach((c, i) => batchOf.set(c, Math.floor(i / R_MULTI_BATCH)));
+      const nBatch = Math.ceil(corps.length / R_MULTI_BATCH);
+      const nYear = R_YEAR_TO - R_YEAR_FROM + 1;
+      const totalBundles = nBatch * nYear * R_REPRT_CODES.length;
+      const origRows = finRows.filter((r) => r.status === "orig");
+      const nullOi = origRows.filter((r) => r.oi_c === null || r.oi_c === undefined || Number.isNaN(r.oi_c));
+      const bundleSet = new Set<string>();
+      const groupSet = new Set<string>();
+      for (const r of nullOi) {
+        const bi = batchOf.get(r.corp_code);
+        if (bi === undefined) continue;
+        bundleSet.add(`${r.bsns_year}|${r.reprt_code}|${bi}`);
+        groupSet.add(`${r.corp_code}|${r.bsns_year}|${r.reprt_code}`);
+      }
+      const nullRate = f2((nullOi.length / Math.max(origRows.length, 1)) * 100);
+      console.log(`\n=== 영업이익(손실) 재수집 계획(계산만, 호출 없음) ===\n전체 주요계정 묶음 ${totalBundles}개(${nBatch}묶음 × ${nYear}년 × ${R_REPRT_CODES.length}보고서) | orig 행 ${origRows.length}개 중 영업이익(당기) 비어 있는 행 ${nullOi.length}개(${nullRate}%) → 대상 묶음(영업이익이 빈 행이 1개 이상 있는 묶음) ${bundleSet.size}개(전체의 ${f2((bundleSet.size / Math.max(totalBundles, 1)) * 100)}%), 대상 (회사,연도,보고서) ${groupSet.size}건`);
+      console.log(`예상 DART 호출: 묶음 재수집(다중회사 API) ${bundleSet.size}건 / 건별(단일회사 API) ${groupSet.size}건 | 누적 호출 ${p.totalCalls} → 묶음 방식 시 ${p.totalCalls + bundleSet.size}(상한 ${R_TOTAL_CALL_CAP})`);
+      console.log(`예상 소요: 묶음 방식 ≈ ${f2((bundleSet.size * R_PLAN_SEC_PER_MULTI) / 3600)}시간(다중회사 호출 유효 ${R_PLAN_SEC_PER_MULTI}초/건 가정), 건별 방식 ≈ ${f2((groupSet.size * R_PLAN_SEC_PER_SINGLE) / 3600)}시간(${R_PLAN_SEC_PER_SINGLE}초/건 가정). 전체 재수집(${totalBundles}건) ≈ ${f2((totalBundles * R_PLAN_SEC_PER_MULTI) / 3600)}시간. 참고: 비어 있는 행 중 상당수는 금융업 등 영업이익 계정이 원래 없는 경우일 수 있어 변형 이름을 받아들여도 채워지지 않을 수 있다`);
     }
   }
   // 12. 상태·결측

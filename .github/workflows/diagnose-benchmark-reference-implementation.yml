@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만) 또는 r"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용) 또는 r"
         required: false
         default: "dart"
       only:
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -193,6 +193,14 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 연구 A 사전 점검 (읽기 전용, 수익률 계산 없음, 외부 요청 0건)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'apre' }}
+        run: npx tsx --conditions=react-server scripts/precheck-a-pref-spread.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

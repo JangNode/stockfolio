@@ -1,13 +1,11 @@
 name: 전종목 확장 재백필 소형주 품질 확인 (진단, 1회성)
 
-# 2015~2026 확장 재백필 각 단계 후 소형주 데이터 품질 확인용. 순수 조회 진단(쓰기
-# 없음). 확인 끝나면 이 워크플로와 scripts/diagnose-widen-backfill-quality-check.ts를
-# 정리 PR로 제거한다.
+# 임시(임시 브랜치 전용, 병합 금지): 시장 국면 pg_cron 등록 전 읽기 전용 확인. 쓰기 없음. 값(토큰)은 출력하지 않는다.
 on:
   workflow_dispatch:
     inputs:
       years:
-        description: "확인할 연도(쉼표 구분, 최근->과거 순, 예: 2024,2025,2026)"
+        description: "미사용(기존 입력 유지)"
         type: string
         required: true
 
@@ -15,51 +13,33 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
-      PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Restore Parquet cache
-        uses: actions/cache/restore@v4
-        continue-on-error: true
-        with:
-          path: .parquet-cache
-          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            parquet-v1-${{ runner.os }}-
-
-      - name: Reset Parquet cache dirty marker
-        run: rm -f .parquet-cache/.dirty
-
-      - name: Diagnose widen backfill small-cap quality
-        run: npm run diagnose:widen-backfill-quality-check
+      - name: Read-only checks before registering pg_cron
         env:
-          YEARS: ${{ inputs.years }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-      - name: Check Parquet cache changes
-        id: parquet_cache_state
-        if: ${{ always() }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          if [ -f .parquet-cache/.dirty ]; then echo "dirty=true" >> "$GITHUB_OUTPUT"; fi
+          set -u
+          API="https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query"
+          Q() { jq -n --arg q "$1" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
+          P() { echo "--- $1"; Q "$2" | jq -c 'if type=="array" then .[] else . end'; }
 
-      - name: Save Parquet cache
-        if: ${{ always() && steps.parquet_cache_state.outputs.dirty == 'true' }}
-        uses: actions/cache/save@v4
-        continue-on-error: true
-        with:
-          path: .parquet-cache
-          key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          P "기존 pg_cron 작업 전체" "select jobid, jobname, schedule, active, left(command, 100) as command from cron.job order by jobid"
+          P "market_regime 관련 pg_cron 항목(이름·명령에 regime 포함)" "select jobid, jobname, schedule, active from cron.job where jobname ilike '%regime%' or command ilike '%regime%'"
+          P "trigger_market_regime_dispatch 함수 존재 여부" "select to_regprocedure('public.trigger_market_regime_dispatch()') is not null as exists"
+          P "Vault GITHUB_ACTIONS_PAT(값 제외)" "select name, created_at, updated_at, (decrypted_secret is not null and length(decrypted_secret) > 0) as has_value from vault.decrypted_secrets where name = 'GITHUB_ACTIONS_PAT'"
+          P "최근 pg_cron 실행 결과(최근 3일)" "select j.jobname, d.status, d.start_time at time zone 'Asia/Seoul' as start_kst from cron.job_run_details d join cron.job j on j.jobid = d.jobid where d.start_time > now() - interval '3 days' order by d.start_time desc limit 8"
+          P "최근 net.http_post 응답 상태(GitHub dispatch 성공 여부)" "select status_code, created at time zone 'Asia/Seoul' as created_kst from net._http_response order by created desc limit 6"
+          P "KRX 거래일 캘린더 범위" "select min(trade_date) as first_date, max(trade_date) as last_date, count(*) as days from public.krx_trading_calendar"
+          P "오늘 이후 평일 휴장일(캘린더)" "select trade_date from public.krx_trading_calendar where is_open = false and extract(isodow from trade_date) between 1 and 5 and trade_date >= (now() at time zone 'Asia/Seoul')::date order by trade_date limit 12"
+          P "수집 상태(KRX_CALENDAR, MARKET_REGIME)" "select source, last_success_at, last_attempt_at, last_error from public.schedule_scrape_status where source in ('KRX_CALENDAR', 'MARKET_REGIME')"
+          P "market_regime_daily 마지막 행" "select trade_date, regime, source from public.market_regime_daily order by trade_date desc limit 2"
+
+          echo "--- PAT 유효성·만료일(값 출력 없음)"
+          TOKEN=$(Q "select decrypted_secret from vault.decrypted_secrets where name = 'GITHUB_ACTIONS_PAT' limit 1" | jq -r '.[0].decrypted_secret // empty')
+          if [ -z "$TOKEN" ]; then echo "PAT 없음"; exit 0; fi
+          echo "::add-mask::$TOKEN"
+          curl -sS -D headers.txt -o /dev/null https://api.github.com/user -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" || true
+          echo "GET /user:"; grep -i -E "^(HTTP/|github-authentication-token-expiration:)" headers.txt || true
+          if grep -qi "^github-authentication-token-expiration:" headers.txt; then echo "만료일 헤더 있음"; else echo "만료일 헤더 없음(무기한이거나 헤더 미제공)"; fi
+          code=$(curl -sS -o /dev/null -w "%{http_code}" https://api.github.com/repos/JangNode/stockfolio/actions/workflows/market-regime.yml -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          echo "GET workflows/market-regime.yml(읽기) HTTP $code"

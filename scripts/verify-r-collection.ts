@@ -749,6 +749,83 @@ async function main(): Promise<void> {
       console.log(`${k === "S" ? "SMALL" : "LARGE"}: 처음으로 ≥${R_COVERAGE_MIN_PCT}%가 된 판단일 ${first?.d ?? "없음"} | 그 뒤로 끝까지 ≥${R_COVERAGE_MIN_PCT}% 유지가 시작되는 판단일 ${firstSustained?.d ?? "없음"}${firstSustained ? ` → 그날부터 판단일 ${after.length}일(약 ${(after.length / 252).toFixed(1)}년), 월 ${months}개, 그 구간 연도 평균 최저 ${minYear[0]}년 ${f2(minYear[1])}%` : ""}`);
     }
   }
+  // ---- 2015년 처리 B안 판단용 숫자(계산만; 기준·정의는 바꾸지 않는다): 평가 구간을 "처음 70% 이상이 된 판단일" 이후로 줄였을 때 ----
+  {
+    const MIN = R_COVERAGE_MIN_PCT / 100;
+    const lastD = CAL[nCal - 2];
+    console.log(`\n=== B안 판단용 숫자: 평가 구간을 처음 ${R_COVERAGE_MIN_PCT}% 이상이 된 판단일(T0) 이후로 조정할 때 (T0 이후 판단일만으로 연도 평균, 마지막 판단일 ${lastD}) ===`);
+    for (const k of UKINDS) {
+      const arr = dayCov.get(k)!;
+      const t0 = arr.find((x) => x.v >= MIN)?.d;
+      const name = k === "S" ? "SMALL" : "LARGE";
+      if (!t0) { console.log(`${name}: ${R_COVERAGE_MIN_PCT}% 이상이 된 판단일 없음`); continue; }
+      const yr = new Map<string, number[]>();
+      for (const x of arr) if (x.d >= t0) { const l = yr.get(x.d.slice(0, 4)) ?? []; l.push(x.v); yr.set(x.d.slice(0, 4), l); }
+      const ys = [...yr].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([y, l]) => [y, (l.reduce((a, v) => a + v, 0) / l.length) * 100, l.length] as [string, number, number]);
+      const bad = ys.filter((q) => q[1] < R_COVERAGE_MIN_PCT);
+      console.log(`${name}: T0 ${t0} | T0 이후 연도 평균(판단일 수): ${ys.map(([y, v, n]) => `${y} ${f2(v)}%(${n}일)`).join(", ")} | 모든 해 ≥${R_COVERAGE_MIN_PCT}%: ${bad.length ? `아니오(미달 ${bad.map((q) => q[0]).join(", ")})` : "예"}`);
+    }
+    const t0S = dayCov.get("S")!.find((x) => x.v >= MIN)?.d;
+    if (t0S) {
+      const dayIdx = (d: string): number => { let n = 0; for (let c = cS; c < nCal - 1; c++) if (CAL[c] >= d) n++; return n; };
+      console.log(`SMALL T0 ${t0S} 기준 구간 길이(원래 구간 구분 ${N_SUBPERIODS.map((q) => q[0]).join(" / ")}):`);
+      for (const [nm, from, to] of N_SUBPERIODS) {
+        const a = from > t0S ? from : t0S, b = to < lastD ? to : lastD;
+        if (a > b) { console.log(`  ${nm}: 없음(구간이 T0 이전에 끝남)`); continue; }
+        const days = dayIdx(a) - dayIdx(b < "9999" ? (CAL.find((d, i) => i >= cS && d > b) ?? "9999-12-31") : "9999-12-31");
+        const months = Math.round(((Date.parse(b) - Date.parse(a)) / 86_400_000 / 30.44) * 10) / 10;
+        console.log(`  ${nm}: ${a} ~ ${b} | 판단일 ${days}일 | 약 ${months}개월`);
+      }
+      // R1~R3 표본 수 상한 추정: SMALL 유니버스에서 55일 종가 돌파(엄격) 신호를 20거래일 재진입 금지로 센 값. 업종 상위 3 필터·시장 폭(NH>0)·동시 10종목 제한은 반영하지 않아 실제 진입 수는 이보다 적다.
+      const CAND = ["R0", "R1", "R2", "R3"] as const;
+      type Cand = (typeof CAND)[number];
+      const last = new Map<string, number>();
+      const cnt = new Map<string, number>();
+      let pbrDays = 0;
+      for (let c = cS; c < nCal - 1; c++) {
+        const d = CAL[c];
+        if (d < t0S) continue;
+        const U = uAt("S", d);
+        const pb: number[] = [];
+        const info = new Map<string, { ev: FinEvent | null; mc: number }>();
+        for (const x of U) {
+          const ev = finAt(x.code, c), mc = x.mcapRow[x.idx.get(d)!];
+          info.set(x.code, { ev, mc });
+          const eqp = ev?.eqPbr ?? null;
+          if (eqp !== null && eqp > 0) pb.push((mc * 1e8) / eqp);
+        }
+        pb.sort((a, b) => a - b);
+        const med = pb.length ? pb[Math.floor(pb.length / 2)] : NaN;
+        if (pb.length) pbrDays++;
+        for (const x of U) {
+          const i = x.idx.get(d)!;
+          if (i < 55) continue;
+          let hi = -Infinity;
+          for (let q = i - 55; q < i; q++) if (x.close[q] > hi) hi = x.close[q];
+          if (!(x.close[i] > hi)) continue;
+          const { ev, mc } = info.get(x.code)!;
+          const prof = ev !== null && profitBundle(ev) && ev.ttmOi! > 0 && ev.eq! > 0 && ev.ttmNi! / ev.eq! >= R_ROE_MIN;
+          const val = prof && ev!.eqPbr !== null && ev!.eqPbr > 0 && (mc * 1e8) / ev!.eqPbr <= med;
+          const gro = val && ev!.qOi !== null && ev!.qOiPrev !== null && ev!.qOiPrev > 0 && ev!.qOi >= ev!.qOiPrev * (1 + R_GROWTH_MIN);
+          const ok: Record<Cand, boolean> = { R0: true, R1: prof, R2: val, R3: gro };
+          for (const cd of CAND) {
+            if (!ok[cd]) continue;
+            const key = `${cd}|${x.code}`;
+            const lc = last.get(key);
+            if (lc !== undefined && c - lc < 20) continue;
+            last.set(key, c);
+            const per = N_SUBPERIODS.find(([, f, t]) => d >= f && d <= t)?.[0] ?? "?";
+            cnt.set(`${cd}|${per}`, (cnt.get(`${cd}|${per}`) ?? 0) + 1);
+            cnt.set(`${cd}|전체`, (cnt.get(`${cd}|전체`) ?? 0) + 1);
+          }
+        }
+      }
+      console.log(`R1~R3 표본 수 상한 추정(SMALL, T0 ${t0S} 이후, 55일 종가 돌파 신호·20거래일 재진입 금지, 업종/NH/동시 10종목 제한 미반영, 게이트 G 기준 100건):`);
+      console.log(`| 후보 | 전체 | ${N_SUBPERIODS.map((q) => q[0]).join(" | ")} |\n|---|---|${N_SUBPERIODS.map(() => "---").join("|")}|`);
+      for (const cd of CAND) console.log(`| ${cd} | ${cnt.get(`${cd}|전체`) ?? 0} | ${N_SUBPERIODS.map((q) => cnt.get(`${cd}|${q[0]}`) ?? 0).join(" | ")} |`);
+      console.log(`(PBR 중앙값이 계산된 판단일 ${pbrDays}일)`);
+    }
+  }
   const execOk: Record<"R0" | "R1" | "R2" | "R3" | "R4" | "Q1S", boolean> = {
     R0: unSecS.length === 0, R1: unSecS.length + unFinS.length === 0, R2: unSecS.length + unFinS.length === 0, R3: unSecS.length + unFinS.length === 0,
     R4: unSecL.length + unFinL.length === 0, Q1S: unSecL.length === 0,

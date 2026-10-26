@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify 또는 r"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만) 또는 r"
         required: false
         default: "dart"
       only:
@@ -26,7 +26,7 @@ on:
         required: false
         default: "0"
       refetch:
-        description: "which=rfin: 1이면 순이익 계정명 수정(ni-name-v1) 뒤 주요계정 묶음만 다시 받는다(목록·업종 제외, fin.parquet만 올림)"
+        description: "which=rfin: 1이면 수정(oi-name-v1: 영업이익(손실) 변형 + 2026 사업연도 추가) 뒤 영업이익이 빈 묶음과 새 사업연도 묶음만 받는다(목록·업종 제외, fin.parquet만 올림)"
         required: false
         default: "0"
 
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -181,6 +181,18 @@ jobs:
         run: npx tsx --conditions=react-server scripts/verify-r-collection.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 월말 시장 구분 이어받기 (KRX Open API만, 새 (날짜, 시장)만, Storage Parquet만 저장; KST 14:00~15:40 실행 금지)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'mm' }}
+        run: |
+          HM=$(TZ=Asia/Seoul date +%H%M)
+          if [ "$HM" -ge 1400 ] && [ "$HM" -lt 1540 ]; then echo "::error::KST $HM — 14:00~15:40에는 KRX·KIS 호출을 하지 않는다"; exit 1; fi
+          npx tsx --conditions=react-server scripts/collect-market-membership.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

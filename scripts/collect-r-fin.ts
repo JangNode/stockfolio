@@ -668,8 +668,6 @@ async function main(): Promise<void> {
   // 재수집 모드(R_REFETCH_FIN=1): 순이익 계정명 수정(R_FIX_ID) 뒤 주요계정 묶음만 처음부터 다시 받는다. 회사 목록·업종은 건드리지 않는다.
   // 수정 식별자가 진행 파일에 저장된 뒤의 재개 실행은 이미 다시 받은 묶음(finDone)을 이어서 쓴다.
   const fixMode = process.env.R_REFETCH_FIN === "1";
-  if (fixMode && prog.finFix !== R_FIX_ID) { console.log(`[재수집] 수정 ${R_FIX_ID} 첫 실행: 기존 주요계정 묶음 완료 표시 ${finDone.size}개를 비우고 처음부터 다시 받는다(회사 목록·업종 수집은 하지 않음).`); finDone.clear(); prog.finFix = R_FIX_ID; }
-  else if (fixMode) console.log(`[재수집] 수정 ${R_FIX_ID} 재개: 이미 다시 받은 묶음 ${finDone.size}개를 이어서 쓴다.`);
   if (fixMode) { const same = corps.length === listDone.size && corps.every((c) => listDone.has(c)); console.log(`[재수집] 대상 회사 ${corps.length}개 vs 기존 목록 완료 ${listDone.size}개: ${same ? "일치(묶음 구성 동일)" : "불일치 — 묶음 번호가 달라질 수 있어 멈춤"}`); if (!same) return finish(); }
   const acctFreq = new Map<string, number>(); // 원본 응답 계정명(sj_div|account_nm) 건수 — 로그용(이번 실행에서 받은 응답만)
   const FIN_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["reprt_code", "STRING"], ["fs_div", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["status", "STRING"],
@@ -681,6 +679,22 @@ async function main(): Promise<void> {
   const filings = await loadMap("filings.parquet", (r) => String(r.rcept_no));
   const indRows = await loadMap("induty_fill.parquet", (r) => String(r.stock_code));
   console.log(`저장된 진행: 목록 완료 ${listDone.size}, 주요계정 묶음 완료 ${finDone.size}, 업종 완료 ${indDone.size}, 행 fin ${finRows.size} / filings ${filings.size} / induty ${indRows.size}, 누적 호출 ${prog.totalCalls}, 지난 회차 ${prog.runs.length}회, 파일럿 ${prog.pilot ? `완료(${prog.pilot.mode})` : "아직"}`);
+  // 재수집 대상 선택(수정 R_FIX_ID 첫 실행): 영업이익(당기)이 빈 orig 행이 있는 묶음의 완료 표시만 지워 그 묶음만 다시 받는다. 신규 사업연도(2026) 묶음은 원래 완료 표시가 없다.
+  // 같은 수정 식별자로 재개하면 이미 다시 받은 묶음(finDone)을 이어서 쓴다.
+  if (fixMode && prog.finFix !== R_FIX_ID) {
+    const bOf = new Map<string, number>();
+    corps.forEach((c, i) => bOf.set(c, Math.floor(i / R_MULTI_BATCH)));
+    const target = new Set<string>();
+    for (const r of finRows.values()) {
+      if (r.status !== "orig" || (r.oi_c !== null && r.oi_c !== undefined && !Number.isNaN(r.oi_c as number))) continue;
+      const b = bOf.get(String(r.corp_code));
+      if (b !== undefined) target.add(`${r.bsns_year}|${r.reprt_code}|${b}`);
+    }
+    let cleared = 0;
+    for (const t of target) if (finDone.delete(t)) cleared++;
+    prog.finFix = R_FIX_ID;
+    console.log(`[재수집] 수정 ${R_FIX_ID} 첫 실행: 영업이익이 빈 orig 행이 있는 묶음 ${target.size}개(완료 표시 ${cleared}개 해제)만 다시 받는다. 나머지 완료 묶음 ${finDone.size}개는 그대로 둔다(회사 목록·업종 수집은 하지 않음).`);
+  } else if (fixMode) console.log(`[재수집] 수정 ${R_FIX_ID} 재개: 이미 처리된 묶음 ${finDone.size}개를 이어서 쓴다.`);
 
   // ---- 4. DART 호출(연구용 키만, 키당 하루 상한, 총 상한) ----
   const keyVals = KEYS_NAMES.map((n) => ({ name: n, value: process.env[n], off: false }));
@@ -827,10 +841,10 @@ async function main(): Promise<void> {
   const statusOf = (corp: string, rcept: string): "orig" | "corr" | "unk" => (origNos.get(corp)?.has(rcept) ? "orig" : corrNos.get(corp)?.has(rcept) ? "corr" : "unk");
   const wideKey = (corp: string, y: string, rc: string, fs: string): string => `${corp}|${y}|${rc}|${fs}`;
   /**
-   * 계정명 정규화: 공백 제거. 당기순이익만 DART 주요계정 API의 실제 표기 '당기순이익(손실)'을 같은 계정으로 본다
-   * (수정 R_FIX_ID: 이전 규칙은 '당기순이익'과 정확히 같은 이름만 받아 순이익이 100% 결측이었다). 다른 계정의 매칭은 바꾸지 않는다.
+   * 계정명 정규화: 공백 제거. DART 주요계정 API의 실제 표기 '당기순이익(손실)'(ni-name-v1)·'영업이익(손실)'(oi-name-v1)을 같은 계정으로 본다
+   * (이전 규칙은 '당기순이익'·'영업이익'과 정확히 같은 이름만 받아 순이익이 100% 결측, 적자 기업 영업이익이 결측이었다). 다른 계정의 매칭은 바꾸지 않는다.
    */
-  const canon = (nm: string): string => { const a = norm(nm); return a === "당기순이익(손실)" ? "당기순이익" : a; };
+  const canon = (nm: string): string => { const a = norm(nm); return a === "당기순이익(손실)" ? "당기순이익" : a === "영업이익(손실)" ? "영업이익" : a; };
   function ingest(list: Record<string, string>[], y: string, rc: string): void {
     for (const r of list) { const k = `${r.sj_div}|${r.account_nm}`; acctFreq.set(k, (acctFreq.get(k) ?? 0) + 1); }
     const groups = new Map<string, Record<string, string>[]>();
@@ -842,6 +856,8 @@ async function main(): Promise<void> {
       if (st0 === "orig") {
         const seen = new Set<string>();
         for (const r of g) {
+          // 영업이익(손실)은 같은 묶음에 정확한 '영업이익' 행이 없을 때만 영업이익으로 받는다(기존 매칭을 바꾸지 않음).
+          if (norm(r.account_nm ?? "") === "영업이익(손실)" && g.some((x) => norm(x.account_nm ?? "") === "영업이익")) continue;
           const a = canon(r.account_nm ?? "");
           if (!(R_ACCOUNTS as readonly string[]).includes(a) || seen.has(a)) continue;
           if ((a === "자산총계" || a === "부채총계" || a === "자본총계") !== (r.sj_div === "BS")) continue;
@@ -919,7 +935,7 @@ async function main(): Promise<void> {
   if (acctFreq.size > 0) {
     console.log(`\n=== 원본 응답 계정명 목록과 건수(이번 실행에서 받은 응답 행, sj_div | account_nm) ===\n| sj_div | account_nm | 건수 | 수집 계정으로 받음 |\n|---|---|---|---|\n${[...acctFreq].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([k, v]) => `| ${k.replace("|", " | ")} | ${v} | ${(R_ACCOUNTS as readonly string[]).includes(canon(k.split("|").slice(1).join("|"))) ? "예" : "아니오"} |`).join("\n")}`);
     const nm = (re: RegExp): number => [...acctFreq].filter(([k]) => re.test(k.split("|").slice(1).join("|"))).reduce((a, [, v]) => a + v, 0);
-    console.log(`계정명 변형 점검: '당기순이익(손실)' ${nm(/^당기순이익\(손실\)$/)}건(수정 후 당기순이익으로 받음), 공백 제거 후 정확히 '당기순이익' ${nm(/^당기순이익$/)}건, '영업이익(손실)' ${nm(/^영업이익\(손실\)$/)}건(수집 계정에 들지 않음 — 기존 계정 매칭은 바꾸지 않음), '영업이익' ${nm(/^영업이익$/)}건`);
+    console.log(`계정명 변형 점검: '당기순이익(손실)' ${nm(/^당기순이익\(손실\)$/)}건(수정 후 당기순이익으로 받음), 공백 제거 후 정확히 '당기순이익' ${nm(/^당기순이익$/)}건, '영업이익(손실)' ${nm(/^영업이익\(손실\)$/)}건(수정 후 같은 묶음에 정확한 '영업이익'이 없을 때 영업이익으로 받음), '영업이익' ${nm(/^영업이익$/)}건`);
   }
   {
     const orig = [...finRows.values()].filter((r) => r.status === "orig");

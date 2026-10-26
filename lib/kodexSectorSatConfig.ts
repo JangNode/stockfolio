@@ -413,7 +413,8 @@ export const Q2F_REF_Q3: readonly [number, number] = [10.86, 36.68];
 export const R_STORE_PREFIX = "research/r_allcap";
 /** 사업연도 범위와 보고서 코드(1분기·반기·3분기·사업). */
 export const R_YEAR_FROM = 2014;
-export const R_YEAR_TO = 2025;
+// 2026: 수정 후 사전등록(2026-10-26, 자료 부재 보완 — 전략 결과와 무관). 원래 2025까지였으나 2026 1분기·반기 보고서가 빠져 2026년 재무 커버리지가 구조적으로 낮았다.
+export const R_YEAR_TO = 2026;
 export const R_REPRT_CODES = ["11013", "11012", "11014", "11011"] as const;
 /** 수집할 주요 계정 이름(공백 제거 후 일치). */
 export const R_ACCOUNTS = ["매출액", "영업이익", "당기순이익", "자산총계", "부채총계", "자본총계"] as const;
@@ -434,12 +435,13 @@ export const R_ADD_STORAGE_MIB = 50;
  * 재수집(순이익 계정명 수정, 환경변수 R_REFETCH_FIN=1) 전용: 수정 식별자(진행 파일에 기록해 이어서 재개), 체크포인트 간격(fin.parquet만 올림),
  * 이 스크립트가 읽고 쓰는 Storage 전송량 상한(MiB; 사용자 지정 총 200MiB 중 재수집 몫, 검증 재실행 몫은 별도로 남겨 둔다).
  */
-export const R_FIX_ID = "ni-name-v1";
+// 진행 파일에 저장되는 수정 식별자. ni-name-v1 = 순이익 계정명(당기순이익(손실)), oi-name-v1 = 영업이익 계정명 변형(영업이익(손실)) + 영업이익이 빈 묶음만 재수집.
+export const R_FIX_ID = "oi-name-v1";
 export const R_FIX_CHECKPOINT_CALLS = 700;
 export const R_FIX_CHECKPOINT_MS = 3_600_000;
 export const R_FIX_TRANSFER_CAP_MIB = 120;
-// 재수집 계획 계산용 가정(보고 전용, 호출에는 쓰이지 않음). 출처: 2026-10-25~26 실측 — 다중회사 API 약 1,356건/4.2시간(동시 4) ≈ 11초/건, 단일/company.json류 1,355건/약 4분 ≈ 0.18초/건
-export const R_PLAN_SEC_PER_MULTI = 11;
+// 재수집 계획 계산용 가정(보고 전용, 호출에는 쓰이지 않음). 출처: 2026-10-25~26 실측 — 다중회사 API 1,584건/6.6분(2026-10-26 재수집, 동시 4) ≈ 0.25초/건(2026-10-25 첫 수집은 응답 지연으로 약 11초/건이었음), 단일/company.json류 1,355건/약 4분 ≈ 0.18초/건
+export const R_PLAN_SEC_PER_MULTI = 0.25;
 export const R_PLAN_SEC_PER_SINGLE = 0.18;
 /** 파일럿: 회사 수, 사업연도, 가격 행 기준일, 일치 기준(비율). */
 export const R_PILOT_N = 20;

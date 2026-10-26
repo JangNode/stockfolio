@@ -466,7 +466,12 @@ export const R_SMALL_PRICE_MIN_WON = 1000;
 export const R_SMALL_SLIPPAGE = 0.002;
 export const R_LARGE_SLIPPAGE = 0.001;
 export const R_COVERAGE_MIN_PCT = 70;
-export const R_TESTS = 5;
+// 수정 후 사전등록 2 (2026-10-26, 사용자 승인): 정정공시 점 시점 규칙 적용 뒤 SMALL 재무 커버리지가 T0=2017-04-03 이후 모든 해에서 70% 이상이어서 평가 구간을 줄인다.
+// 평가 구간 2017-04-03(판단일)~최신, 구간 2017-04-03~2021-12-31 / 2022-01-01~, 게이트 B = 두 구간 모두 069500 원주가보다 CAGR이 높고 MDD가 나쁘지 않음. R4는 실행 불가(LARGE 커버리지 2018·2019 미달)로 기록하고 번호 204는 소진하지 않아 시험은 R0~R3 4건(200~203).
+export const R_EVAL_START = "2017-04-03";
+export const R_EVAL_FROM = "2017-04-04";
+export const R_SUBPERIODS: readonly (readonly [string, string, string])[] = [["2017-04~2021", "2017-04-04", "2021-12-31"], ["2022~", "2022-01-01", "9999-12-31"]];
+export const R_TESTS = 4;
 export const R_PRIOR_TESTS = 199;
 /** H 게이트: 필터 정보 가치. */
 export const R_H_CAGR_GAIN_PP = 2;

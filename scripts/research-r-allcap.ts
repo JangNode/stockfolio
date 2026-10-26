@@ -1,10 +1,10 @@
 /**
- * [임시 연구 — 병합 금지, 읽기 전용, 외부 요청 0건] 연구 R 단계 2: 소형주·품질·가치 조합 R0~R4 (누적 시험 200~204) + 비교용 Q1*.
+ * [임시 연구 — 병합 금지, 읽기 전용, 외부 요청 0건] 연구 R 단계 2: 소형주·품질·가치 조합 R0~R3 (누적 시험 200~203; R4는 수정 후 사전등록 2에서 실행 불가·번호 미소진) + 비교용 Q1*.
  * 사전 등록: docs/research/r-allcap-fundamentals-prereg.md (8c88160). DB·Storage 쓰기 0.
  */
 import { downloadBuf, decodeTable, type Row } from "@/lib/nBookStore";
-import { eventsByCorp, type FinRow, type FilingRow, type FinEvent } from "@/lib/rFinMetrics";
-import { N_EVAL_START, N_EVAL_FROM, N_SUBPERIODS, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_TOTAL_CALL_CAP, R_STALE_DAYS, R_ROE_MIN, R_R1_ROE, R_GROWTH_MIN, R_R1_GROWTH, R_SMALL_MCAP_MIN_EOK, R_SMALL_MCAP_MAX_EOK, R_SMALL_TV_MIN_WON, R_SMALL_PRICE_MIN_WON, R_SMALL_SLIPPAGE, R_LARGE_SLIPPAGE, R_COVERAGE_MIN_PCT, R_TESTS, R_PRIOR_TESTS, R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
+import { eventsByCorpPit, type FinRow, type FilingRow, type FinEvent } from "@/lib/rFinMetrics";
+import { R_EVAL_START, R_EVAL_FROM, R_SUBPERIODS, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_TOTAL_CALL_CAP, R_STALE_DAYS, R_ROE_MIN, R_R1_ROE, R_GROWTH_MIN, R_R1_GROWTH, R_SMALL_MCAP_MIN_EOK, R_SMALL_MCAP_MAX_EOK, R_SMALL_TV_MIN_WON, R_SMALL_PRICE_MIN_WON, R_SMALL_SLIPPAGE, R_LARGE_SLIPPAGE, R_COVERAGE_MIN_PCT, R_TESTS, R_PRIOR_TESTS, R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
 import { parquetReadObjects } from "hyparquet";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
 import { INVESTOR_FLOW_STOCK_STORE_BUCKET } from "@/lib/investorFlowConfig";
@@ -604,11 +604,11 @@ async function main(): Promise<void> {
   };
 
   // ===================== R (8c88160): 전체 상장사 재무 + 소형주·품질·가치 =====================
-  const cS0 = calIdx.get(N_EVAL_START);
-  if (cS0 === undefined) throw new Error(`${N_EVAL_START}가 거래일 달력에 없음`);
+  const cS0 = calIdx.get(R_EVAL_START);
+  if (cS0 === undefined) throw new Error(`${R_EVAL_START}가 거래일 달력에 없음`);
   const cS: number = cS0;
-  const NW: [string, Win][] = N_SUBPERIODS.map(([n, f, t]) => [n, { from: f, to: t }]);
-  const FULLN: Win = { from: N_EVAL_FROM, to: "9999-12-31" };
+  const NW: [string, Win][] = R_SUBPERIODS.map(([n, f, t]) => [n, { from: f, to: t }]);
+  const FULLN: Win = { from: R_EVAL_FROM, to: "9999-12-31" };
   const ALLN: [string, Win][] = [...NW, ["평가 구간 전체", FULLN]];
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -632,7 +632,10 @@ async function main(): Promise<void> {
   console.log(`재무 자료: fin ${finRows.length}행, filings ${filRows.length}행`);
   const stockOfCorp = new Map<string, string>();
   for (const r of finRows) if (r.stock_code) stockOfCorp.set(r.corp_code, r.stock_code);
-  const evByCorp = eventsByCorp(finRows, filRows);
+  // 정정 점 시점 규칙(사용자 승인 2026-10-26): 정정 접수일부터 정정 후 값, 그 전까지는 원본(정정 전 원본은 보관돼 있지 않아 "자료 없음" — 하한). 신선도 200일은 최초 접수일부터.
+  const pitEv = eventsByCorpPit(finRows, filRows);
+  console.log(`정정 점 시점 규칙: 정정 재계산 이벤트 ${pitEv.added}건 추가(상태 corr 행 ${pitEv.corrRows}개)`);
+  const evByCorp = pitEv.events;
   const lowerBound = (d: string): number => { let lo = 0, hi = nCal; while (lo < hi) { const m = (lo + hi) >> 1; if (CAL[m] < d) lo = m + 1; else hi = m; } return lo; };
   const seOf = new Map<string, { eff: Int32Array; ev: FinEvent[] }>();
   for (const [corp, evs] of evByCorp) {
@@ -648,7 +651,7 @@ async function main(): Promise<void> {
     while (lo <= hi) { const m = (lo + hi) >> 1; if (se.eff[m] < c) { k = m; lo = m + 1; } else hi = m - 1; }
     if (k < 0) return null;
     const ev = se.ev[k];
-    return dayDiff(ev.rceptDt, CAL[c]) > R_STALE_DAYS ? null : ev;
+    return dayDiff(ev.baseDt ?? ev.rceptDt, CAL[c]) > R_STALE_DAYS ? null : ev;
   };
   const profitBundle = (ev: FinEvent | null): boolean => ev !== null && ev.ttmOi !== null && ev.ttmNi !== null && ev.eq !== null;
 
@@ -679,7 +682,7 @@ async function main(): Promise<void> {
   const UKINDS: UKind[] = ["S", "L"];
   const everR = new Set<string>();
   for (let c = cS; c < nCal; c++) for (const k of UKINDS) for (const s of uAt(k, CAL[c])) everR.add(s.code);
-  console.log(`유니버스에 한 번이라도 든 종목 ${everR.size}개 | 평가 시작 판단일 ${CAL[cS]}(순번 ${cS}), 수익률 집계 ${N_EVAL_FROM}~`);
+  console.log(`유니버스에 한 번이라도 든 종목 ${everR.size}개 | 평가 시작 판단일 ${CAL[cS]}(순번 ${cS}), 수익률 집계 ${R_EVAL_FROM}~`);
 
   // ---- 연도별 업종 보유율·재무 커버리지(단계 1의 14항) ----
   interface CovY { days: number; n: number; kosdaq: number; capKosdaq: number; cap: number; capSec: number; capFin: number; nFinAny: number }
@@ -706,7 +709,7 @@ async function main(): Promise<void> {
   }
   const badYears = (k: UKind, f: (z: CovY) => number): string[] => [...covOf.get(k)!].filter(([, z]) => (f(z) / z.days) * 100 < R_COVERAGE_MIN_PCT).map(([y]) => y);
   const unSecS = badYears("S", (z) => z.capSec), unFinS = badYears("S", (z) => z.capFin), unSecL = badYears("L", (z) => z.capSec), unFinL = badYears("L", (z) => z.capFin);
-  console.log(`\n=== 유니버스 구성과 업종 보유율·재무 커버리지(시총 비율, 판단일 평균; ${N_EVAL_START}~) ===\n| 연도 | 판단일 수 | SMALL 평균 종목 수 | SMALL 코스닥 종목 % / 시총 % | SMALL 업종 보유 % | SMALL 재무(수익성 3종) 커버리지 % | SMALL 직전 보고서 있음 % (종목) | LARGE 평균 종목 수 | LARGE 코스닥 종목 % / 시총 % | LARGE 업종 보유 % | LARGE 재무 커버리지 % | LARGE 직전 보고서 있음 % (종목) |\n|---|---|---|---|---|---|---|---|---|---|---|---|`);
+  console.log(`\n=== 유니버스 구성과 업종 보유율·재무 커버리지(시총 비율, 판단일 평균; ${R_EVAL_START}~) ===\n| 연도 | 판단일 수 | SMALL 평균 종목 수 | SMALL 코스닥 종목 % / 시총 % | SMALL 업종 보유 % | SMALL 재무(수익성 3종) 커버리지 % | SMALL 직전 보고서 있음 % (종목) | LARGE 평균 종목 수 | LARGE 코스닥 종목 % / 시총 % | LARGE 업종 보유 % | LARGE 재무 커버리지 % | LARGE 직전 보고서 있음 % (종목) |\n|---|---|---|---|---|---|---|---|---|---|---|---|`);
   for (const y of [...covOf.get("S")!.keys()].sort()) {
     const row: (string | number)[] = [y, covOf.get("S")!.get(y)!.days];
     for (const k of UKINDS) {
@@ -1133,7 +1136,7 @@ async function main(): Promise<void> {
     { id: "R1", no: R_PRIOR_TESTS + 2, title: "SMALL + 수익성(TTM 영업이익 > 0 ∧ ROE ≥ 8%)" },
     { id: "R2", no: R_PRIOR_TESTS + 3, title: "SMALL + 수익성 + 가치(PBR ≤ 같은 날 유니버스 중앙값)" },
     { id: "R3", no: R_PRIOR_TESTS + 4, title: "SMALL + 수익성 + 가치 + 성장(최근 분기 영업이익 전년 동기 대비 ≥ +25%)" },
-    { id: "R4", no: R_PRIOR_TESTS + 5, title: "LARGE + 수익성 + 가치 + 성장, 슬리피지 0.1%" },
+    { id: "R4", no: 0, title: "LARGE + 수익성 + 가치 + 성장, 슬리피지 0.1% — 수정 후 사전등록 2: 실행 불가로 기록하고 시도 번호 204는 소진하지 않음" },
   ];
   const summaryR: string[] = [];
   const candRuns = new Map<RId, MRun>();
@@ -1143,8 +1146,9 @@ async function main(): Promise<void> {
     console.log(`\n##### ${h.id}${h.no ? ` (시험 ${h.no})` : ""} — ${h.title} #####`);
     if (!execOk[h.id]) {
       const why = whyNo(h.id);
-      console.log(`${h.id}: 실행 불가 — ${why} (성적 계산·게이트 판정 제외, 번호는 소진)`);
+      console.log(`${h.id}: 실행 불가 — ${why} (성적 계산·게이트 판정 제외${h.id === "R4" ? ", 시도 번호 204는 소진하지 않음" : h.no ? ", 번호는 소진" : ""})`);
       if (h.no) summaryR.push(`| ${h.id} (${h.no}) | 실행 불가 | - | - | - | - | - | - | - | - | 실행 불가 | ${why} |`);
+      else if (h.id === "R4") summaryR.push(`| R4 (미소진) | 실행 불가 | - | - | - | - | - | - | - | - | 실행 불가(번호 204 미소진) | ${why} |`);
       continue;
     }
     const candsOf = candsFor(cfg);
@@ -1168,7 +1172,7 @@ async function main(): Promise<void> {
     const od = simR(cfg, { lag: 2, candsOf });
     const fullD = st(od, FULLN);
     const gA = full.cagr >= fullB.cagr + F_A_EXCESS_PP && full.mdd <= fullB.mdd + epsR;
-    const gB = bCount >= F_B_MIN_PERIODS;
+    const gB = bCount === NW.length; // 수정 후 사전등록 2: 두 구간 모두(기존 "세 구간 중 2개 이상"보다 엄격)
     const gC = full.cagr - fullD.cagr <= F_C_MAX_CAGR_DROP && fullD.mdd - full.mdd <= F_C_MAX_MDD_WORSEN;
     console.log(`지연 버전(진입·청산 +1일) 평가 구간 CAGR ${f2(fullD.cagr)} (하락 ${f2(full.cagr - fullD.cagr)}%p) / MDD ${f2(fullD.mdd)} (악화 ${f2(fullD.mdd - full.mdd)}%p)`);
     let gD = true;
@@ -1217,13 +1221,13 @@ async function main(): Promise<void> {
     console.log(`단일 종목 최대 비중(보유 있는 날) 평균 ${f2(avg(fin(o.wMax)) * 100)}% / 최대 ${f2(Math.max(...fin(o.wMax)) * 100)}%`);
   }
   console.log(`\n=== 요약 (누적 ${R_PRIOR_TESTS} + ${R_TESTS} = ${R_PRIOR_TESTS + R_TESTS}) ===\n| 후보 | A | B | C | D | E | F | G | H | F(참고, ≥ ${f2(bonfR)}) | 결과 | 탈락 사유 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${summaryR.join("\n")}`);
-  console.log("주의: 보류 구간(2022~)은 이미 여러 번 본 데이터라 순수 검증이 아니다.");
+  console.log("경고(홀드아웃 오염): 2022~ 구간은 이미 여러 번 본 데이터라 순수 검증(홀드아웃)이 아니며, 이번 평가 구간 2017-04~2021도 앞선 연구들에서 반복해 본 구간이다. 이 결과로 통과해도 사후 선택의 영향을 배제할 수 없다.");
   console.log(`누적 시험 ${R_PRIOR_TESTS + R_TESTS}번 중 우연히 걸릴 가능성: 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${R_PRIOR_TESTS + R_TESTS} × 0.05 = ${f2((R_PRIOR_TESTS + R_TESTS) * 0.05)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${R_PRIOR_TESTS + R_TESTS} = ${f2((1 - Math.pow(0.95, R_PRIOR_TESTS + R_TESTS)) * 100)}% (시험들이 독립이 아니므로 근사).`);
-  console.log("한계: 업종은 현재 값을 과거에 적용한 것이라 PIT가 아니다. 정정공시는 정정 후 값을 쓰지 않으므로 정정이 많은 종목·연도는 자료가 비어 커버리지가 낮아질 수 있다. 관리종목 이력이 없어 관리종목 진입 금지를 적용하지 못했다(거래정지는 거래량 0 대리 지표).");
+  console.log("한계: 업종은 현재 값을 과거에 적용한 것이라 PIT가 아니다. 정정공시는 정정 접수일부터 정정 후 값을 쓰지만(점 시점 규칙) 정정 전 원본 값은 보관돼 있지 않아 정정된 보고서의 정정 전 구간은 자료가 비어 있다(커버리지 하한). 관리종목 이력이 없어 관리종목 진입 금지를 적용하지 못했다(거래정지는 거래량 0 대리 지표).");
   console.log("통과 여부와 무관하게 운영 적용·PR 생성은 하지 않고 보고만 한다.");
 
   // ---- 시드 정수 주 모의 ----
-  console.log(`\n=== 시드 정수 주 모의 (종목당 10% 내림, 남는 돈은 현금, 1주도 못 사면 다음 후보; 평가 구간 ${N_EVAL_START}~) ===\n| 후보 | 시드 | 2015~2016 CAGR / MDD | 2017~2021 CAGR / MDD | 2022~ CAGR / MDD | 평가 구간 CAGR / MDD | 최종 평가액(원) | 평균 보유 종목 수(전체 날 / 보유 있는 날) |\n|---|---|---|---|---|---|---|---|`);
+  console.log(`\n=== 시드 정수 주 모의 (종목당 10% 내림, 남는 돈은 현금, 1주도 못 사면 다음 후보; 평가 구간 ${R_EVAL_START}~) ===\n| 후보 | 시드 | ${ALLN.map(([n]) => `${n} CAGR / MDD`).join(" | ")} | 최종 평가액(원) | 평균 보유 종목 수(전체 날 / 보유 있는 날) |\n|---|---|---|---|---|---|---|---|`);
   const seedRuns = new Map<RId, MRun>();
   for (const h of RS) {
     if (!h.no || !candRuns.has(h.id)) continue;

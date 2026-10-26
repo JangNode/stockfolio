@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rfin, rverify 또는 r"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify 또는 r"
         required: false
         default: "dart"
       only:
@@ -87,7 +87,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -151,6 +151,15 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: R 원인 확인 rprobe (DART 연구용 키, 호출 20건 이내, 읽기 전용)
+        if: ${{ inputs.which == 'rprobe' }}
+        run: npx tsx --conditions=react-server scripts/probe-r-accounts.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
 
       - name: R 단계 1 재무 재수집 (DART 연구용 키, Storage Parquet만 쓰기)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'rfin' }}

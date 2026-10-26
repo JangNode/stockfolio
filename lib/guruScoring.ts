@@ -1,19 +1,21 @@
 /**
- * [임시 연구 — 병합 금지] 연구 C 점수·순위 계산(순수 함수, I/O 없음). 정의: docs/research/guru-composite-prereg.md 3절.
+ * [임시 연구 — 병합 금지] 연구 C 점수·순위 계산(순수 함수, I/O 없음). 정의: docs/research/guru-composite-prereg.md 4절.
  * 항목은 "클수록 좋다"로 통일한다(부채비율은 부호를 바꿔 넣는다). 백분위 = (평균 순위 − 0.5) ÷ n, 동점은 평균 순위. 점수 = 묶음 안 항목 백분위의 평균, 종합 = 묶음 점수의 평균(균등).
  */
-import type { GuruEvent } from "@/lib/guruFinMetrics";
+import type { GuruEvent, GuruAnnualEvent } from "@/lib/guruFinMetrics";
 
 export type Block = "V" | "Q" | "Gr";
 export type BlockItems = Partial<Record<Block, number[]>>;
 
-/** 이벤트와 시총(원)에서 묶음별 항목 값. 계산 불가(조건 위반 포함)이면 그 묶음은 없다. */
-export function blockItems(ev: GuruEvent, mcapWon: number): BlockItems {
+/** 이벤트(V·Q는 분기 흐름, Gr는 사업보고서 흐름)와 시총(원)에서 묶음별 항목 값. 계산 불가(조건 위반 포함)이면 그 묶음은 없다. */
+export function blockItems(qev: GuruEvent | null, aev: GuruAnnualEvent | null, mcapWon: number): BlockItems {
   const out: BlockItems = {};
   if (!(mcapWon > 0)) return out;
-  if (ev.v && ev.v.ni > 0 && ev.v.eq > 0) out.V = [ev.v.eq / mcapWon, ev.v.ni / mcapWon];
-  if (ev.q && ev.q.eq > 0 && (ev.q.eq + ev.q.eqPrev) / 2 > 0 && ev.q.rev > 0) out.Q = [ev.q.ni / ((ev.q.eq + ev.q.eqPrev) / 2), ev.q.oi / ev.q.rev, -(ev.q.liab / ev.q.eq), ev.q.posQ];
-  if (ev.g && ev.g.revPrev > 0 && ev.g.oiPrev > 0) out.Gr = [ev.g.rev / ev.g.revPrev - 1, ev.g.oi / ev.g.oiPrev - 1];
+  if (qev?.v && qev.v.ni > 0 && qev.v.eq > 0) out.V = [qev.v.eq / mcapWon, qev.v.ni / mcapWon];
+  const q = qev?.q;
+  if (q && q.eq > 0 && (q.eq + q.eqPrev) / 2 > 0 && q.rev > 0) out.Q = [q.ni / ((q.eq + q.eqPrev) / 2), q.oi / q.rev, -(q.liab / q.eq), q.posQ];
+  const g = aev?.g;
+  if (g && g.revPrev > 0 && g.oiPrev > 0) out.Gr = [g.rev / g.revPrev - 1, g.oi / g.oiPrev - 1];
   return out;
 }
 
@@ -32,15 +34,43 @@ export function percentiles(vals: number[]): number[] {
 }
 
 export interface Ranked { code: string; score: number; rank: number }
-/** 후보 집합(필요한 묶음이 모두 있는 종목)에서 종합 점수 내림차순 순위(1 = 최상, 동점은 코드 오름차순). 입력 종목 중 묶음이 빠진 것은 제외한다. */
-export function rankComposite(entries: { code: string; items: BlockItems }[], blocks: readonly Block[]): Ranked[] {
+/**
+ * 후보 집합(필요한 묶음이 모두 있는 종목)에서 종합 점수 내림차순 순위(1 = 최상, 동점은 코드 오름차순).
+ * outsiders = 후보 집합에 들지 못했지만 점수를 매겨야 하는 보유 종목(예: SMALL 시총 상한 초과). 후보 집합의 값에 끼워 넣었을 때의 백분위
+ * (더 낮은 값 수 + 같은 값 수 ÷ 2) ÷ n 로 점수를 내고, 순위 = 1 + 점수가 더 높은 후보 수.
+ */
+export function rankComposite(entries: { code: string; items: BlockItems }[], blocks: readonly Block[], outsiders: { code: string; items: BlockItems }[] = []): { ranked: Ranked[]; outsiderRank: Map<string, number> } {
   const cand = entries.filter((e) => blocks.every((b) => e.items[b] !== undefined));
-  if (!cand.length) return [];
-  const score = new Array<number>(cand.length).fill(0);
-  for (const b of blocks) {
-    const m = cand[0].items[b]!.length, blockSum = new Array<number>(cand.length).fill(0);
-    for (let j = 0; j < m; j++) { const p = percentiles(cand.map((e) => e.items[b]![j])); for (let i = 0; i < cand.length; i++) blockSum[i] += p[i] / m; }
-    for (let i = 0; i < cand.length; i++) score[i] += blockSum[i] / blocks.length;
+  const outsiderRank = new Map<string, number>();
+  if (!cand.length) return { ranked: [], outsiderRank };
+  const n = cand.length, score = new Array<number>(n).fill(0);
+  const cols: number[][][] = []; // 묶음 → 항목 → 오름차순 정렬 값
+  blocks.forEach((b, bi) => {
+    const m = cand[0].items[b]!.length, blockSum = new Array<number>(n).fill(0);
+    cols[bi] = [];
+    for (let j = 0; j < m; j++) {
+      const v = cand.map((e) => e.items[b]![j]), p = percentiles(v);
+      cols[bi][j] = [...v].sort((x, y) => x - y);
+      for (let i = 0; i < n; i++) blockSum[i] += p[i] / m;
+    }
+    for (let i = 0; i < n; i++) score[i] += blockSum[i] / blocks.length;
+  });
+  const ranked = cand.map((e, i) => ({ code: e.code, score: score[i], rank: 0 })).sort((a, b) => b.score - a.score || (a.code < b.code ? -1 : 1)).map((r, i) => ({ ...r, rank: i + 1 }));
+  for (const o of outsiders) {
+    if (!blocks.every((b) => o.items[b] !== undefined)) continue;
+    let s = 0;
+    blocks.forEach((b, bi) => {
+      const m = cols[bi].length;
+      let bs = 0;
+      for (let j = 0; j < m; j++) {
+        const arr = cols[bi][j], x = o.items[b]![j];
+        let lo = 0, hi = n; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < x) lo = mid + 1; else hi = mid; }
+        let up = lo; while (up < n && arr[up] === x) up++;
+        bs += (lo + (up - lo) / 2) / n / m;
+      }
+      s += bs / blocks.length;
+    });
+    outsiderRank.set(o.code, 1 + ranked.filter((r) => r.score > s).length);
   }
-  return cand.map((e, i) => ({ code: e.code, score: score[i], rank: 0 })).sort((a, b) => b.score - a.score || (a.code < b.code ? -1 : 1)).map((r, i) => ({ ...r, rank: i + 1 }));
+  return { ranked, outsiderRank };
 }

@@ -10,5 +10,7 @@ export const G_SLOTS_NEIGHBORS = [7, 15] as const;
 export const G_KEEP_RANK = 30;
 export const G_KEEP_RANK_NEIGHBORS = [20, 40] as const;
 export const G_REENTRY_BAN_DAYS = 20;
-/** Q의 "최근 8분기 중 흑자 분기 수"에 쓰는 분기 수. 8개가 모두 계산돼야 값이 있다. */
-export const G_QUARTERS = 8;
+/** Q의 "최근 4분기 중 흑자 분기 수"에 쓰는 분기 수(수정 후 사전등록 2026-10-26: 8 → 4, 자료 가용성). 4개가 모두 계산돼야 값이 있다. */
+export const G_QUARTERS = 4;
+/** Gr(직전 사업연도 대비 전전 사업연도 성장률)는 판단일 이전에 접수된 가장 최근 사업보고서를 쓴다. 연 1회 갱신 특성상 신선도를 사업보고서 접수일(정정이면 최초 접수일)부터 400일로 둔다(분기 보고서 기반 V·Q는 연구 R의 200일 R_STALE_DAYS). */
+export const G_STALE_DAYS_ANNUAL = 400;

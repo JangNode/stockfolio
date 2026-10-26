@@ -937,8 +937,11 @@ async function main(): Promise<void> {
     const cnt = (f: (r: FinRow) => boolean): number => finRows.filter(f).length;
     const orig = finRows.filter((r) => r.status === "orig");
     const nul = (k: keyof FinRow): string => `${f2((orig.filter((r) => r[k] === null || r[k] === undefined || Number.isNaN(r[k] as number)).length / Math.max(orig.length, 1)) * 100)}%`;
-    console.log(`\n=== 12. 상태·결측 ===\n전체 행 ${finRows.length}: orig ${cnt((r) => r.status === "orig")} / corr(정정 후 값, 사용 안 함) ${cnt((r) => r.status === "corr")} / unk(사용 안 함) ${cnt((r) => r.status === "unk")} | orig 중 연결(CFS) ${orig.filter((r) => r.fs_div === "CFS").length}, 별도(OFS) ${orig.filter((r) => r.fs_div === "OFS").length}`);
+    console.log(`\n=== 12. 상태·결측 ===\n전체 행 ${finRows.length}: orig ${cnt((r) => r.status === "orig")} / corr(정정 접수본; 기존 지표는 사용 안 함, 정정 점 시점 규칙 섹션만 사용) ${cnt((r) => r.status === "corr")} / unk(사용 안 함) ${cnt((r) => r.status === "unk")} | orig 중 연결(CFS) ${orig.filter((r) => r.fs_div === "CFS").length}, 별도(OFS) ${orig.filter((r) => r.fs_div === "OFS").length}`);
     console.log(`orig 행 결측률: 영업이익(당기) ${nul("oi_c")} · 당기순이익(당기) ${nul("ni_c")} · 자본총계(당기) ${nul("eq_c")} · 영업이익(당기누적) ${nul("oi_a")} (11013·11011은 누적 열이 비는 것이 정상일 수 있음)`);
+    const corrRowsAll = finRows.filter((r) => r.status === "corr");
+    const hasVal = (r: FinRow): boolean => [r.oi_c, r.ni_c, r.eq_c].some((v) => v !== null && v !== undefined && !Number.isNaN(v as number));
+    console.log(`정정(corr) 행 ${corrRowsAll.length}개 중 영업이익·순이익·자본 중 하나라도 값이 있는 행 ${corrRowsAll.filter(hasVal).length}개(${f2((corrRowsAll.filter(hasVal).length / Math.max(corrRowsAll.length, 1)) * 100)}%) — corr-values-v1 수정 전에는 0개`);
     console.log(`회사 수: fin ${new Set(finRows.map((r) => r.corp_code)).size}개, orig 행이 있는 회사 ${new Set(orig.map((r) => r.corp_code)).size}개, 이벤트(수익성 3종 계산 가능 보고서) 합 ${[...evByCorp.values()].flat().filter((e) => e.ttmOi !== null && e.ttmNi !== null && e.eq !== null).length} / 이벤트 전체 ${[...evByCorp.values()].flat().length}(값 없는 접수 포함)`);
     const fset = new Set(finRows.map((r) => r.rcept_no));
     const filOrig = filRows.filter((f) => f.correction === "N");
@@ -987,7 +990,7 @@ async function main(): Promise<void> {
       console.log(`| ${y} | ${ds.length} | ${f2(a.n / ds.length)} | ${f2((a.any / Math.max(a.n, 1)) * 100)} | ${f2((a.ok / Math.max(a.n, 1)) * 100)} | ${f2((a.mcOk / Math.max(a.mc, 1)) * 100)} | ${f2((a.tvOk / Math.max(a.tv, 1)) * 100)} |`);
     }
   }
-  console.log("\n한계: 업종(KSIC)은 날짜별 이력이 없는 현재 값이다. 지배기업 귀속 자본은 주요계정 API에 없어 자본총계(연결이면 비지배 포함)를 쓴다. 정정공시는 정정 후 값을 쓰지 않으므로 정정이 많은 종목·연도는 자료가 비어 커버리지가 낮아질 수 있다.");
+  console.log("\n한계: 업종(KSIC)은 날짜별 이력이 없는 현재 값이다. 지배기업 귀속 자본은 주요계정 API에 없어 자본총계(연결이면 비지배 포함)를 쓴다. 기존 지표 표는 정정 후 값을 쓰지 않으므로 정정이 많은 종목·연도는 자료가 비어 커버리지가 낮아질 수 있다(정정 점 시점 규칙 섹션은 정정 접수일부터 정정 후 값을 쓰며 정정 전 원본 값은 보관돼 있지 않아 하한이다).");
   finish();
 
   function finish(): void {

@@ -435,11 +435,13 @@ export const R_ADD_STORAGE_MIB = 50;
  * 재수집(순이익 계정명 수정, 환경변수 R_REFETCH_FIN=1) 전용: 수정 식별자(진행 파일에 기록해 이어서 재개), 체크포인트 간격(fin.parquet만 올림),
  * 이 스크립트가 읽고 쓰는 Storage 전송량 상한(MiB; 사용자 지정 총 200MiB 중 재수집 몫, 검증 재실행 몫은 별도로 남겨 둔다).
  */
-// 진행 파일에 저장되는 수정 식별자. ni-name-v1 = 순이익 계정명(당기순이익(손실)), oi-name-v1 = 영업이익 계정명 변형(영업이익(손실)) + 영업이익이 빈 묶음만 재수집.
-export const R_FIX_ID = "oi-name-v1";
-export const R_FIX_CHECKPOINT_CALLS = 700;
-export const R_FIX_CHECKPOINT_MS = 3_600_000;
-export const R_FIX_TRANSFER_CAP_MIB = 120;
+// 진행 파일에 저장되는 수정 식별자. ni-name-v1 = 순이익 계정명(당기순이익(손실)), oi-name-v1 = 영업이익 계정명 변형(영업이익(손실)), corr-values-v1 = 정정(corr) 행 값 저장 + 정정 행이 있는 묶음만 재수집.
+export const R_FIX_ID = "corr-values-v1";
+// 체크포인트는 끝에 한 번만 저장한다(사용자 지시 2026-10-26: Storage 전송 최소화) — 간격을 소프트 상한(R_SOFT_HOURS) 밖으로 둔다.
+export const R_FIX_CHECKPOINT_CALLS = 1_000_000;
+export const R_FIX_CHECKPOINT_MS = 24 * 3_600_000;
+// 한 번 실행이 읽고 쓰는 Storage 전송량 상한(MiB). 연구 누적 상한은 300 MiB(Supabase 사이클 2026-10-14~11-14 한정, 사용자 승인 2026-10-26).
+export const R_FIX_TRANSFER_CAP_MIB = 60;
 // 재수집 계획 계산용 가정(보고 전용, 호출에는 쓰이지 않음). 출처: 2026-10-25~26 실측 — 다중회사 API 1,584건/6.6분(2026-10-26 재수집, 동시 4) ≈ 0.25초/건(2026-10-25 첫 수집은 응답 지연으로 약 11초/건이었음), 단일/company.json류 1,355건/약 4분 ≈ 0.18초/건
 export const R_PLAN_SEC_PER_MULTI = 0.25;
 export const R_PLAN_SEC_PER_SINGLE = 0.18;

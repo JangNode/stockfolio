@@ -679,21 +679,21 @@ async function main(): Promise<void> {
   const filings = await loadMap("filings.parquet", (r) => String(r.rcept_no));
   const indRows = await loadMap("induty_fill.parquet", (r) => String(r.stock_code));
   console.log(`저장된 진행: 목록 완료 ${listDone.size}, 주요계정 묶음 완료 ${finDone.size}, 업종 완료 ${indDone.size}, 행 fin ${finRows.size} / filings ${filings.size} / induty ${indRows.size}, 누적 호출 ${prog.totalCalls}, 지난 회차 ${prog.runs.length}회, 파일럿 ${prog.pilot ? `완료(${prog.pilot.mode})` : "아직"}`);
-  // 재수집 대상 선택(수정 R_FIX_ID 첫 실행): 영업이익(당기)이 빈 orig 행이 있는 묶음의 완료 표시만 지워 그 묶음만 다시 받는다. 신규 사업연도(2026) 묶음은 원래 완료 표시가 없다.
+  // 재수집 대상 선택(수정 R_FIX_ID 첫 실행): 정정(corr) 행이 있는 묶음의 완료 표시만 지워 그 묶음만 다시 받는다(정정 행의 값 열이 비어 있던 결함 수정).
   // 같은 수정 식별자로 재개하면 이미 다시 받은 묶음(finDone)을 이어서 쓴다.
   if (fixMode && prog.finFix !== R_FIX_ID) {
     const bOf = new Map<string, number>();
     corps.forEach((c, i) => bOf.set(c, Math.floor(i / R_MULTI_BATCH)));
     const target = new Set<string>();
     for (const r of finRows.values()) {
-      if (r.status !== "orig" || (r.oi_c !== null && r.oi_c !== undefined && !Number.isNaN(r.oi_c as number))) continue;
+      if (r.status !== "corr") continue;
       const b = bOf.get(String(r.corp_code));
       if (b !== undefined) target.add(`${r.bsns_year}|${r.reprt_code}|${b}`);
     }
     let cleared = 0;
     for (const t of target) if (finDone.delete(t)) cleared++;
     prog.finFix = R_FIX_ID;
-    console.log(`[재수집] 수정 ${R_FIX_ID} 첫 실행: 영업이익이 빈 orig 행이 있는 묶음 ${target.size}개(완료 표시 ${cleared}개 해제)만 다시 받는다. 나머지 완료 묶음 ${finDone.size}개는 그대로 둔다(회사 목록·업종 수집은 하지 않음).`);
+    console.log(`[재수집] 수정 ${R_FIX_ID} 첫 실행: 정정 행이 있는 묶음 ${target.size}개(완료 표시 ${cleared}개 해제)만 다시 받는다. 나머지 완료 묶음 ${finDone.size}개는 그대로 둔다(회사 목록·업종 수집은 하지 않음).`);
   } else if (fixMode) console.log(`[재수집] 수정 ${R_FIX_ID} 재개: 이미 처리된 묶음 ${finDone.size}개를 이어서 쓴다.`);
 
   // ---- 4. DART 호출(연구용 키만, 키당 하루 상한, 총 상한) ----
@@ -853,7 +853,7 @@ async function main(): Promise<void> {
       const first = g[0], corp = first.corp_code, rcept = first.rcept_no, st0 = statusOf(corp, rcept);
       const row: Row = { corp_code: corp, stock_code: first.stock_code || stockOfCorp.get(corp) || "", bsns_year: y, reprt_code: rc, fs_div: first.fs_div, rcept_no: rcept, rcept_dt: isoD(rcept.slice(0, 8)), status: st0 };
       for (const c of FIN_COLS) if (c.type === "DOUBLE") row[c.name] = null;
-      if (st0 === "orig") {
+      if (st0 === "orig" || st0 === "corr") { // corr-values-v1: 정정 행도 값을 저장한다(예전에는 orig만 채워 정정 후 값이 fin.parquet에 없었음). 어느 값을 언제부터 쓰는지는 lib/rFinMetrics.ts가 상태·접수일로 정한다.
         const seen = new Set<string>();
         for (const r of g) {
           // 영업이익(손실)은 같은 묶음에 정확한 '영업이익' 행이 없을 때만 영업이익으로 받는다(기존 매칭을 바꾸지 않음).

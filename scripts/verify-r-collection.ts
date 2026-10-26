@@ -3,7 +3,7 @@
  * 사전 등록: docs/research/r-allcap-fundamentals-prereg.md (8c88160). DB·Storage 쓰기 0.
  */
 import { downloadBuf, decodeTable, type Row } from "@/lib/nBookStore";
-import { eventsByCorp, type FinRow, type FilingRow, type FinEvent } from "@/lib/rFinMetrics";
+import { eventsByCorp, eventsByCorpPit, type FinRow, type FilingRow, type FinEvent } from "@/lib/rFinMetrics";
 import { N_EVAL_START, N_EVAL_FROM, N_SUBPERIODS, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_TOTAL_CALL_CAP, R_MULTI_BATCH, R_PLAN_SEC_PER_MULTI, R_PLAN_SEC_PER_SINGLE, R_STALE_DAYS, R_ROE_MIN, R_R1_ROE, R_GROWTH_MIN, R_R1_GROWTH, R_SMALL_MCAP_MIN_EOK, R_SMALL_MCAP_MAX_EOK, R_SMALL_TV_MIN_WON, R_SMALL_PRICE_MIN_WON, R_SMALL_SLIPPAGE, R_LARGE_SLIPPAGE, R_COVERAGE_MIN_PCT, R_TESTS, R_PRIOR_TESTS, R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
 import { parquetReadObjects } from "hyparquet";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
@@ -824,6 +824,63 @@ async function main(): Promise<void> {
       console.log(`| 후보 | 전체 | ${N_SUBPERIODS.map((q) => q[0]).join(" | ")} |\n|---|---|${N_SUBPERIODS.map(() => "---").join("|")}|`);
       for (const cd of CAND) console.log(`| ${cd} | ${cnt.get(`${cd}|전체`) ?? 0} | ${N_SUBPERIODS.map((q) => cnt.get(`${cd}|${q[0]}`) ?? 0).join(" | ")} |`);
       console.log(`(PBR 중앙값이 계산된 판단일 ${pbrDays}일)`);
+    }
+  }
+  // ---- 정정 점 시점 규칙 커버리지(읽기만; 사용자 승인 2026-10-26): 정정 접수일부터 정정 후 값, 그 전까지는 원본(보관돼 있지 않은 원본 값은 "자료 없음"으로 남음 → 하한) ----
+  {
+    const MIN = R_COVERAGE_MIN_PCT / 100;
+    const pit = eventsByCorpPit(finRows, filRows);
+    const seP = new Map<string, { eff: Int32Array; ev: FinEvent[] }>();
+    for (const [corp, evs] of pit.events) {
+      const code = stockOfCorp.get(corp);
+      if (!code) continue;
+      seP.set(code, { eff: Int32Array.from(evs.map((e) => lowerBound(e.rceptDt))), ev: evs });
+    }
+    const finAtP = (code: string, c: number): FinEvent | null => {
+      const se = seP.get(code);
+      if (!se) return null;
+      let lo = 0, hi = se.eff.length - 1, k = -1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (se.eff[m] < c) { k = m; lo = m + 1; } else hi = m - 1; }
+      if (k < 0) return null;
+      const ev = se.ev[k];
+      return dayDiff(ev.baseDt ?? ev.rceptDt, CAL[c]) > R_STALE_DAYS ? null : ev;
+    };
+    console.log(`\n=== 정정 점 시점 규칙: 이벤트 추가 ${pit.added}건(상태 corr 행 ${pit.corrRows}개 기준), 기존 이벤트 ${[...evByCorp.values()].flat().length}건 ===`);
+    const T0_FIXED = "2017-04-03";
+    const res = new Map<UKind, { d: string; v: number; v0: number }[]>();
+    for (const k of UKINDS) {
+      const arr: { d: string; v: number; v0: number }[] = [];
+      for (let c = cS; c < nCal - 1; c++) {
+        const d = CAL[c];
+        let cap = 0, capP = 0, capL = 0;
+        for (const x of uAt(k, d)) {
+          const mc = x.mcapRow[x.idx.get(d)!];
+          cap += mc;
+          if (profitBundle(finAtP(x.code, c))) capP += mc;
+          if (profitBundle(finAt(x.code, c))) capL += mc;
+        }
+        arr.push({ d, v: cap > 0 ? capP / cap : 0, v0: cap > 0 ? capL / cap : 0 });
+      }
+      res.set(k, arr);
+    }
+    const yearAvg = (arr: { d: string; v: number }[], from: string): [string, number, number][] => {
+      const yr = new Map<string, number[]>();
+      for (const x of arr) if (x.d >= from) { const l = yr.get(x.d.slice(0, 4)) ?? []; l.push(x.v); yr.set(x.d.slice(0, 4), l); }
+      return [...yr].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([y, l]) => [y, (l.reduce((a, v) => a + v, 0) / l.length) * 100, l.length]);
+    };
+    console.log(`| 연도 | SMALL 3종 (기존) | SMALL 3종 (정정 점 시점) | LARGE 3종 (기존) | LARGE 3종 (정정 점 시점) |\n|---|---|---|---|---|`);
+    const aS = yearAvg(res.get("S")!.map((x) => ({ d: x.d, v: x.v })), "0000"), aS0 = yearAvg(res.get("S")!.map((x) => ({ d: x.d, v: x.v0 })), "0000");
+    const aL = yearAvg(res.get("L")!.map((x) => ({ d: x.d, v: x.v })), "0000"), aL0 = yearAvg(res.get("L")!.map((x) => ({ d: x.d, v: x.v0 })), "0000");
+    for (let i = 0; i < aS.length; i++) console.log(`| ${aS[i][0]} | ${f2(aS0[i][1])} | ${f2(aS[i][1])} | ${f2(aL0[i][1])} | ${f2(aL[i][1])} |`);
+    for (const k of UKINDS) {
+      const arr = res.get(k)!;
+      const name = k === "S" ? "SMALL" : "LARGE";
+      const t0 = arr.find((x) => x.v >= MIN)?.d;
+      for (const [label, from] of [[`고정 T0 ${T0_FIXED}`, T0_FIXED], [`정정 규칙에서 처음 ≥${R_COVERAGE_MIN_PCT}%인 판단일 ${t0 ?? "없음"}`, t0 ?? "9999"]] as const) {
+        const ys = yearAvg(arr, from);
+        const bad = ys.filter((q) => q[1] < R_COVERAGE_MIN_PCT);
+        console.log(`${name} | ${label} 이후 연도 평균(판단일 수): ${ys.map(([y, v, n]) => `${y} ${f2(v)}%(${n}일)`).join(", ")} | 모든 해 ≥${R_COVERAGE_MIN_PCT}%: ${ys.length === 0 ? "해당 없음" : bad.length ? `아니오(미달 ${bad.map((q) => q[0]).join(", ")})` : "예"}`);
+      }
     }
   }
   const execOk: Record<"R0" | "R1" | "R2" | "R3" | "R4" | "Q1S", boolean> = {

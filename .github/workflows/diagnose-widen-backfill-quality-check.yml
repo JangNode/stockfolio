@@ -1,6 +1,7 @@
 name: 전종목 확장 재백필 소형주 품질 확인 (진단, 1회성)
 
-# 임시(임시 브랜치 전용, 병합 금지): 시장 국면 pg_cron 등록 전 읽기 전용 확인. 쓰기 없음. 값(토큰)은 출력하지 않는다.
+# 임시(임시 브랜치 전용, 병합 금지): 시장 국면 pg_cron 등록(병합된 main의 docs/market-regime/pg_cron_register.sql을 한 번 실행)과 읽기 전용 검증.
+# 이 워크플로는 trigger_market_regime_dispatch()를 호출하지 않는다(dispatch·테스트 호출 금지).
 on:
   workflow_dispatch:
     inputs:
@@ -14,32 +15,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Read-only checks before registering pg_cron
+      - name: Checkout main (merged SQL)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Register pg_cron job from merged SQL (once) and verify read-only
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          set -u
+          set -uo pipefail
           API="https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query"
+          SQL_FILE=docs/market-regime/pg_cron_register.sql
+          echo "main commit: $(git rev-parse HEAD)"
+          sha256sum "$SQL_FILE"
+          grep -n "'0 1 \* \* 1-5'" "$SQL_FILE"
+          grep -c "trigger_market_regime_dispatch();" "$SQL_FILE" || true
+          echo "--- 등록 SQL 실행(1회)"
+          jq -n --rawfile q "$SQL_FILE" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- -w "\nHTTP %{http_code}\n"
+
           Q() { jq -n --arg q "$1" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
           P() { echo "--- $1"; Q "$2" | jq -c 'if type=="array" then .[] else . end'; }
 
-          P "기존 pg_cron 작업 전체" "select jobid, jobname, schedule, active, left(command, 100) as command from cron.job order by jobid"
-          P "market_regime 관련 pg_cron 항목(이름·명령에 regime 포함)" "select jobid, jobname, schedule, active from cron.job where jobname ilike '%regime%' or command ilike '%regime%'"
-          P "trigger_market_regime_dispatch 함수 존재 여부" "select to_regprocedure('public.trigger_market_regime_dispatch()') is not null as exists"
-          P "Vault GITHUB_ACTIONS_PAT(값 제외)" "select name, created_at, updated_at, (decrypted_secret is not null and length(decrypted_secret) > 0) as has_value from vault.decrypted_secrets where name = 'GITHUB_ACTIONS_PAT'"
-          P "최근 pg_cron 실행 결과(최근 3일)" "select j.jobname, d.status, d.start_time at time zone 'Asia/Seoul' as start_kst from cron.job_run_details d join cron.job j on j.jobid = d.jobid where d.start_time > now() - interval '3 days' order by d.start_time desc limit 8"
-          P "최근 net.http_post 응답 상태(GitHub dispatch 성공 여부)" "select status_code, created at time zone 'Asia/Seoul' as created_kst from net._http_response order by created desc limit 6"
-          P "KRX 거래일 캘린더 범위" "select min(trade_date) as first_date, max(trade_date) as last_date, count(*) as days from public.krx_trading_calendar"
-          P "오늘 이후 평일 휴장일(캘린더)" "select trade_date from public.krx_trading_calendar where is_open = false and extract(isodow from trade_date) between 1 and 5 and trade_date >= (now() at time zone 'Asia/Seoul')::date order by trade_date limit 12"
-          P "수집 상태(KRX_CALENDAR, MARKET_REGIME)" "select source, last_success_at, last_attempt_at, last_error from public.schedule_scrape_status where source in ('KRX_CALENDAR', 'MARKET_REGIME')"
-          P "market_regime_daily 마지막 행" "select trade_date, regime, source from public.market_regime_daily order by trade_date desc limit 2"
-
-          echo "--- PAT 유효성·만료일(값 출력 없음)"
-          TOKEN=$(Q "select decrypted_secret from vault.decrypted_secrets where name = 'GITHUB_ACTIONS_PAT' limit 1" | jq -r '.[0].decrypted_secret // empty')
-          if [ -z "$TOKEN" ]; then echo "PAT 없음"; exit 0; fi
-          echo "::add-mask::$TOKEN"
-          curl -sS -D headers.txt -o /dev/null https://api.github.com/user -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" || true
-          echo "GET /user:"; grep -i -E "^(HTTP/|github-authentication-token-expiration:)" headers.txt || true
-          if grep -qi "^github-authentication-token-expiration:" headers.txt; then echo "만료일 헤더 있음"; else echo "만료일 헤더 없음(무기한이거나 헤더 미제공)"; fi
-          code=$(curl -sS -o /dev/null -w "%{http_code}" https://api.github.com/repos/JangNode/stockfolio/actions/workflows/market-regime.yml -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
-          echo "GET workflows/market-regime.yml(읽기) HTTP $code"
+          P "cron.job: market_regime 항목" "select jobid, jobname, schedule, active, command, database, username from cron.job where jobname = 'trigger-market-regime'"
+          P "cron.job 전체 개수" "select count(*) as jobs, count(*) filter (where active) as active_jobs from cron.job"
+          P "cron.timezone" "select current_setting('cron.timezone', true) as cron_timezone"
+          P "함수 ACL(proacl)과 보안 정의" "select p.proname, p.prosecdef as security_definer, p.proconfig, p.proacl::text as acl from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('trigger_market_regime_dispatch', 'market_regime_should_dispatch') order by p.proname"
+          P "anon/authenticated 실행 권한(false여야 함)" "select r.rolname, has_function_privilege(r.rolname, 'public.trigger_market_regime_dispatch()', 'execute') as can_dispatch, has_function_privilege(r.rolname, 'public.market_regime_should_dispatch(date)', 'execute') as can_check from pg_roles r where r.rolname in ('anon', 'authenticated', 'service_role', 'postgres') order by r.rolname"
+          P "routine_privileges(grantee 목록)" "select routine_name, grantee, privilege_type from information_schema.routine_privileges where routine_schema = 'public' and routine_name in ('trigger_market_regime_dispatch', 'market_regime_should_dispatch') order by routine_name, grantee"
+          P "휴장일 판정(SQL만, dispatch 호출 없음)" "select d::text as date, to_char(d, 'Dy') as dow, c.is_open as calendar_is_open, public.market_regime_should_dispatch(d) as should_dispatch from unnest(array['2026-10-26','2026-10-27','2026-10-28','2026-11-02','2026-12-24','2026-12-25','2026-12-26','2026-12-31','2027-01-01','2027-02-08','2027-02-10','2030-01-02']::date[]) as d left join public.krx_trading_calendar c on c.trade_date = d order by d"
+          P "오늘(KST) 판정" "select (now() at time zone 'Asia/Seoul')::date::text as today_kst, public.market_regime_should_dispatch((now() at time zone 'Asia/Seoul')::date) as should_dispatch"
+          P "등록 직후 해당 job의 실행 기록(없어야 함)" "select count(*) as runs from cron.job_run_details d join cron.job j on j.jobid = d.jobid where j.jobname = 'trigger-market-regime'"

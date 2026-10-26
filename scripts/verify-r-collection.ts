@@ -149,6 +149,7 @@ async function main(): Promise<void> {
   const onlyLastDayMissing = missing.length > 0 && missing.every((m) => m.startsWith(CAL[nCal - 1]));
   if (missing.length && !onlyLastDayMissing) { console.log("수집 미완료 → 0단계 판정·실행하지 않음"); return finish(); }
   if (missing.length) console.log(`[경고] 마지막 거래일 ${CAL[nCal - 1]}의 시장 목록만 없음 → 계속 진행(이후 날짜의 시장 구분은 직전 월말 목록을 쓴다)`);
+  if (missing.length) mmTargets.pop(); // 목록이 없는 마지막 거래일은 월말 대상에서 뺀다(아래 월말별 점검·시총 집계가 목록 존재를 전제로 함)
 
   // 점검 표(연도별 집계)
   console.log("\n=== 점검: 월말 목록 vs 가격 Parquet (연도별 집계) ===\n| 연도 | 월말 수 | 가격 행 종목 수(평균) | 두 시장 어디에도 없음 종목 수 (평균 / 최대) | 없음 시총 비율 % (평균 / 최대) | 두 시장 동시 등장 종목 수(합) |\n|---|---|---|---|---|---|");

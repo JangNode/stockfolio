@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용) 또는 r"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), a(연구 A 시험), b(연구 B 시험) 또는 r"
         required: false
         default: "dart"
       only:
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -201,6 +201,18 @@ jobs:
         run: npx tsx --conditions=react-server scripts/precheck-a-pref-spread.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 연구 A 우선주 쌍 종목명 대조 (KRX Open API 최대 40건, 읽기 전용; KST 14:00~15:40 실행 금지)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'pname' }}
+        run: |
+          HM=$(TZ=Asia/Seoul date +%H%M)
+          if [ "$HM" -ge 1400 ] && [ "$HM" -lt 1540 ]; then echo "::error::KST $HM — 14:00~15:40에는 KRX·KIS 호출을 하지 않는다"; exit 1; fi
+          npx tsx --conditions=react-server scripts/check-pref-pair-names.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

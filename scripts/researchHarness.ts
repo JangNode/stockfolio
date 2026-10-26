@@ -34,6 +34,8 @@ export function mulberry32(seed: number): () => number {
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 export const dbRead: Record<string, number> = {};
+/** Storage에서 내려받은 바이트 합(보고용). */
+export const xfer = { bytes: 0 };
 export async function selectAll<T>(label: string, build: (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
@@ -155,7 +157,7 @@ export async function loadHarness(): Promise<Harness> {
 }
 
 /** 이름(dart_corp_codes)·업종·ETF 겹침 → 제외 규칙(4c1557a: 우선주·ETF·스팩·리츠) 적용 후의 K200P(d) 구성. 월말 시장 목록은 Storage에서 읽는다(약 0.2 MiB). */
-export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; nameOf: Map<string, string>; indOf: Map<string, string>; excluded: Set<string> }> {
+export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; nameOf: Map<string, string>; indOf: Map<string, string>; excluded: Set<string>; membAt: (d: string) => Map<string, string> | undefined }> {
   const nameOf = new Map<string, string>(), indOf = new Map<string, string>(), etfSet = new Set<string>();
   for (let i = 0; i < h.codes.length; i += 200) {
     const chunk = h.codes.slice(i, i + 200);
@@ -179,6 +181,7 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
   const memb = new Map<string, Map<string, string>>();
   for (const r of mmRows) { let m = memb.get(r.trade_date); if (!m) { m = new Map(); memb.set(r.trade_date, m); } m.set(r.stock_code, r.market); }
   const mmDates = [...memb.keys()].sort();
+  xfer.bytes += (mmDl.data as Blob).size;
   const mmFor = (d: string): string | undefined => { let lo = 0, hi = mmDates.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (mmDates[m] <= d) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 ? mmDates[k] : undefined; };
   const kwCache = new Map<string, S[]>();
   const kAt = (d: string): S[] => {
@@ -196,6 +199,6 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
     }
     return v;
   };
-  return { kAt, nameOf, indOf, excluded };
+  return { kAt, nameOf, indOf, excluded, membAt: (d) => { const md = mmFor(d); return md !== undefined ? memb.get(md) : undefined; } };
 }
 export { SLIPPAGE_PCT_PER_SIDE };

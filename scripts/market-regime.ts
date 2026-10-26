@@ -1,6 +1,6 @@
 /**
  * 시장 국면(레짐) 일일 배치 — 직전 거래일 한 행(시장 폭·낙폭·변동성·국면)을 market_regime_daily에 저장한다.
- * .github/workflows/market-regime.yml이 평일 16:40 KST에 pg_cron으로 실행한다(등록은 docs/market-regime/pg_cron_register.sql).
+ * .github/workflows/market-regime.yml이 평일 10:00 KST(전 거래일 종가 기준)에 pg_cron으로 실행한다(등록은 docs/market-regime/pg_cron_register.sql, 평일 휴장일은 SQL이 건너뜀).
  *
  * 구성 종목: 현재 코스피 구성(KIS 종목마스터 파일 다운로드) ∩ 20일 평균 거래대금 ≥ 5억 ∩ 제외 규칙 ∩ 시총 상위 200.
  * 시세: 연도 Parquet을 이 스크립트는 읽기만 한다(현재 연도 파일은 워크플로의 직전 단계가 backfill:stock-daily-prices로 증분 갱신). 지수: KRX idx

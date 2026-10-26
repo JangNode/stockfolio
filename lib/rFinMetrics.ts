@@ -16,6 +16,8 @@ export interface FinEvent {
   ttmOi: number | null; ttmNi: number | null; eq: number | null; // 수익성 묶음(같은 fs_div, 셋 다 있어야 값이 있음)
   eqPbr: number | null; // PBR용 자본 = 수익성 묶음이 완비되면 그 자본, 아니면 CFS 우선·없으면 OFS의 자본총계
   qOi: number | null; qOiPrev: number | null; // 성장 묶음(같은 fs_div)
+  /** 진단용(커버리지 보고): 연결·별도 어느 쪽이든 TTM 영업이익 / TTM 순이익 / 자본총계가 각각 계산 가능한지. 수익성 묶음 규칙과는 무관. */
+  hasOi?: boolean; hasNi?: boolean; hasEq?: boolean;
 }
 
 const FS_ORDER = ["CFS", "OFS"] as const;
@@ -68,6 +70,14 @@ export function eventOf(idx: Index, corp: string, y: string, rc: string): FinEve
     if (!r || r.status !== "orig") continue;
     const o = ttm(idx, r, "oi", fs), n = ttm(idx, r, "ni", fs), e = nn(r.eq_c);
     if (o !== null && n !== null && e !== null) { ev.ttmOi = o; ev.ttmNi = n; ev.eq = e; break; }
+  }
+  ev.hasOi = false; ev.hasNi = false; ev.hasEq = false;
+  for (const fs of FS_ORDER) {
+    const r = idx.get(keyOf(corp, y, rc, fs));
+    if (!r || r.status !== "orig") continue;
+    if (ttm(idx, r, "oi", fs) !== null) ev.hasOi = true;
+    if (ttm(idx, r, "ni", fs) !== null) ev.hasNi = true;
+    if (nn(r.eq_c) !== null) ev.hasEq = true;
   }
   ev.eqPbr = ev.eq;
   if (ev.eqPbr === null) for (const fs of FS_ORDER) { const r = idx.get(keyOf(corp, y, rc, fs)); const e = r && r.status === "orig" ? nn(r.eq_c) : null; if (e !== null) { ev.eqPbr = e; break; } }

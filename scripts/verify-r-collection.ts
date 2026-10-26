@@ -682,24 +682,30 @@ async function main(): Promise<void> {
   console.log(`유니버스에 한 번이라도 든 종목 ${everR.size}개 | 평가 시작 판단일 ${CAL[cS]}(순번 ${cS}), 수익률 집계 ${N_EVAL_FROM}~`);
 
   // ---- 연도별 업종 보유율·재무 커버리지(단계 1의 14항) ----
-  interface CovY { days: number; n: number; kosdaq: number; capKosdaq: number; cap: number; capSec: number; capFin: number; nFinAny: number }
+  interface CovY { days: number; n: number; kosdaq: number; capKosdaq: number; cap: number; capSec: number; capFin: number; nFinAny: number; capOi: number; capNi: number; capEq: number }
+  const dayCov = new Map<UKind, { d: string; v: number }[]>(); // 판단일별 재무 커버리지(시총 비율) — 사전등록 기준 A/B 판단용 숫자
   const covOf = new Map<UKind, Map<string, CovY>>();
   for (const k of UKINDS) {
     const cy = new Map<string, CovY>();
+    dayCov.set(k, []);
     for (let c = cS; c < nCal - 1; c++) {
       const d = CAL[c], U = uAt(k, d), y = d.slice(0, 4), md = mmFor(d), m = md !== undefined ? memb.get(md) : undefined;
-      const z = cy.get(y) ?? { days: 0, n: 0, kosdaq: 0, capKosdaq: 0, cap: 0, capSec: 0, capFin: 0, nFinAny: 0 };
-      let cap = 0, capSec = 0, capFin = 0, nK = 0, capK = 0, nAny = 0;
+      const z = cy.get(y) ?? { days: 0, n: 0, kosdaq: 0, capKosdaq: 0, cap: 0, capSec: 0, capFin: 0, nFinAny: 0, capOi: 0, capNi: 0, capEq: 0 };
+      let cap = 0, capSec = 0, capFin = 0, nK = 0, capK = 0, nAny = 0, capOi = 0, capNi = 0, capEq = 0;
       for (const s of U) {
         const mc = s.mcapRow[s.idx.get(d)!];
         cap += mc;
         if (sectorOf(s.code) !== SAT_SECTOR_UNCLASSIFIED) capSec += mc;
         const ev = finAt(s.code, c);
         if (profitBundle(ev)) capFin += mc;
+        if (ev?.hasOi) capOi += mc;
+        if (ev?.hasNi) capNi += mc;
+        if (ev?.hasEq) capEq += mc;
         if (ev !== null) nAny++;
         if (m?.get(s.code) === "KOSDAQ") { nK++; capK += mc; }
       }
-      z.days++; z.n += U.length; z.kosdaq += nK; z.capKosdaq += capK; z.cap += cap; z.capSec += cap > 0 ? capSec / cap : 0; z.capFin += cap > 0 ? capFin / cap : 0; z.nFinAny += nAny;
+      z.days++; z.n += U.length; z.kosdaq += nK; z.capKosdaq += capK; z.cap += cap; z.capSec += cap > 0 ? capSec / cap : 0; z.capFin += cap > 0 ? capFin / cap : 0; z.nFinAny += nAny; z.capOi += cap > 0 ? capOi / cap : 0; z.capNi += cap > 0 ? capNi / cap : 0; z.capEq += cap > 0 ? capEq / cap : 0;
+      dayCov.get(k)!.push({ d, v: cap > 0 ? capFin / cap : 0 });
       cy.set(y, z);
     }
     covOf.set(k, cy);
@@ -714,6 +720,30 @@ async function main(): Promise<void> {
       row.push(f2(z.n / z.days), `${f2((z.kosdaq / Math.max(z.n, 1)) * 100)} / ${f2((z.capKosdaq / Math.max(z.cap, 1)) * 100)}`, f2((z.capSec / z.days) * 100), f2((z.capFin / z.days) * 100), f2((z.nFinAny / Math.max(z.n, 1)) * 100));
     }
     console.log(`| ${row.join(" | ")} |`);
+  }
+  console.log(`\n=== 연도별 재무 구성요소 커버리지(시총 비율, 판단일 평균; 직전 비정정 보고서에서 각 값이 계산 가능한 비율. 3종 모두 = 위 표의 재무 커버리지) ===\n| 연도 | SMALL TTM 영업이익 % | SMALL TTM 순이익 % | SMALL 자본총계 % | SMALL 3종 모두 % | LARGE TTM 영업이익 % | LARGE TTM 순이익 % | LARGE 자본총계 % | LARGE 3종 모두 % |\n|---|---|---|---|---|---|---|---|---|`);
+  for (const y of [...covOf.get("S")!.keys()].sort()) {
+    const row: string[] = [y];
+    for (const k of UKINDS) { const z = covOf.get(k)!.get(y)!; row.push(f2((z.capOi / z.days) * 100), f2((z.capNi / z.days) * 100), f2((z.capEq / z.days) * 100), f2((z.capFin / z.days) * 100)); }
+    console.log(`| ${row.join(" | ")} |`);
+  }
+  // 사전등록 기준(연도 평균 70%) 판단용: 월별 커버리지와 "처음으로 70% 이상이 된 판단일"(기준·정의는 바꾸지 않고 숫자만 보고한다)
+  {
+    const MIN = R_COVERAGE_MIN_PCT / 100;
+    console.log(`\n=== 기준 판단용 숫자: 월별 재무 커버리지(시총 비율, 판단일 평균) 2015-01~2017-12 ===\n| 월 | SMALL % | LARGE % |\n|---|---|---|`);
+    const mon = (k: UKind): Map<string, number[]> => { const m = new Map<string, number[]>(); for (const x of dayCov.get(k)!) { const key = x.d.slice(0, 7); const l = m.get(key) ?? []; l.push(x.v); m.set(key, l); } return m; };
+    const mS = mon("S"), mL = mon("L");
+    for (const key of [...mS.keys()].sort().filter((q) => q <= "2017-12")) { const a = (l: number[] | undefined): string => (l && l.length ? f2((l.reduce((s, v) => s + v, 0) / l.length) * 100) : "-"); console.log(`| ${key} | ${a(mS.get(key))} | ${a(mL.get(key))} |`); }
+    for (const k of UKINDS) {
+      const arr = dayCov.get(k)!;
+      const first = arr.find((x) => x.v >= MIN);
+      const firstSustained = arr.find((_, i) => arr.slice(i).every((x) => x.v >= MIN));
+      const after = firstSustained ? arr.filter((x) => x.d >= firstSustained.d) : [];
+      const months = new Set(after.map((x) => x.d.slice(0, 7))).size;
+      const yr = new Map<string, number[]>(); for (const x of after) { const l = yr.get(x.d.slice(0, 4)) ?? []; l.push(x.v); yr.set(x.d.slice(0, 4), l); }
+      const minYear = [...yr].map(([y, l]) => [y, (l.reduce((s, v) => s + v, 0) / l.length) * 100] as [string, number]).sort((a, b) => a[1] - b[1])[0];
+      console.log(`${k === "S" ? "SMALL" : "LARGE"}: 처음으로 ≥${R_COVERAGE_MIN_PCT}%가 된 판단일 ${first?.d ?? "없음"} | 그 뒤로 끝까지 ≥${R_COVERAGE_MIN_PCT}% 유지가 시작되는 판단일 ${firstSustained?.d ?? "없음"}${firstSustained ? ` → 그날부터 판단일 ${after.length}일(약 ${(after.length / 252).toFixed(1)}년), 월 ${months}개, 그 구간 연도 평균 최저 ${minYear[0]}년 ${f2(minYear[1])}%` : ""}`);
+    }
   }
   const execOk: Record<"R0" | "R1" | "R2" | "R3" | "R4" | "Q1S", boolean> = {
     R0: unSecS.length === 0, R1: unSecS.length + unFinS.length === 0, R2: unSecS.length + unFinS.length === 0, R3: unSecS.length + unFinS.length === 0,

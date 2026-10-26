@@ -430,6 +430,14 @@ export const R_CHECKPOINT_MS = 600_000;
 export const R_MULTI_BATCH = 100;
 /** 추가 저장 상한(MiB)과 Storage 전 버킷 합계 상한은 SC_COLLECT_STORAGE_CAP_BYTES. */
 export const R_ADD_STORAGE_MIB = 50;
+/**
+ * 재수집(순이익 계정명 수정, 환경변수 R_REFETCH_FIN=1) 전용: 수정 식별자(진행 파일에 기록해 이어서 재개), 체크포인트 간격(fin.parquet만 올림),
+ * 이 스크립트가 읽고 쓰는 Storage 전송량 상한(MiB; 사용자 지정 총 200MiB 중 재수집 몫, 검증 재실행 몫은 별도로 남겨 둔다).
+ */
+export const R_FIX_ID = "ni-name-v1";
+export const R_FIX_CHECKPOINT_CALLS = 700;
+export const R_FIX_CHECKPOINT_MS = 3_600_000;
+export const R_FIX_TRANSFER_CAP_MIB = 120;
 /** 파일럿: 회사 수, 사업연도, 가격 행 기준일, 일치 기준(비율). */
 export const R_PILOT_N = 20;
 export const R_PILOT_YEAR = 2023;

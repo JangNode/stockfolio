@@ -2,7 +2,7 @@
  * [임시 연구 — 병합 금지] 연구 R 단계 1: 전체 상장사 재무(주요계정) 재수집 + 정기공시 목록 + 업종 보완. 성적은 계산하지 않는다.
  * 사전 등록: docs/research/r-allcap-fundamentals-prereg.md (8c88160). 연구용 DART 키(DART_API_KEY_2/_3)만. DB 쓰기 0, Storage Parquet만 쓴다.
  */
-import { encodeTable, decodeTable, downloadBuf, uploadBuf, storageUsage, MiB, kstDate, kstTime, type ColDef, type Row } from "@/lib/nBookStore";
+import { encodeTable, decodeTable, downloadBuf as downloadBuf0, uploadBuf as uploadBuf0, storageUsage, MiB, kstDate, kstTime, type ColDef, type Row } from "@/lib/nBookStore";
 import { SC_COLLECT_STORAGE_CAP_BYTES } from "@/lib/shortCreditCollectConfig";
 import { parquetReadObjects } from "hyparquet";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
@@ -27,8 +27,13 @@ import {
   SMT_MONTHS_PER_YEAR, SMT21_K_SIZE, SMT21_STAGE0_MAX_UNKNOWN_PCT,
 } from "@/lib/sectorMomTiltConfig";
 import { SAT_MIX_BAND, SAT_ETF_COST_PER_SIDE } from "@/lib/satelliteV1Config";
-import { KSS_TOP_K, KSS_MIX_WEIGHTS, KSS_DEFAULT_W, KSS_G1_MARGIN_PP, KSS_G2_MDD_MARGIN_PP, KSS_G4_MAX_DELAY_DROP_PP, KSS_R1_TOP_KS, KSS_R3_DRAWS, KSS_R3_SEED, KSS31_PER_SECTOR, KSS31_R1_LOOKBACKS, KSS31_PRACTICAL_FROM, KSS32_TRIM_MIN_WEIGHT, KSS32_R1_TRIMS, KSS32_SEEDS_WON, KSS32_ETF_SLIPPAGE, D_RECENT_FROM, D_RECENT_TO, F_SHORT, F_LONG, F_R1_MAS, F_TOP_SECTORS, F_R1_TOPS, F_MAX_POS, F_R1_POS, F_ENTRY_FRAC, F_COOLDOWN, F_STOP, F_R1_STOPS, F_TRAIL_G2, F_R1_TRAIL_G2, F_TRAIL_G4, F_R1_TRAIL_G4, F_A_EXCESS_PP, F_B_MIN_PERIODS, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_E_TOP_TRADES, F_F_MIN_PCTILE, F_TESTS, F_PRIOR_TESTS, F_TOP_TRADES_N, F_LONG_HOLD_DAYS, J_SYS2, J_R1_LM2, J_ATR_N, J_ATR_MULT, J_R1_ATR_MULTS, J_MIN_ENTRIES, K3_SLOTS, K3_FRAC, M_B50_ENTRY, M_R1_B50_ENTRY, M_B50_EXIT, M_R1_B50_EXIT, M_NH_THR, M_R1_NH, M_B200_THR, M_R1_B200, M_B200_FIRST, M_R1_POS, M_POST_EXIT_DAYS, M_TESTS, M_PRIOR_TESTS, M_REPRO_K3, Q_MCAP_MIN_EOK, Q_RANK_FROM, Q_RANK_TO, Q_COVERAGE_MIN_PCT, Q2F_STORE_PATH, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_ACCOUNTS, R_DAILY_PER_KEY, R_TOTAL_CALL_CAP, R_GAP_MS, R_CONCURRENCY, R_FETCH_TIMEOUT_MS, R_RETRY_WAITS_MS, R_SOFT_HOURS, R_CHECKPOINT_CALLS, R_CHECKPOINT_MS, R_MULTI_BATCH, R_ADD_STORAGE_MIB, R_PILOT_N, R_PILOT_YEAR, R_PILOT_DATE, R_PILOT_MATCH_MIN, R_UNMAPPED_MAX } from "@/lib/kodexSectorSatConfig";
+import { KSS_TOP_K, KSS_MIX_WEIGHTS, KSS_DEFAULT_W, KSS_G1_MARGIN_PP, KSS_G2_MDD_MARGIN_PP, KSS_G4_MAX_DELAY_DROP_PP, KSS_R1_TOP_KS, KSS_R3_DRAWS, KSS_R3_SEED, KSS31_PER_SECTOR, KSS31_R1_LOOKBACKS, KSS31_PRACTICAL_FROM, KSS32_TRIM_MIN_WEIGHT, KSS32_R1_TRIMS, KSS32_SEEDS_WON, KSS32_ETF_SLIPPAGE, D_RECENT_FROM, D_RECENT_TO, F_SHORT, F_LONG, F_R1_MAS, F_TOP_SECTORS, F_R1_TOPS, F_MAX_POS, F_R1_POS, F_ENTRY_FRAC, F_COOLDOWN, F_STOP, F_R1_STOPS, F_TRAIL_G2, F_R1_TRAIL_G2, F_TRAIL_G4, F_R1_TRAIL_G4, F_A_EXCESS_PP, F_B_MIN_PERIODS, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_E_TOP_TRADES, F_F_MIN_PCTILE, F_TESTS, F_PRIOR_TESTS, F_TOP_TRADES_N, F_LONG_HOLD_DAYS, J_SYS2, J_R1_LM2, J_ATR_N, J_ATR_MULT, J_R1_ATR_MULTS, J_MIN_ENTRIES, K3_SLOTS, K3_FRAC, M_B50_ENTRY, M_R1_B50_ENTRY, M_B50_EXIT, M_R1_B50_EXIT, M_NH_THR, M_R1_NH, M_B200_THR, M_R1_B200, M_B200_FIRST, M_R1_POS, M_POST_EXIT_DAYS, M_TESTS, M_PRIOR_TESTS, M_REPRO_K3, Q_MCAP_MIN_EOK, Q_RANK_FROM, Q_RANK_TO, Q_COVERAGE_MIN_PCT, Q2F_STORE_PATH, R_STORE_PREFIX, R_YEAR_FROM, R_YEAR_TO, R_REPRT_CODES, R_ACCOUNTS, R_DAILY_PER_KEY, R_TOTAL_CALL_CAP, R_GAP_MS, R_CONCURRENCY, R_FETCH_TIMEOUT_MS, R_RETRY_WAITS_MS, R_SOFT_HOURS, R_CHECKPOINT_CALLS, R_CHECKPOINT_MS, R_MULTI_BATCH, R_ADD_STORAGE_MIB, R_FIX_ID, R_FIX_CHECKPOINT_CALLS, R_FIX_CHECKPOINT_MS, R_FIX_TRANSFER_CAP_MIB, R_PILOT_N, R_PILOT_YEAR, R_PILOT_DATE, R_PILOT_MATCH_MIN, R_UNMAPPED_MAX } from "@/lib/kodexSectorSatConfig";
 import { FEE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
+
+// Storage 전송량 집계(이 스크립트가 읽고 쓴 연구 파일의 다운로드·업로드 바이트): 재수집 보고와 전송 상한 점검용.
+let xferDown = 0, xferUp = 0;
+const downloadBuf = async (path: string): Promise<ArrayBuffer | null> => { const b = await downloadBuf0(path); if (b) xferDown += b.byteLength; return b; };
+const uploadBuf = async (path: string, body: ArrayBuffer | Uint8Array): Promise<void> => { xferUp += body.byteLength; await uploadBuf0(path, body); };
 
 const ETF_CODE = SEASON_STOCK_CODE;
 
@@ -651,11 +656,17 @@ async function main(): Promise<void> {
 
   // ---- 3. 진행 상태·저장 ----
   const KEYS_NAMES = ["DART_API_KEY_2", "DART_API_KEY_3"] as const;
-  interface RProg { pilot?: { compared: number; matched: number; rate: number; mode: "multi" | "single"; note: string }; listDone: string[]; finDone: string[]; indDone: string[]; calls: Record<string, { date: string; n: number }>; totalCalls: number; runs: { startedAt: string; calls: number; stop: string }[] }
+  interface RProg { finFix?: string; pilot?: { compared: number; matched: number; rate: number; mode: "multi" | "single"; note: string }; listDone: string[]; finDone: string[]; indDone: string[]; calls: Record<string, { date: string; n: number }>; totalCalls: number; runs: { startedAt: string; calls: number; stop: string }[] }
   const jbuf = await downloadBuf(rPath("_progress.json"));
   const prog: RProg = jbuf ? (JSON.parse(new TextDecoder().decode(jbuf)) as RProg) : { listDone: [], finDone: [], indDone: [], calls: {}, totalCalls: 0, runs: [] };
   const totalBefore = prog.totalCalls;
   const listDone = new Set(prog.listDone), finDone = new Set(prog.finDone), indDone = new Set(prog.indDone);
+  // 재수집 모드(R_REFETCH_FIN=1): 순이익 계정명 수정(R_FIX_ID) 뒤 주요계정 묶음만 처음부터 다시 받는다. 회사 목록·업종은 건드리지 않는다.
+  // 수정 식별자가 진행 파일에 저장된 뒤의 재개 실행은 이미 다시 받은 묶음(finDone)을 이어서 쓴다.
+  const fixMode = process.env.R_REFETCH_FIN === "1";
+  if (fixMode && prog.finFix !== R_FIX_ID) { console.log(`[재수집] 수정 ${R_FIX_ID} 첫 실행: 기존 주요계정 묶음 완료 표시 ${finDone.size}개를 비우고 처음부터 다시 받는다(회사 목록·업종 수집은 하지 않음).`); finDone.clear(); prog.finFix = R_FIX_ID; }
+  else if (fixMode) console.log(`[재수집] 수정 ${R_FIX_ID} 재개: 이미 다시 받은 묶음 ${finDone.size}개를 이어서 쓴다.`);
+  const acctFreq = new Map<string, number>(); // 원본 응답 계정명(sj_div|account_nm) 건수 — 로그용(이번 실행에서 받은 응답만)
   const FIN_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["reprt_code", "STRING"], ["fs_div", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["status", "STRING"],
     ...["rev", "oi", "ni"].flatMap((k) => ["c", "a", "p", "pa"].map((s) => [`${k}_${s}`, "DOUBLE"] as [string, "DOUBLE"])), ["assets_c", "DOUBLE"], ["liab_c", "DOUBLE"], ["eq_c", "DOUBLE"], ["eq_p", "DOUBLE"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));
   const FIL_COLS: ColDef[] = [{ name: "corp_code", type: "STRING" }, { name: "rcept_no", type: "STRING" }, { name: "rcept_dt", type: "STRING" }, { name: "correction", type: "STRING" }, { name: "report_nm", type: "STRING" }];
@@ -712,16 +723,18 @@ async function main(): Promise<void> {
   async function save(why: string): Promise<void> {
     for (const n of KEYS_NAMES) prog.calls[n] = { date: kstToday, n: usedBefore[n] + usedRun[n] };
     prog.listDone = [...listDone]; prog.finDone = [...finDone]; prog.indDone = [...indDone];
-    const bufs: [string, ArrayBuffer][] = [["fin.parquet", encodeTable(FIN_COLS, [...finRows.values()])], ["filings.parquet", encodeTable(FIL_COLS, [...filings.values()])], ["induty_fill.parquet", encodeTable(IND_COLS, [...indRows.values()])]];
+    const all: [string, ArrayBuffer][] = [["fin.parquet", encodeTable(FIN_COLS, [...finRows.values()])], ["filings.parquet", encodeTable(FIL_COLS, [...filings.values()])], ["induty_fill.parquet", encodeTable(IND_COLS, [...indRows.values()])]];
+    const bufs = fixMode ? all.filter(([n]) => n === "fin.parquet") : all; // 재수집 모드: 바뀌는 파일(fin)만 올린다
     const total = bufs.reduce((a, [, b]) => a + b.byteLength, 0);
     if (total > R_ADD_STORAGE_MIB * MiB) { stopWhy ??= `추가 저장 ${(total / MiB).toFixed(1)} MiB > ${R_ADD_STORAGE_MIB} MiB`; console.log(`  [경고] 저장 크기 상한 초과: ${(total / MiB).toFixed(1)} MiB → 저장하지 않고 멈춤`); return; }
+    if (fixMode && xferDown + xferUp + total > R_FIX_TRANSFER_CAP_MIB * MiB) { stopWhy ??= `Storage 전송량 상한 ${R_FIX_TRANSFER_CAP_MIB} MiB`; console.log(`  [경고] Storage 전송량 ${((xferDown + xferUp) / MiB).toFixed(1)} MiB + 이번 업로드 ${(total / MiB).toFixed(1)} MiB > 상한 ${R_FIX_TRANSFER_CAP_MIB} MiB → 저장하지 않고 멈춤`); return; }
     for (const [name, b] of bufs) await uploadBuf(rPath(name), b);
     prog.totalCalls = totalBefore + runCalls;
     await uploadBuf(rPath("_progress.json"), new TextEncoder().encode(JSON.stringify(prog)));
     lastCk = Date.now(); callsAtCk = runCalls;
     console.log(`  [저장] ${why}: ${bufs.map(([n, b]) => `${n} ${(b.byteLength / 1024).toFixed(0)}KiB`).join(", ")} (합 ${(total / MiB).toFixed(2)} MiB) | 누적 호출 ${prog.totalCalls}(이번 ${runCalls}) | 오늘 ${KEYS_NAMES.map((n) => `${n.slice(-1)} ${usedBefore[n] + usedRun[n]}`).join("/")} | KST ${kstTime()}`);
   }
-  const ckDue = (): boolean => runCalls - callsAtCk >= R_CHECKPOINT_CALLS || Date.now() - lastCk >= R_CHECKPOINT_MS;
+  const ckDue = (): boolean => (fixMode ? runCalls - callsAtCk >= R_FIX_CHECKPOINT_CALLS || Date.now() - lastCk >= R_FIX_CHECKPOINT_MS : runCalls - callsAtCk >= R_CHECKPOINT_CALLS || Date.now() - lastCk >= R_CHECKPOINT_MS);
   let ckBusy = false;
   async function ckIfDue(): Promise<void> { if (ckBusy || !ckDue()) return; ckBusy = true; try { await save("주기 저장"); } finally { ckBusy = false; } }
   async function runQueue<T>(items: T[], worker: (x: T) => Promise<void>): Promise<void> {
@@ -779,7 +792,7 @@ async function main(): Promise<void> {
   const mode = prog.pilot.mode;
 
   // ---- 6. 정기공시 목록(정정 판정 자료) ----
-  const listTodo = corps.filter((c) => !listDone.has(c));
+  const listTodo = fixMode ? [] : corps.filter((c) => !listDone.has(c));
   console.log(`\n[목록] list.json(pblntf_ty=A) 대상 ${corps.length}개 회사 중 남은 ${listTodo.length}개`);
   await runQueue(listTodo, async (corp) => {
     const got: Record<string, string>[] = [];
@@ -808,7 +821,13 @@ async function main(): Promise<void> {
   for (const r of filings.values()) { const m = r.correction === "Y" ? corrNos : origNos; const s = m.get(String(r.corp_code)) ?? new Set<string>(); s.add(String(r.rcept_no)); m.set(String(r.corp_code), s); }
   const statusOf = (corp: string, rcept: string): "orig" | "corr" | "unk" => (origNos.get(corp)?.has(rcept) ? "orig" : corrNos.get(corp)?.has(rcept) ? "corr" : "unk");
   const wideKey = (corp: string, y: string, rc: string, fs: string): string => `${corp}|${y}|${rc}|${fs}`;
+  /**
+   * 계정명 정규화: 공백 제거. 당기순이익만 DART 주요계정 API의 실제 표기 '당기순이익(손실)'을 같은 계정으로 본다
+   * (수정 R_FIX_ID: 이전 규칙은 '당기순이익'과 정확히 같은 이름만 받아 순이익이 100% 결측이었다). 다른 계정의 매칭은 바꾸지 않는다.
+   */
+  const canon = (nm: string): string => { const a = norm(nm); return a === "당기순이익(손실)" ? "당기순이익" : a; };
   function ingest(list: Record<string, string>[], y: string, rc: string): void {
+    for (const r of list) { const k = `${r.sj_div}|${r.account_nm}`; acctFreq.set(k, (acctFreq.get(k) ?? 0) + 1); }
     const groups = new Map<string, Record<string, string>[]>();
     for (const r of list) { const key = wideKey(r.corp_code, y, rc, r.fs_div); const g = groups.get(key) ?? []; g.push(r); groups.set(key, g); }
     for (const [key, g] of groups) {
@@ -818,7 +837,7 @@ async function main(): Promise<void> {
       if (st0 === "orig") {
         const seen = new Set<string>();
         for (const r of g) {
-          const a = norm(r.account_nm ?? "");
+          const a = canon(r.account_nm ?? "");
           if (!(R_ACCOUNTS as readonly string[]).includes(a) || seen.has(a)) continue;
           if ((a === "자산총계" || a === "부채총계" || a === "자본총계") !== (r.sj_div === "BS")) continue;
           seen.add(a);
@@ -870,10 +889,10 @@ async function main(): Promise<void> {
   }
 
   // ---- 8. 업종 보완 ----
-  const q2b = await downloadBuf(Q2F_STORE_PATH);
+  const q2b = fixMode ? null : await downloadBuf(Q2F_STORE_PATH);
   const q2fill = new Set<string>();
   if (q2b) for (const r of await decodeTable(q2b)) if (r.status === "ok") q2fill.add(String(r.stock_code));
-  const needInd = targets.filter((c) => corpOf.has(c) && sectorOf(c) === SAT_SECTOR_UNCLASSIFIED && !q2fill.has(c));
+  const needInd = fixMode ? [] : targets.filter((c) => corpOf.has(c) && sectorOf(c) === SAT_SECTOR_UNCLASSIFIED && !q2fill.has(c)); // 재수집 모드는 업종을 다시 받지 않는다
   console.log(`\n[업종 보완] 대상 T 중 DB 표·Q2 보완 파일에 KSIC가 없는 종목 ${needInd.length}개(Q2 보완 파일 ${q2fill.size}개 확인) 중 남은 ${needInd.filter((c) => !indDone.has(c)).length}개`);
   if (!stopWhy) await runQueue(needInd.filter((c) => !indDone.has(c)), async (code) => {
     const j = await dartGet("company.json", `corp_code=${corpOf.get(code)!}`);
@@ -892,6 +911,17 @@ async function main(): Promise<void> {
   const remFin = mode === "multi" ? ((R_YEAR_TO - R_YEAR_FROM + 1) * R_REPRT_CODES.length * Math.ceil(corps.length / R_MULTI_BATCH)) - finDone.size : corps.length * (R_YEAR_TO - R_YEAR_FROM + 1) * R_REPRT_CODES.length - finDone.size;
   const remInd = needInd.filter((c) => !indDone.has(c)).length;
   console.log(`\n=== 회차 요약 ===\n| 항목 | 값 |\n|---|---|\n| 이번 회차 DART 호출 | ${runCalls} (키별 ${KEYS_NAMES.map((n) => `${n} ${usedRun[n]}`).join(", ")}) |\n| 누적 호출 | ${prog.totalCalls} / ${R_TOTAL_CALL_CAP} |\n| 중단 사유 | ${stopWhy ?? "없음"} |\n| 남은 작업 | 목록 ${remList}, 주요계정 ${remFin}, 업종 ${remInd} |\n| 저장 행 | fin ${finRows.size}(orig ${cnt((r) => r.status === "orig")}, corr ${cnt((r) => r.status === "corr")}, unk ${cnt((r) => r.status === "unk")}), filings ${filings.size}(정정 ${[...filings.values()].filter((r) => r.correction === "Y").length}), induty ${indRows.size} |\n| 소요 | ${((Date.now() - T0) / 60000).toFixed(1)}분 |`);
+  if (acctFreq.size > 0) {
+    console.log(`\n=== 원본 응답 계정명 목록과 건수(이번 실행에서 받은 응답 행, sj_div | account_nm) ===\n| sj_div | account_nm | 건수 | 수집 계정으로 받음 |\n|---|---|---|---|\n${[...acctFreq].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([k, v]) => `| ${k.replace("|", " | ")} | ${v} | ${(R_ACCOUNTS as readonly string[]).includes(canon(k.split("|").slice(1).join("|"))) ? "예" : "아니오"} |`).join("\n")}`);
+    const nm = (re: RegExp): number => [...acctFreq].filter(([k]) => re.test(k.split("|").slice(1).join("|"))).reduce((a, [, v]) => a + v, 0);
+    console.log(`계정명 변형 점검: '당기순이익(손실)' ${nm(/^당기순이익\(손실\)$/)}건(수정 후 당기순이익으로 받음), 공백 제거 후 정확히 '당기순이익' ${nm(/^당기순이익$/)}건, '영업이익(손실)' ${nm(/^영업이익\(손실\)$/)}건(수집 계정에 들지 않음 — 기존 계정 매칭은 바꾸지 않음), '영업이익' ${nm(/^영업이익$/)}건`);
+  }
+  {
+    const orig = [...finRows.values()].filter((r) => r.status === "orig");
+    const nul = (c: string): string => `${f2((orig.filter((r) => r[c] === null).length / Math.max(orig.length, 1)) * 100)}%`;
+    console.log(`orig 행 ${orig.length}개 결측률: 영업이익(당기) ${nul("oi_c")} · 당기순이익(당기) ${nul("ni_c")} · 자본총계(당기) ${nul("eq_c")} · 당기순이익(당기누적) ${nul("ni_a")}`);
+  }
+  console.log(`Storage 전송(이 스크립트가 읽고 쓴 연구 파일): 다운로드 ${(xferDown / MiB).toFixed(2)} MiB / 업로드 ${(xferUp / MiB).toFixed(2)} MiB / 합 ${((xferDown + xferUp) / MiB).toFixed(2)} MiB${fixMode ? ` (재수집 상한 ${R_FIX_TRANSFER_CAP_MIB} MiB)` : ""}`);
   finish();
 
   function finish(): void {

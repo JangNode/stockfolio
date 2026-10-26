@@ -25,6 +25,10 @@ on:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
         default: "0"
+      refetch:
+        description: "which=rfin: 1이면 순이익 계정명 수정(ni-name-v1) 뒤 주요계정 묶음만 다시 받는다(목록·업종 제외, fin.parquet만 올림)"
+        required: false
+        default: "0"
 
 jobs:
   run:
@@ -165,6 +169,7 @@ jobs:
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'rfin' }}
         run: npx tsx --conditions=react-server scripts/collect-r-fin.ts
         env:
+          R_REFETCH_FIN: ${{ inputs.refetch }}
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

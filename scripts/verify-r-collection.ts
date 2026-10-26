@@ -145,7 +145,10 @@ async function main(): Promise<void> {
   const emptySet = new Set(mmLog.empty.map((e) => `${e.date}|${e.market}`));
   const missing = mmTargets.flatMap((d) => MM_ENDPOINTS.map(([mk]) => mk).filter((mk) => !emptySet.has(`${d}|${mk}`) && ![...(memb.get(d)?.values() ?? [])].includes(mk)).map((mk) => `${d} ${mk}`));
   console.log(`대상 월말 ${mmTargets.length}개 × 2시장, 목록에 없는 (월말, 시장) ${missing.length}개${missing.length ? `: ${missing.slice(0, 20).join(", ")}` : ""}`);
-  if (missing.length) { console.log("수집 미완료 → 0단계 판정·실행하지 않음"); return finish(); }
+  // 가격 Parquet이 월중 최신 거래일까지 갱신돼 그 날짜의 시장 목록만 아직 없는 경우: 읽기 전용 점검이므로 직전 월말 목록(d 이하 최신)으로 계속한다.
+  const onlyLastDayMissing = missing.length > 0 && missing.every((m) => m.startsWith(CAL[nCal - 1]));
+  if (missing.length && !onlyLastDayMissing) { console.log("수집 미완료 → 0단계 판정·실행하지 않음"); return finish(); }
+  if (missing.length) console.log(`[경고] 마지막 거래일 ${CAL[nCal - 1]}의 시장 목록만 없음 → 계속 진행(이후 날짜의 시장 구분은 직전 월말 목록을 쓴다)`);
 
   // 점검 표(연도별 집계)
   console.log("\n=== 점검: 월말 목록 vs 가격 Parquet (연도별 집계) ===\n| 연도 | 월말 수 | 가격 행 종목 수(평균) | 두 시장 어디에도 없음 종목 수 (평균 / 최대) | 없음 시총 비율 % (평균 / 최대) | 두 시장 동시 등장 종목 수(합) |\n|---|---|---|---|---|---|");

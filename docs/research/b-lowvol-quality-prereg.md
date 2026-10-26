@@ -82,3 +82,8 @@ CAGR·MDD·최악 12개월·샤프(B&H와 나란히) / 진입·청산 건수 / �
 ## 9. Storage 전송
 
 가격 Parquet은 Actions 캐시로 읽는다(적중 시 Supabase Storage 전송 0, 미적중이면 실행하지 않음). 시험은 월말 시장 목록(약 0.2 MiB)과 업종 보완 파일 몇 개(합 1 MiB 미만)만 Storage에서 읽는다 — 한 번 실행에 약 1 MiB 추정(스크립트 집계 없음).
+
+## 10. 수행 기록
+
+- **시험 스크립트(실행 전 기록)**: scripts/research-b-lowvol-momentum.ts, 공용 lib/slotSim.ts·scripts/researchHarness.ts·scripts/researchGates.ts. 사전등록 정의·파라미터·게이트는 08703d4 이후 변경하지 않았다.
+- 구현상 확정한 세부(정의 변경 아님): 게이트 F 무작위 풀은 "후보(M > 0) 중 합산 순위가 keepRank 이내이고 보유 중이 아닌 종목"에서 신호일의 실제 진입 주문 수만큼 뽑는다(공용 시뮬레이터가 후보 훅에 보유 여부 함수를 넘기도록 확장). 삼성전자+SK하이닉스·업종 쏠림은 닫힌 거래의 보유 종목-일 기준 근사로 보고한다.

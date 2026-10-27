@@ -24,7 +24,7 @@ export interface SimEnv {
 export interface SimCfg { slip: number; maxPos: number; capFrac: number; cooldown: number }
 export interface SimHooks<C extends SimCand> {
   /** 판단일 c의 진입 후보(우선순위 순). 보유·쿨다운 필터는 엔진이 한다. */
-  candsOf: (c: number, held: (code: string) => boolean) => C[];
+  candsOf: (c: number, held: (code: string) => boolean, blocked: (code: string) => boolean) => C[];
   /** 판단일 c(종가)의 보유 종목 청산 사유(없으면 null). i = 판단일 보유 종목의 행 번호(그날 행이 없으면 undefined). */
   exitReason: (p: SimPos, c: number, i: number | undefined) => string | null;
 }
@@ -137,7 +137,7 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
       }
       const free = cfg.maxPos - pos.size - reserved;
       if (free > 0) {
-        const list = hooks.candsOf(c, (code) => pos.has(code)).filter((x) => !pos.has(x.code) && (cfg.cooldown <= 0 || lastExit.get(x.code) === undefined || c - (lastExit.get(x.code) as number) >= cfg.cooldown));
+        const list = hooks.candsOf(c, (code) => pos.has(code), (code) => cfg.cooldown > 0 && lastExit.get(code) !== undefined && c - (lastExit.get(code) as number) < cfg.cooldown).filter((x) => !pos.has(x.code) && (cfg.cooldown <= 0 || lastExit.get(x.code) === undefined || c - (lastExit.get(x.code) as number) >= cfg.cooldown));
         if (list.length) {
           const arr = pendEnt.get(c + o.lag) ?? [];
           arr.push({ list, free });

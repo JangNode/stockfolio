@@ -71,3 +71,34 @@ export const PEAD_PRELIM = {
   totalCap: 100_000,
   rUsed: 8_403,
 } as const;
+
+// ---- 연구 PEAD 잠정실적 이벤트 PE7(시도 241): 대량 수집 → 품질 문턱 → 시험 1회. 사용자 지정 2026-10-28. 사전등록: docs/research/pead-preliminary-disclosure-prereg.md ----
+export const PEAD_PRELIM_STUDY = {
+  trial: 241,
+  priorTests: 240,
+  /** 재무·공시·월말 목록 부분집합(Supabase Storage에서 이번에 한 번만 읽어 필요한 열만 남김) 위치와 Actions 캐시 키. */
+  subsetDir: ".research-subset",
+  subsetKey: "research-subset-20261028",
+  /** 파싱 결과 Parquet 위치. 캐시 키는 research-prelim-parsed-<run id>. */
+  parsedDir: ".research-prelim",
+  parsedFile: "prelim-parsed.parquet",
+  failFile: "prelim-fail.json",
+  /** 수집 범위: 코스피(corp_cls=Y) 거래소공시(pblntf_ty=I) 중 제목에 keyword가 있는 비정정 공시. 정정은 제외. */
+  keyword: "영업(잠정)실적",
+  correctionPattern: /정정|첨부추가/,
+  from: "2017-01-01",
+  to: "2026-10-26",
+  listPageCount: 100,
+  /** 호출 간격(ms), 문서별 재시도 횟수, 키당 일 한도와 전체 상한(연구 R 누적 포함). */
+  gapMs: 120,
+  retries: 3,
+  dailyCapPerKey: 18_000,
+  totalCap: 100_000,
+  /** 연구 R 기록상 누적 + 이전 점검(PEAD 잠정실적 가능성 점검 1~3차) 호출. */
+  rUsed: 8_403,
+  prevPrelimCalls: 188,
+  /** 품질 문턱(시험 전 확정, 변경 금지): 파싱 실패율 상한, 정기보고서 당기 영업이익과의 일치율 하한, 일치 허용오차(상대). 반올림 단위 오차는 표기 단위 1개로 본다. */
+  parseFailMax: 0.1,
+  matchMin: 0.7,
+  matchRelTol: 0.01,
+} as const;

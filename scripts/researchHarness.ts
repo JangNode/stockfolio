@@ -212,13 +212,22 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
     if ((SAT_REIT_EXPLICIT_CODES as readonly string[]).includes(c)) excluded.add(c);
   }
   console.log(`제외 규칙(4c1557a) 해당 ${excluded.size}개 (ETF 겹침 ${etfSet.size}개)`);
-  const mmDl = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(MM_PARQUET_PATH);
-  if (mmDl.error || !mmDl.data) throw new Error(`${MM_PARQUET_PATH} 없음`);
-  const mmRows = (await parquetReadObjects({ file: await mmDl.data.arrayBuffer() })) as { trade_date: string; stock_code: string; market: string }[];
+  // RESEARCH_SUBSET_DIR(연구 PEAD 잠정실적 부분집합)가 있으면 월말 목록을 Storage가 아니라 그 폴더의 복사본에서 읽는다(Storage 읽기 0).
+  const subDir = process.env.RESEARCH_SUBSET_DIR?.trim();
+  let mmFile: ArrayBuffer, mmSize: number;
+  if (subDir) {
+    const b = await fs.readFile(path.join(subDir, "month_end.parquet"));
+    mmFile = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer; mmSize = 0;
+  } else {
+    const mmDl = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(MM_PARQUET_PATH);
+    if (mmDl.error || !mmDl.data) throw new Error(`${MM_PARQUET_PATH} 없음`);
+    mmFile = await mmDl.data.arrayBuffer(); mmSize = (mmDl.data as Blob).size;
+  }
+  const mmRows = (await parquetReadObjects({ file: mmFile })) as { trade_date: string; stock_code: string; market: string }[];
   const memb = new Map<string, Map<string, string>>();
   for (const r of mmRows) { let m = memb.get(r.trade_date); if (!m) { m = new Map(); memb.set(r.trade_date, m); } m.set(r.stock_code, r.market); }
   const mmDates = [...memb.keys()].sort();
-  xfer.bytes += (mmDl.data as Blob).size;
+  xfer.bytes += mmSize;
   const mmFor = (d: string): string | undefined => { let lo = 0, hi = mmDates.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (mmDates[m] <= d) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 ? mmDates[k] : undefined; };
   const kwCache = new Map<string, S[]>();
   const kAt = (d: string): S[] => {

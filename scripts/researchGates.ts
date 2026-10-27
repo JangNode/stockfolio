@@ -6,6 +6,7 @@ import type { SimRun, SimTrade } from "@/lib/slotSim";
 import { F_A_EXCESS_PP, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_E_TOP_TRADES, F_F_MIN_PCTILE, KSS_R3_DRAWS, KSS_R3_SEED, KSS32_SEEDS_WON, KSS31_PRACTICAL_FROM, R_ORDER_RATIO_FLAG } from "@/lib/kodexSectorSatConfig";
 import { SAT_MDD_EPS } from "@/lib/satelliteV1Config";
 import { A_MIN_ENTRIES } from "@/lib/prefSpreadConfig";
+import { R_H_CAGR_GAIN_PP, R_H_MDD_WORSEN_PP, R_H_MDD_GAIN_PP, R_H_CAGR_LOSS_PP } from "@/lib/kodexSectorSatConfig";
 import { B_AB_MDD_MARGIN_PP } from "@/lib/lowvolMomentumConfig";
 import { avg, median, f2, ox, mulberry32, type Harness, type Win, type Ser } from "./researchHarness";
 
@@ -19,6 +20,8 @@ export interface CandSpec {
   reasons: string[];
   label: (code: string) => string;
   fDenominator: number;
+  /** 게이트 H 기준선(필터 없는 대조 실행). 없으면 H 해당 없음. */
+  ref?: { id: string; run: SimRun };
   extra?: (base: SimRun) => void;
 }
 export interface Windows { NW: [string, Win][]; FULL: Win; ALL: [string, Win][] }
@@ -114,10 +117,19 @@ export function evaluate(h: Harness, W: Windows, spec: CandSpec): Verdict {
   console.log(`F 무작위 진입일(같은 신호 건수 ${o.entryCs.length}건) ${KSS_R3_DRAWS}회(시드 ${KSS_R3_SEED}): 중앙값 ${f2(sd[Math.floor(sd.length / 2)])}, 95분위 ${f2(sd[Math.floor(sd.length * 0.95)])}, 최대 ${f2(sd[sd.length - 1])}, ${spec.id} ${f2(full.cagr)} → 백분위 ${f2(pct)} | 참고 1−0.05/${spec.fDenominator} = ${f2(100 * (1 - 0.05 / spec.fDenominator))} 이상 ${ox(pct >= 100 * (1 - 0.05 / spec.fDenominator))}`);
   const nEnt = o.entryCs.filter((c) => CAL[c] >= FULL.from).length;
   const gG = nEnt >= A_MIN_ENTRIES;
-  const gates: Record<string, boolean | null> = { [spec.defense ? "A_B" : "A"]: spec.defense ? gAB : gA, B: gB, C: gC, D: gD, E: gE, F: gF, G: gG, H: null };
+  let gH: boolean | null = null, hNote = "";
+  if (spec.ref) {
+    const rb = h.st(spec.ref.run, FULL);
+    const a1 = full.cagr >= rb.cagr + R_H_CAGR_GAIN_PP && full.mdd <= rb.mdd + R_H_MDD_WORSEN_PP;
+    const a2 = full.mdd <= rb.mdd - R_H_MDD_GAIN_PP && full.cagr >= rb.cagr - R_H_CAGR_LOSS_PP;
+    gH = a1 || a2;
+    hNote = `H 상세: ${spec.ref.id} ${f2(rb.cagr)} / ${f2(rb.mdd)} 대비 ${f2(full.cagr - rb.cagr)}%p / ${f2(full.mdd - rb.mdd)}%p → 조건1(CAGR +${R_H_CAGR_GAIN_PP}%p ∧ MDD ≤ +${R_H_MDD_WORSEN_PP}%p) ${ox(a1)}, 조건2(MDD −${R_H_MDD_GAIN_PP}%p ∧ CAGR ≥ −${R_H_CAGR_LOSS_PP}%p) ${ox(a2)}`;
+  }
+  const gates: Record<string, boolean | null> = { [spec.defense ? "A_B" : "A"]: spec.defense ? gAB : gA, B: gB, C: gC, D: gD, E: gE, F: gF, G: gG, H: gH };
   const fail = Object.entries(gates).filter(([, v]) => v === false).map(([k]) => k);
   const pass = fail.length === 0;
-  console.log(`${spec.id} 게이트: ${spec.defense ? `A_B ${ox(gAB)}(참고 A ${ox(gA)})` : `A ${ox(gA)}`} | B ${ox(gB)}(${bCount}개 구간) | C ${ox(gC)} | D ${ox(gD)} | E ${ox(gE)} | F ${ox(gF)} | G ${ox(gG)}(진입 ${nEnt}건, 기준 ${A_MIN_ENTRIES}) | H 해당 없음 → ${pass ? "통과" : `탈락(${fail.join(", ")})`}`);
+  console.log(`${spec.id} 게이트: ${spec.defense ? `A_B ${ox(gAB)}(참고 A ${ox(gA)})` : `A ${ox(gA)}`} | B ${ox(gB)}(${bCount}개 구간) | C ${ox(gC)} | D ${ox(gD)} | E ${ox(gE)} | F ${ox(gF)} | G ${ox(gG)}(진입 ${nEnt}건, 기준 ${A_MIN_ENTRIES}) | H ${gH === null ? "해당 없음" : ox(gH)} → ${pass ? "통과" : `탈락(${fail.join(", ")})`}`);
+  if (hNote) console.log(hNote);
   spec.extra?.(o);
   return { id: spec.id, trial: spec.trial, gates, ref: { A: gA }, pass, fail, run: o, full: { cagr: full.cagr, mdd: full.mdd } };
 }
@@ -169,7 +181,7 @@ export function summaryReport(verdicts: Verdict[], doneTrials: number[], opts?: 
   for (const v of verdicts) {
     const g = (k: string): string => (v.gates[k] === undefined || v.gates[k] === null ? "-" : ox(v.gates[k] as boolean));
     const aKey = v.gates.A_B !== undefined ? "A_B" : "A";
-    console.log(`| ${v.id} (${v.trial})${opts?.note ? ` ${opts.note(v.id)}` : ""} | ${g(aKey)} | ${ox(v.ref.A)} | ${g("B")} | ${g("C")} | ${g("D")} | ${g("E")} | ${g("F")} | ${g("G")} | 해당 없음 | ${v.pass ? "통과" : "탈락"} | ${v.fail.join(", ") || "-"} |`);
+    console.log(`| ${v.id} (${v.trial})${opts?.note ? ` ${opts.note(v.id)}` : ""} | ${g(aKey)} | ${ox(v.ref.A)} | ${g("B")} | ${g("C")} | ${g("D")} | ${g("E")} | ${g("F")} | ${g("G")} | ${v.gates.H === null || v.gates.H === undefined ? "해당 없음" : ox(v.gates.H as boolean)} | ${v.pass ? "통과" : "탈락"} | ${v.fail.join(", ") || "-"} |`);
   }
   const cum = (opts?.prior ?? 203) + doneTrials.length;
   console.log("경고(홀드아웃 오염): 보류 구간(2022~)은 이미 여러 번 본 데이터이고 학습·확인 구간도 앞선 연구들에서 반복해 본 구간이라 순수 검증이 아니다.");

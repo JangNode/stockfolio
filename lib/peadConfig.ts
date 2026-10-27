@@ -37,3 +37,16 @@ export const PEAD_SEASON_BEFORE_DAYS = 20;
 export const PEAD_SEASON_AFTER_DAYS = 10;
 /** 하락 구간(보고용): 이름, 시작, 끝. */
 export const PEAD_DOWNTURNS = [["2020-03", "2020-03-01", "2020-03-31"], ["2022", "2022-01-01", "2022-12-31"], ["2026-06~07", "2026-06-01", "2026-07-31"], ["2026-10", "2026-10-01", "2026-10-26"]] as const;
+
+// ---- 연구 PEAD 보유 단축 + 하락장 진입 차단(PE4~PE6, 시도 238~240). 사용자 지정 2026-10-28. 사전등록: docs/research/pead-short-hold-prereg.md ----
+// 이벤트 정의·유니버스·구간·비용·슬롯은 위 PEAD(PE1~PE3)와 같다. ma = 신호 확정일 069500 종가가 ma거래일 이동평균 아래이면 그날 신규 진입 금지(보유 종목은 그대로).
+export const PEAD_SHORT_PRIOR_TESTS = 237;
+export const PEAD_SHORT_CANDS = {
+  PE4: { trial: 238, universe: "K200P", growth: 0.3, hold: 20, ma: 0, growthNeighbors: [0.2, 0.4], holdNeighbors: [10, 30], maNeighbors: [] },
+  PE5: { trial: 239, universe: "K200P", growth: 0.3, hold: 20, ma: 200, growthNeighbors: [0.2, 0.4], holdNeighbors: [10, 30], maNeighbors: [150, 250] },
+  PE6: { trial: 240, universe: "K200P", growth: 0.5, hold: 20, ma: 0, growthNeighbors: [0.4, 0.6], holdNeighbors: [10, 30], maNeighbors: [] },
+} as const;
+/** 비교 열 PE1(연구 PEAD, K200P 증가율 ≥ 30% N = 40)과 그 이전 시험 값(같은 스냅샷·기준선에서 다시 계산해 일치를 확인한다). */
+export const PEAD_PE1_REF = { growth: 0.3, hold: 40, cagr: 10.32, mdd: 48.66 } as const;
+/** 삼성전기(009150)의 2026-03 진입 거래를 069500으로 바꿔 보는 보고용 점검(PEAD에서 단일 거래 의존이 컸다). */
+export const PEAD_SEMCO = { code: "009150", entryMonth: "2026-03" } as const;

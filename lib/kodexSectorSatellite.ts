@@ -278,3 +278,40 @@ export function applyKssShareAdjustments(
   }
   return out;
 }
+
+// ---------------- 직전 거래일 판정(순수 함수) ----------------
+
+const DAY_MS = 86_400_000;
+const addIsoDays = (dateIso: string, days: number): string => new Date(Date.parse(`${dateIso}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+const isWeekday = (dateIso: string): boolean => { const w = new Date(`${dateIso}T00:00:00Z`).getUTCDay(); return w !== 0 && w !== 6; };
+
+/** krx_trading_calendar 행들에서 dateIso 이전의 가장 가까운 개장일(searchDays일 안). 없으면 null — 매년 1월 2일 캘린더가 오늘부터로 통째로 교체되면 전년도 말일이 비어 있다. */
+export function prevOpenDayFromCalendar(rows: { trade_date: string; is_open: boolean }[], dateIso: string, searchDays: number): string | null {
+  const from = addIsoDays(dateIso, -searchDays);
+  let best: string | null = null;
+  for (const r of rows) if (r.is_open && r.trade_date < dateIso && r.trade_date >= from && (best === null || r.trade_date > best)) best = r.trade_date;
+  return best;
+}
+
+export interface KssPrevDayResult { date: string | null; source: "calendar" | "hot-fallback" | "none"; note: string }
+
+/**
+ * 오늘 직전 거래일. 캘린더에 있으면 그 값이다. 캘린더에서 못 찾으면(신년 교체 직후 등) stock_daily_prices_recent의 오늘 이전 가장 최근 날짜로 폴백하되,
+ * hot 표는 "어제까지의 직전 거래일 하루 전"까지만 채워져 있을 수 있어(스크리닝 배치가 당일을 빼고 채움) 그 날짜 뒤 평일(오늘 전까지, searchDays 안)을
+ * 최근 날짜부터 KRX 응답(hasKrxData)으로 확인해 자료가 있는 가장 늦은 평일을 쓴다. 하나도 없으면 hot 표의 최근 날짜를 그대로 쓴다.
+ */
+export async function resolveKssPrevTradingDay(
+  today: string,
+  deps: { calendarPrev: string | null; hotLatestBeforeToday: string | null; hasKrxData: (dateIso: string) => Promise<boolean>; searchDays: number }
+): Promise<KssPrevDayResult> {
+  if (deps.calendarPrev !== null) return { date: deps.calendarPrev, source: "calendar", note: "" };
+  const hot = deps.hotLatestBeforeToday;
+  if (hot === null) return { date: null, source: "none", note: "캘린더에도 stock_daily_prices_recent에도 오늘 이전 거래일이 없습니다" };
+  const probed: string[] = [];
+  for (let d = addIsoDays(today, -1), n = 0; d > hot && n < deps.searchDays; d = addIsoDays(d, -1), n++) {
+    if (!isWeekday(d)) continue;
+    probed.push(d);
+    if (await deps.hasKrxData(d)) return { date: d, source: "hot-fallback", note: `캘린더에 직전 거래일 없음 → stock_daily_prices_recent 최근 날짜 ${hot} 뒤 평일을 KRX 응답으로 확인(${probed.join(", ")})해 ${d} 사용` };
+  }
+  return { date: hot, source: "hot-fallback", note: `캘린더에 직전 거래일 없음 → stock_daily_prices_recent 최근 날짜 ${hot} 사용(그 뒤 평일 ${probed.length ? probed.join(", ") : "없음"}은 KRX 자료 없음)` };
+}

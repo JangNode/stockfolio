@@ -5,11 +5,12 @@ import { loadAppliedAdjustmentsForCodes } from "@/lib/stockPriceAdjustmentsStora
 import { applyAdjustmentsInPlace, type AppliedAdjustment } from "@/lib/priceAdjustment";
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS } from "@/lib/strategyBacktestSummaryConfig";
-import type { KssSignal, KssStockSeries } from "@/lib/kodexSectorSatellite";
+import { prevOpenDayFromCalendar, resolveKssPrevTradingDay, type KssPrevDayResult, type KssSignal, type KssStockSeries } from "@/lib/kodexSectorSatellite";
 import {
   KSS_KRX_BASE_URL,
   KSS_ETF_CODE,
   KSS_HISTORY_PAD_DAYS,
+  KSS_KRX_KOSPI_MIN_ROWS,
   KSS_NEXT_TRADING_DAY_SEARCH_DAYS,
   KSS_PRICE_LOOKBACK_DAYS,
   KSS_SATELLITE_WEIGHT,
@@ -91,17 +92,35 @@ export async function getNextTradingDay(dateIso: string): Promise<string | null>
 export async function getPrevTradingDay(dateIso: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin
     .from("krx_trading_calendar")
-    .select("trade_date")
-    .eq("is_open", true)
+    .select("trade_date, is_open")
     .lt("trade_date", dateIso)
-    .gte("trade_date", addDays(dateIso, -KSS_NEXT_TRADING_DAY_SEARCH_DAYS))
-    .order("trade_date", { ascending: false })
-    .limit(1);
+    .gte("trade_date", addDays(dateIso, -KSS_NEXT_TRADING_DAY_SEARCH_DAYS));
   if (error) throw new Error(`KRX 거래일 캘린더 조회 실패: ${error.message}`);
-  return (data?.[0]?.trade_date as string | undefined) ?? null;
+  return prevOpenDayFromCalendar((data ?? []) as { trade_date: string; is_open: boolean }[], dateIso, KSS_NEXT_TRADING_DAY_SEARCH_DAYS);
 }
 
-// ---------------- 신호 입력 ----------------
+/**
+ * 오늘 직전 거래일. 캘린더에서 못 찾으면(매년 1월 2일 캘린더가 통째로 교체돼 전년도 말일이 없는 경우) stock_daily_prices_recent의 오늘 이전 가장 최근 날짜로 폴백한다
+ * (hot 표가 하루 뒤처질 수 있어 그 뒤 평일은 KRX 응답으로 확인 — 판정은 lib/kodexSectorSatellite.ts resolveKssPrevTradingDay). 폴백을 쓰면 로그에 남긴다.
+ */
+export async function getPrevTradingDayWithFallback(today: string, apiKey: string): Promise<KssPrevDayResult> {
+  const calendarPrev = await getPrevTradingDay(today);
+  const result = await resolveKssPrevTradingDay(today, {
+    calendarPrev,
+    hotLatestBeforeToday: calendarPrev === null ? await getLatestHotDateBefore(today) : null,
+    hasKrxData: async (d) => (await fetchKrxKospiDay(d, apiKey)).length >= KSS_KRX_KOSPI_MIN_ROWS,
+    searchDays: KSS_NEXT_TRADING_DAY_SEARCH_DAYS,
+  });
+  if (result.source !== "calendar") console.warn(`[kodexSector] 직전 거래일 폴백: ${result.note}`);
+  return result;
+}
+
+/** stock_daily_prices_recent에서 dateIso(제외) 이전의 가장 최근 날짜. */
+export async function getLatestHotDateBefore(dateIso: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.from("stock_daily_prices_recent").select("trade_date").lt("trade_date", dateIso).order("trade_date", { ascending: false }).limit(1);
+  if (error) throw new Error(`최근 시세 최신 날짜 조회 실패: ${error.message}`);
+  return (data?.[0]?.trade_date as string | undefined) ?? null;
+}
 
 /** stock_daily_prices_recent에 들어 있는 가장 최근 날짜(이 날짜 이하 전체). */
 export async function getLatestHotDate(): Promise<string | null> {

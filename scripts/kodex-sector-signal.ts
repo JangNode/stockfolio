@@ -1,6 +1,6 @@
 /**
  * KODEX 200 + 업종 모멘텀 위성 전략(연구 v3.2, 사전등록 d70b1fd) 월간 신호 배치.
- * pg_cron이 평일 08:10 KST에 .github/workflows/kodex-sector-signal.yml을 부르고, 이 스크립트는
+ * pg_cron이 평일 10:00 KST에(SQL이 휴장일·첫 거래일 아닌 날은 먼저 거름) .github/workflows/kodex-sector-signal.yml을 부르고, 이 스크립트는
  * krx_trading_calendar로 "오늘이 그 달 첫 거래일"일 때만 계산한다(아니면 바로 끝). 신호일은 직전 거래일
  * (전월 마지막 거래일), 매매는 오늘(첫 거래일) 종가 — 연구 규칙(월말 신호 → 다음 거래일 종가 체결) 그대로다.
  *
@@ -25,6 +25,7 @@ import {
   getLatestHotDate,
   getNextTradingDay,
   getPrevTradingDay,
+  getPrevTradingDayWithFallback,
   getRawClosesOnOrBefore,
   listKssSignals,
   listKssTrack,
@@ -130,9 +131,11 @@ async function main(): Promise<void> {
       console.log(`${today}: 휴장일 — 종료`);
       return;
     }
-    const prev = await getPrevTradingDay(today);
+    const prevResult = await getPrevTradingDayWithFallback(today, apiKey);
+    const prev = prevResult.date;
+    if (prevResult.source !== "calendar") console.log(`직전 거래일 폴백 사용: ${prevResult.note}`);
     if (prev === null) {
-      const msg = `${today} 직전 거래일을 krx_trading_calendar에서 찾지 못했습니다 — 캘린더 동기화 확인 필요`;
+      const msg = `${today} 직전 거래일을 krx_trading_calendar에서도 stock_daily_prices_recent에서도 찾지 못했습니다 — 캘린더 동기화 확인 필요`;
       await recordKssAttempt(msg, null);
       throw new Error(msg);
     }
@@ -148,6 +151,7 @@ async function main(): Promise<void> {
   try {
     const prevDay = await getPrevTradingDay(signalDate);
     const latestHot = await getLatestHotDate();
+    if (!prevDay) console.log(`신호일 ${signalDate}의 직전 거래일이 캘린더에 없어(신년 교체 직후 등) stock_daily_prices_recent 갱신 확인을 생략합니다(최신 ${latestHot ?? "없음"}).`);
     if (prevDay && (!latestHot || latestHot < prevDay)) throw new Error(`stock_daily_prices_recent가 ${prevDay}까지 갱신되지 않았습니다(최신 ${latestHot ?? "없음"}).`);
 
     const kospiDay = await fetchKrxKospiDay(signalDate, apiKey);

@@ -52,9 +52,12 @@ alter table public.kodex_sector_signals enable row level security;
 alter table public.kodex_sector_track enable row level security;
 
 -- 마지막 성공/시도 시각은 기존 수집 상태 표를 재사용한다(KRX 거래일 캘린더와 같은 방식).
+-- 허용 source 값은 마지막으로 이 제약을 바꾼 20261025120000_create_market_regime_daily.sql의
+-- ('FOMC','MPC','KRX_CALENDAR','MARKET_REGIME')에 'KODEX_SECTOR'를 더한 것이다 — 이전 값 하나라도 빠지면
+-- 기존 행이 제약을 어겨 적용이 실패하므로 다음에 이 제약을 바꿀 때도 앞선 값을 모두 포함해야 한다.
 alter table public.schedule_scrape_status drop constraint if exists schedule_scrape_status_source_check;
 alter table public.schedule_scrape_status
   add constraint schedule_scrape_status_source_check
-  check (source in ('FOMC', 'MPC', 'KRX_CALENDAR', 'KODEX_SECTOR'));
+  check (source in ('FOMC', 'MPC', 'KRX_CALENDAR', 'MARKET_REGIME', 'KODEX_SECTOR'));
 
 insert into public.schedule_scrape_status (source) values ('KODEX_SECTOR') on conflict do nothing;

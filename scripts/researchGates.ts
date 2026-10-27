@@ -80,7 +80,7 @@ export function evaluate(h: Harness, W: Windows, spec: CandSpec): Verdict {
   console.log(`거래정지·상폐: 진입 체결일 거래량 0으로 건너뛴 후보 ${o.haltSkip}건 | 청산 체결일 거래량 0으로 순연된 청산 ${o.exitDefer}건 | 상폐 청산 ${o.trades.filter((t) => t.reason === "폐지").length}건`);
 
   // 보유·투자 비중 + 같은 평균 투자 비중의 069500 + 현금(정보용, 판정 불사용)
-  console.log(`${spec.id} 보유·투자 비중·비용\n| 구간 | 평균 보유 종목 수 | 현금 100% 비율 % | 평균 투자 비중 % | 연 회전율 % | 연 비용 % | 같은 평균 투자 비중의 069500+현금 CAGR / MDD(정보용) |\n|---|---|---|---|---|---|---|`);
+  console.log(`${spec.id} 보유·투자 비중·비용\n| 구간 | 평균 보유 종목 수 | 현금 100% 비율 % | 평균 투자 비중 % | 연 회전율 % | 비용 합계 % (구간 안 일별 비용 합) | 같은 평균 투자 비중의 069500+현금 CAGR / MDD(정보용) |\n|---|---|---|---|---|---|---|`);
   for (const [name, win] of ALL) {
     const s = h.st(o, win);
     const idx: number[] = [];

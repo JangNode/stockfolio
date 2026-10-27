@@ -35,6 +35,7 @@ async function list(params: Record<string, string | number>): Promise<ListRes> {
     const j = (await res.json()) as ListRes;
     if (j.status === "020") { k.off = true; continue; }
     if (j.status !== "000" && j.status !== "013") throw new Error(`list.json 오류 status ${j.status} ${j.message}`);
+    for (const x of j.list ?? []) if (/^\d{8}$/.test(x.rcept_dt)) x.rcept_dt = `${x.rcept_dt.slice(0, 4)}-${x.rcept_dt.slice(4, 6)}-${x.rcept_dt.slice(6, 8)}`;
     return j;
   }
   throw new Error("list.json 연구용 키 한도");
@@ -47,24 +48,8 @@ async function main(): Promise<void> {
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드가 아니면 실행하지 않는다");
   console.log(await verifySnapshotManifest());
 
-  // ---- 프로브: 어느 세부 종류에 '영업(잠정)실적'이 들어 있나 ----
-  const probeShare = new Map<string, { total: number; share: number; n: number; names: string }>();
-  for (const code of P.detailCodes) {
-    const ex: Record<string, string | number> = { bgn_de: ymd(P.probeFrom), end_de: ymd(P.probeTo), corp_cls: "Y", pblntf_ty: "I", ...(code === "I" ? {} : { pblntf_detail_ty: code }) };
-    const r = await listP(ex);
-    const rows = r.list ?? [];
-    const hit = rows.filter((x) => x.report_nm.includes(P.keyword));
-    const names = new Map<string, number>();
-    for (const x of rows) { const nm = x.report_nm.replace(/\[[^\]]*\]/g, "").replace(/\s+/g, ""); names.set(nm, (names.get(nm) ?? 0) + 1); }
-    probeShare.set(code, { total: r.total_count ?? 0, share: rows.length ? hit.length / rows.length : 0, n: rows.length, names: [...names].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([a, b]) => `${a} ${b}`).join(" | ") });
-  }
-  console.log(`\n=== 1-0. 프로브 (${P.probeFrom}~${P.probeTo}, 코스피 corp_cls=Y, 공시 종류 I; 날짜 오름차순 첫 100건) ===\n| 종류 코드 | 전체 건수 | 표본 | '${P.keyword}' 포함 비율 % | 보고서명 상위 |\n|---|---|---|---|---|`);
-  for (const [c, v] of probeShare) console.log(`| ${c} | ${v.total} | ${v.n} | ${f2(v.share * 100)} | ${v.names} |`);
-  const cand = P.detailCodes.filter((c) => (probeShare.get(c)?.share ?? 0) > 0).sort((a, b) => probeShare.get(a)!.total - probeShare.get(b)!.total);
-  const code = cand[0];
-  if (!code) throw new Error("프로브에서 영업(잠정)실적 보고서명이 한 건도 나오지 않음 — 중단");
-  const typeParams: Record<string, string | number> = { pblntf_ty: "I", ...(code === "I" ? {} : { pblntf_detail_ty: code }) };
-  console.log(`선택한 목록 필터: pblntf_ty=I${code === "I" ? "" : `, pblntf_detail_ty=${code}`} (전체 건수가 가장 작으면서 '${P.keyword}'가 나오는 종류)`);
+  // 1차 실행(run 40463666390)의 프로브에서 pblntf_detail_ty 필터가 결과를 바꾸지 않았다(I001·I002·I 전체 건수·표본이 같음) — 세부 종류 필터 없이 거래소공시(I) 전체를 쓴다.
+  const typeParams: Record<string, string | number> = { pblntf_ty: "I" };
 
   // ---- 1. 분기 창별 전체 건수(코스피) ----
   const windows: { y: string; from: string; to: string; total: number }[] = [];
@@ -79,37 +64,34 @@ async function main(): Promise<void> {
   const years = [...new Set(windows.map((w) => w.y))];
   console.log(`\n=== 1-1. 분기 창별 공시(선택한 종류, 코스피) 전체 건수 ===\n${windows.map((w) => `${w.from}~${w.to} ${w.total}`).join(" | ")}`);
 
-  // ---- 표본 페이지: 연도마다 sampleLoopPagesPerYear개를 연도 전체 페이지에서 시드 난수로 고른다 ----
+  // ---- 표본 페이지: 분기 창마다 시드 난수로 고른 1페이지(100건; 층화) ----
   const rng = mulberry32(P.seed);
-  const sampleRows = new Map<string, Row[]>();
-  for (const y of years) {
-    const ws = windows.filter((w) => w.y === y), pageCnt = ws.map((w) => Math.max(Math.ceil(w.total / 100), 0)), tot = pageCnt.reduce((a, b) => a + b, 0);
-    if (!tot) continue;
-    const picks = new Set<number>();
-    while (picks.size < Math.min(P.sampleLoopPagesPerYear, tot)) picks.add(Math.floor(rng() * tot));
-    const rows: Row[] = [];
-    for (const g of picks) {
-      let acc = 0, wi = 0;
-      while (g >= acc + pageCnt[wi]) { acc += pageCnt[wi]; wi++; }
-      const r = await listP({ bgn_de: ymd(ws[wi].from), end_de: ymd(ws[wi].to), corp_cls: "Y", page_no: g - acc + 1, ...typeParams });
-      rows.push(...(r.list ?? []));
-    }
-    sampleRows.set(y, rows);
+  const winRows: Row[][] = [];
+  for (const w of windows) {
+    const pages = Math.max(Math.ceil(w.total / 100), 0);
+    if (!pages) { winRows.push([]); continue; }
+    const r = await listP({ bgn_de: ymd(w.from), end_de: ymd(w.to), corp_cls: "Y", page_no: 1 + Math.floor(rng() * pages), ...typeParams });
+    winRows.push(r.list ?? []);
   }
+  const sampleRows = new Map<string, Row[]>();
+  windows.forEach((w, i) => sampleRows.set(w.y, [...(sampleRows.get(w.y) ?? []), ...winRows[i]]));
   const isPrelim = (r: Row): boolean => r.report_nm.includes(P.keyword);
   const isCons = (r: Row): boolean => r.report_nm.includes("연결");
   const isCorr = (r: Row): boolean => r.report_nm.includes("정정");
-  console.log(`\n=== 1-2. 연도별 '${P.keyword}' 접수 건수 추정 (코스피; 연도 전체 건수 × 표본 페이지 내 비율) ===\n| 연도 | 공시 종류 전체 건수 | 표본 건수 | 표본 중 영업(잠정)실적 | 비율 % | 추정 건수 | 그중 연결 % | 정정 % |\n|---|---|---|---|---|---|---|---|`);
+  console.log(`\n=== 1-2. 연도별 '${P.keyword}' 접수 건수 추정 (코스피 거래소공시; 분기 창마다 무작위 1페이지(100건) 표본 × 창 전체 건수의 합) ===\n| 연도 | 거래소공시 전체 건수 | 표본 건수 | 표본 중 영업(잠정)실적 | 추정 비율 % | 추정 건수 | 표본 중 연결 % | 표본 중 정정 % |\n|---|---|---|---|---|---|---|---|`);
   const estByYear = new Map<string, number>(), consShareByYear = new Map<string, number>();
   let estTotal = 0;
   for (const y of years) {
-    const rows = sampleRows.get(y) ?? [], tot = windows.filter((w) => w.y === y).reduce((a, w) => a + w.total, 0), hit = rows.filter(isPrelim), share = rows.length ? hit.length / rows.length : 0;
-    const est = Math.round(tot * share);
+    const rows = sampleRows.get(y) ?? [], tot = windows.filter((w) => w.y === y).reduce((a, w) => a + w.total, 0), hit = rows.filter(isPrelim);
+    let est = 0;
+    windows.forEach((w, i) => { if (w.y === y && winRows[i].length) est += Math.round(w.total * (winRows[i].filter(isPrelim).length / winRows[i].length)); });
+    const share = tot ? est / tot : 0;
     estByYear.set(y, est); estTotal += est;
     consShareByYear.set(y, hit.length ? hit.filter(isCons).length / hit.length : NaN);
     console.log(`| ${y} | ${tot} | ${rows.length} | ${hit.length} | ${f2(share * 100)} | ${est} | ${f2(hit.length ? (hit.filter(isCons).length / hit.length) * 100 : NaN)} | ${f2(hit.length ? (hit.filter(isCorr).length / hit.length) * 100 : NaN)} |`);
   }
-  console.log(`합계 추정 ${estTotal}건 (연결·별도 각각 별개 공시, 정정 포함; 표본이 연속 페이지 1~2개라 계절 편향 때문에 오차가 크다 — 정확한 건수는 전체 목록(아래 4절의 목록 호출)이 필요)`);
+  console.log(`합계 추정 ${estTotal}건 (연결·별도 각각 별개 공시, 정정 포함; 창당 1페이지 표본이라 실적 시즌 집중 때문에 오차가 크다 — 정확한 건수는 전체 목록 호출이 필요)`);
+  console.log(`창별 표본 비율 %(영업(잠정)실적 건수/표본): ${windows.map((w, i) => `${w.from.slice(0, 7)} ${winRows[i].filter(isPrelim).length}/${winRows[i].length}`).join(" | ")}`);
   const allSample = [...sampleRows.values()].flat(), prelimSample = allSample.filter((r) => isPrelim(r) && !isCorr(r));
 
   // ---- 자료 읽기(Storage 읽기만) ----

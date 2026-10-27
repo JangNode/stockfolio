@@ -57,12 +57,8 @@ export const PEAD_PRELIM = {
   /** 추정 구간(접수일)과 분기 단위 창(DART 목록 API는 회사 지정이 없으면 검색 기간이 3개월로 제한). */
   from: "2017-01-01",
   to: "2026-10-26",
-  /** 보고서 종류 코드 후보(거래일 공시 I의 세부 종류). 프로브로 공정공시 쪽을 고른다. */
-  detailCodes: ["I002", "I001", "I"] as const,
-  probeFrom: "2024-04-15",
-  probeTo: "2024-05-31",
   /** 연도당 표본 목록 페이지 수(page_count 100)와 코스닥 파일럿용 표본 페이지 수, 파일럿 문서 수 상한, 시드. */
-  sampleLoopPagesPerYear: 2,
+  sampleLoopPagesPerWindow: 1,
   kosdaqSamplePages: 2,
   pilotDocs: 20,
   pilotKospi: 14,

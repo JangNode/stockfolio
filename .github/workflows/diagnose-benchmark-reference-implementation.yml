@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: psub(연구 PEAD 잠정실적 PE7 0단계: fin·filings·월말 목록 한 번 읽어 부분집합 캐시 구축), pcol(PE7 잠정실적 공정공시 대량 수집+품질 점검, DART 연구용 키만, 시험 없음; pilot=1이면 표본 파일럿), pead7(PE7 시험 1회, 부분집합+파싱 결과+고정 스냅샷+보조 파일만 읽음, Storage 읽기 0), dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), snap(연구용 가격 Parquet 스냅샷 점검·고정 저장, 읽기 전용), le(연구 LE 모멘텀 앙상블 시험, 고정 스냅샷만 읽음), lv(연구 LV LE2+변동성 목표화 시험, 고정 스냅샷만 읽음), am(연구 AM LE2+절대 모멘텀 청산 시험, 고정 스냅샷만 읽음), lw(연구 LW 앙상블 모멘텀 종목 수 확대 시험, 고정 스냅샷만 읽음), mdd(MDD 해부 진단, 시험 아님, 고정 스냅샷만 읽음), aux(연구 LC 0단계: 069500 원주가 보조 파일 구축, KRX 소량, KST 14:00~15:40 금지), lc(연구 LC 변동성 목표화+절대 모멘텀 청산 시험, 고정 스냅샷+보조 파일만 읽음), prelim2(연구 PEAD 잠정실적 파일럿 2차: 정기보고서 대조·시각 문맥·코스닥 3건, DART 연구용 키만, Storage 읽기 0), prelim(연구 PEAD 잠정실적 공정공시 점검+파일럿, 시험 아님, DART 연구용 키만, 호출 150건 이내), pead3(연구 PEAD 보유 단축·진입 차단 PE4~PE6 시험; only=NONE이면 기준선 표만), pead2(연구 PEAD 2단계 PE1~PE3 시험, 고정 스냅샷+보조 파일+R 재무 Storage 읽기; only=NONE이면 기준선 표만), pead1(연구 PEAD 1단계 가능성 점검, 시험 아님, 고정 스냅샷+R 재무 Storage 읽기), a(연구 A 시험), b(연구 B 시험) 또는 r"
+        description: "실행 선택: pclean(연구 PEAD 전용 Actions 캐시·아티팩트 목록/삭제, only=list|delete), pinv(Supabase 연구 객체·수급 현황 읽기 전용, only=list|db|read), psub(연구 PEAD 잠정실적 PE7 0단계: fin·filings·월말 목록 한 번 읽어 부분집합 캐시 구축), pcol(PE7 잠정실적 공정공시 대량 수집+품질 점검, DART 연구용 키만, 시험 없음; pilot=1이면 표본 파일럿), pead7(PE7 시험 1회, 부분집합+파싱 결과+고정 스냅샷+보조 파일만 읽음, Storage 읽기 0), dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), snap(연구용 가격 Parquet 스냅샷 점검·고정 저장, 읽기 전용), le(연구 LE 모멘텀 앙상블 시험, 고정 스냅샷만 읽음), lv(연구 LV LE2+변동성 목표화 시험, 고정 스냅샷만 읽음), am(연구 AM LE2+절대 모멘텀 청산 시험, 고정 스냅샷만 읽음), lw(연구 LW 앙상블 모멘텀 종목 수 확대 시험, 고정 스냅샷만 읽음), mdd(MDD 해부 진단, 시험 아님, 고정 스냅샷만 읽음), aux(연구 LC 0단계: 069500 원주가 보조 파일 구축, KRX 소량, KST 14:00~15:40 금지), lc(연구 LC 변동성 목표화+절대 모멘텀 청산 시험, 고정 스냅샷+보조 파일만 읽음), prelim2(연구 PEAD 잠정실적 파일럿 2차: 정기보고서 대조·시각 문맥·코스닥 3건, DART 연구용 키만, Storage 읽기 0), prelim(연구 PEAD 잠정실적 공정공시 점검+파일럿, 시험 아님, DART 연구용 키만, 호출 150건 이내), pead3(연구 PEAD 보유 단축·진입 차단 PE4~PE6 시험; only=NONE이면 기준선 표만), pead2(연구 PEAD 2단계 PE1~PE3 시험, 고정 스냅샷+보조 파일+R 재무 Storage 읽기; only=NONE이면 기준선 표만), pead1(연구 PEAD 1단계 가능성 점검, 시험 아님, 고정 스냅샷+R 재무 Storage 읽기), a(연구 A 시험), b(연구 B 시험) 또는 r"
         required: false
         default: "dart"
       only:
@@ -34,6 +34,10 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    # pclean(연구 PEAD 전용 Actions 캐시·아티팩트 삭제)이 actions: write를 쓴다. 다른 which에서는 쓰지 않는다.
+    permissions:
+      contents: read
+      actions: write
     env:
       # 연도별 Parquet 가격 파일을 실행마다 다시 받지 않도록 디스크 캐시를 쓴다(lib/parquetDiskCache.ts).
       PARQUET_CACHE_DIR: ${{ github.workspace }}/.parquet-cache
@@ -52,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -114,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -515,6 +519,21 @@ jobs:
           RESEARCH_DATA_END: "2026-10-26"
           BENCH_AUX_069500: "1"
           RESEARCH_SUBSET_DIR: .research-subset
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 연구 PEAD 전용 Actions 캐시·아티팩트 정리 (연구 DB·Storage 접근 없음; only=list는 목록만, delete는 후보 패턴만 삭제)
+        if: ${{ inputs.which == 'pclean' }}
+        run: bash scripts/pead-cleanup-actions.sh "${{ inputs.only }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Supabase 연구 객체·수급 현황 (읽기 전용, 쓰기·삭제 0, 외부 요청 0)
+        if: ${{ inputs.which == 'pinv' }}
+        run: npx tsx --conditions=react-server scripts/diagnose-storage-inventory.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          INV_MODE: ${{ inputs.only }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

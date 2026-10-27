@@ -11,6 +11,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodeTable, encodeTable, type ColDef, type Row } from "@/lib/nBookStore";
 import { PEAD_PRELIM_STUDY as S } from "@/lib/peadConfig";
+import { selectPrelim, type PrelimRec } from "@/lib/peadPrelimSelect";
 import { f2, mulberry32, median } from "./researchHarness";
 
 const T0 = Date.now();
@@ -163,7 +164,7 @@ const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("he
 const str = (n: string): ColDef => ({ name: n, type: "STRING" });
 const num = (n: string): ColDef => ({ name: n, type: "DOUBLE" });
 const PARSED_COLS = [str("corp_code"), str("stock_code"), str("rcept_no"), str("rcept_dt"), str("report_nm"), str("cons"), num("cur_won"), num("prevy_won"), str("unit"), num("period_year"), num("period_q"), str("period_src"), num("ok"), str("fail"), num("zip_bytes")];
-interface Rec { corp_code: string; stock_code: string; rcept_no: string; rcept_dt: string; report_nm: string; cons: boolean; cur_won: number | null; prevy_won: number | null; unit: string; period_year: number; period_q: number; period_src: string; ok: boolean; fail: string; zip_bytes: number }
+type Rec = PrelimRec;
 const toRow = (r: Rec): Row => ({ ...r, cons: r.cons ? "Y" : "N", ok: r.ok ? 1 : 0 });
 
 async function main(): Promise<void> {
@@ -255,14 +256,7 @@ async function main(): Promise<void> {
     const fp = nz(f.oi_p), qpa = q3 ? nz(q3.oi_pa) : null;
     return { cur: fc - qa, prev: fp !== null && qpa !== null ? fp - qpa : null, cum: fc, dt: String(f.rcept_dt) };
   };
-  // 같은 (기업, 분기)에 연결 문서가 하나라도 있으면 별도는 쓰지 않는다. 같은 종류가 여러 개면 접수일이 이른 것.
-  const key = (r: Rec): string => `${r.corp_code}|${r.period_year}|${r.period_q}`;
-  const hasCons = new Set(all.filter((r) => r.cons).map(key));
-  const sel = new Map<string, Rec>();
-  for (const r of [...all].sort((a, b) => (a.rcept_dt < b.rcept_dt ? -1 : a.rcept_dt > b.rcept_dt ? 1 : a.rcept_no < b.rcept_no ? -1 : 1))) {
-    if (!r.cons && hasCons.has(key(r))) continue;
-    if (!sel.has(key(r))) sel.set(key(r), r);
-  }
+  const sel = selectPrelim(all);
   const selOk = [...sel.values()].filter((r) => r.ok);
   let cmp = 0, hit = 0, noReg = 0, hitPrev = 0, cmpPrev = 0;
   const miss: { r: Rec; reg: { cur: number; prev: number | null; cum: number | null }; cls: string }[] = [];

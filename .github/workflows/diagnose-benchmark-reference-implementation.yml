@@ -485,6 +485,9 @@ jobs:
           PCOL_SAMPLE: ${{ inputs.pilot }}
           DART_API_KEY_2: ${{ secrets.DART_API_KEY_2 }}
           DART_API_KEY_3: ${{ secrets.DART_API_KEY_3 }}
+          # nBookStore·researchHarness를 불러오면 Supabase 클라이언트가 만들어져 URL·키가 필요하다(이 스크립트는 Supabase를 호출하지 않는다).
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Save 파싱 결과 (research-prelim-parsed-<run id>)
         if: ${{ always() && inputs.which == 'pcol' && inputs.pilot != '1' && hashFiles('.research-prelim/prelim-parsed.parquet') != '' }}

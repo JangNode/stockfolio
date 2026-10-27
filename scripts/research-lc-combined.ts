@@ -63,8 +63,12 @@ async function main(): Promise<void> {
     const a = h.st(h.bhPDb, w), b = h.st(h.bhP, w);
     console.log(`| ${wn} | ${f2(a.cagr)} / ${f2(a.mdd)} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${b.cagr - a.cagr >= 0 ? "+" : ""}${f2(b.cagr - a.cagr)} / ${b.mdd - a.mdd >= 0 ? "+" : ""}${f2(b.mdd - a.mdd)} |`);
   }
-  const bEp = episodes(h.bhP.ret).sort((a, b) => b.depth - a.depth)[0];
-  console.log(`새 기준선 최대 낙폭: 고점 ${h.bhP.dates[bEp.peakIdx] ?? h.bhP.dates[0]} → 저점 ${h.bhP.dates[bEp.troughIdx]} ${f2(bEp.depth * 100)}% (회복 ${bEp.recIdx === null ? "미회복" : h.bhP.dates[bEp.recIdx]}) | 새 기준선 마지막 날짜 ${h.bhP.dates[h.bhP.dates.length - 1]} (스냅샷 전략과 같은 날)`);
+  for (const [nm, ser] of [["새", h.bhP], ["기존", h.bhPDb]] as const) {
+    const ii: number[] = [];
+    for (let i = 0; i < ser.dates.length; i++) if (ser.dates[i] >= W.FULL.from) ii.push(i);
+    const dts = ii.map((i) => ser.dates[i]), bEp = episodes(ii.map((i) => ser.ret[i])).sort((x, y) => y.depth - x.depth)[0];
+    console.log(`${nm} 기준선 평가 구간 최대 낙폭: 고점 ${bEp.peakIdx < 0 ? W.FULL.from : dts[bEp.peakIdx]} → 저점 ${dts[bEp.troughIdx]} ${f2(bEp.depth * 100)}% (회복 ${bEp.recIdx === null ? "미회복" : dts[bEp.recIdx]}) | 마지막 날짜 ${ser.dates[ser.dates.length - 1]}${nm === "새" ? " (스냅샷 전략과 같은 날)" : ""}`);
+  }
 
   // ---- 시총 순위·앙상블 점수(연구 LE·LV·AM과 같다) ----
   const megaCache = new Map<number, { list: S[]; rank: Map<string, number> }>();

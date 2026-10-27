@@ -6,9 +6,13 @@
 
 export interface SimS { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; vol: Float64Array; last: string }
 export interface SimCand { s: SimS; code: string }
-export interface SimPos { code: string; s: SimS; shares: number; lastPx: number; entryC: number; entryAdj: number; entryRaw: number; peak: number; spend: number; vAtEntry: number; ev: number; rep: boolean; repVal: number; exitSched: boolean }
+export interface SimPos { code: string; s: SimS; shares: number; lastPx: number; entryC: number; entryAdj: number; entryRaw: number; peak: number; spend: number; vAtEntry: number; ev: number; rep: boolean; repVal: number; exitSched: boolean; /** 부분 매도(변동성 목표화 조정)로 이미 받은 순매도 대금 — 마지막 청산 대금과 합쳐 거래 손익을 낸다. */ realized: number }
 export interface SimTrade { code: string; entryC: number; exitC: number; spend: number; proceeds: number; vAtEntry: number; reason: string; entryAdj: number; peakAdj: number; exitAdj: number; entryRaw: number }
-export interface SimRun { dates: string[]; ret: number[]; costFrac: number[]; nPos: number[]; inv: number[]; turn: { d: string; v: number }[]; trades: SimTrade[]; entryCs: number[]; wMax: number[]; haltSkip: number; exitDefer: number }
+export interface SimRun {
+  dates: string[]; ret: number[]; costFrac: number[]; nPos: number[]; inv: number[]; turn: { d: string; v: number }[]; trades: SimTrade[]; entryCs: number[]; wMax: number[]; haltSkip: number; exitDefer: number;
+  /** 변동성 목표화(cfg.vt)를 쓸 때만: 날짜별 목표 배율(그날 종가 판단, 보유·편입 예정 종목이 없으면 NaN), 실제 배율(보유 종목 평균 비중 ÷ 슬롯 비중, 보유 없으면 NaN), 조정 체결일과 그때 목표 배율. */
+  mult?: number[]; actual?: number[]; rebal?: { d: string; m: number }[];
+}
 export interface SimEnv {
   CAL: string[]; nCal: number; cS: number;
   adjustments: Map<string, { eventDate: string; factor: number }[]>;
@@ -21,7 +25,9 @@ export interface SimEnv {
   /** 069500 원주가 일수익률(소수), 대체 거래용 */
   bhRet: Map<string, number>;
 }
-export interface SimCfg { slip: number; maxPos: number; capFrac: number; cooldown: number }
+/** 변동성 목표화(연구 LV): sizeMult(c, 종목들) = 판단일 c 종가 기준 그 종목들을 동일 비중으로 담았다고 가정한 목표 배율(0~1, 이미 반올림). 실제 배율과 band 이상 차이 날 때만 조정한다. */
+export interface SimVt { sizeMult: (c: number, stocks: SimS[]) => number; band: number }
+export interface SimCfg { slip: number; maxPos: number; capFrac: number; cooldown: number; vt?: SimVt }
 export interface SimHooks<C extends SimCand> {
   /** 판단일 c의 진입 후보(우선순위 순). 보유·쿨다운 필터는 엔진이 한다. */
   candsOf: (c: number, held: (code: string) => boolean, blocked: (code: string) => boolean) => C[];
@@ -42,17 +48,19 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
   const sellRateR = (d: string): number => 1 - ((1 - env.sellRate(d)) * (1 - cfg.slip)) / (1 - env.baseSlip);
   const pos = new Map<string, SimPos>();
   const pendExit = new Map<number, Map<string, string>>();
-  const pendEnt = new Map<number, { list: C[]; free: number }[]>();
+  const pendEnt = new Map<number, { list: C[]; free: number; m: number }[]>();
+  const pendResize = new Map<number, number>();
   let reserved = 0, cash = cap, prevV = cap;
   const lastExit = new Map<string, number>();
   const out: SimRun = { dates: [], ret: [], costFrac: [], nPos: [], inv: [], turn: [], trades: [], entryCs: [], wMax: [], haltSkip: 0, exitDefer: 0 };
+  if (cfg.vt) { out.mult = []; out.actual = []; out.rebal = []; }
   const posValue = (p: SimPos): number => (p.rep ? p.repVal : p.shares * p.lastPx);
   const evOf = (code: string): { eventDate: string; factor: number }[] => env.adjustments.get(code) ?? [];
   const closePos = (p: SimPos, c: number, reason: string, adjNow: number, sr: number): number => {
     const val = posValue(p);
     p.peak = Math.max(p.peak, adjNow);
     cash += val * (1 - sr);
-    out.trades.push({ code: p.code, entryC: p.entryC, exitC: c, spend: p.spend, proceeds: val * (1 - sr), vAtEntry: p.vAtEntry, reason, entryAdj: p.entryAdj, peakAdj: p.peak, exitAdj: adjNow, entryRaw: p.entryRaw });
+    out.trades.push({ code: p.code, entryC: p.entryC, exitC: c, spend: p.spend, proceeds: val * (1 - sr) + p.realized, vAtEntry: p.vAtEntry, reason, entryAdj: p.entryAdj, peakAdj: p.peak, exitAdj: adjNow, entryRaw: p.entryRaw });
     pos.delete(p.code);
     lastExit.set(p.code, c);
     return val;
@@ -78,12 +86,41 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
         costF += (v * sr) / prevV; sellN += v;
       }
     }
+    const rs = pendResize.get(c);
+    if (rs !== undefined) {
+      pendResize.delete(c);
+      let V0 = cash;
+      for (const p of pos.values()) V0 += posValue(p);
+      const target = cfg.capFrac * rs * V0;
+      const live = [...pos.values()].filter((p) => { if (p.exitSched) return false; const i = p.s.idx.get(d); return i !== undefined && p.s.vol[i] !== 0; });
+      let traded = false;
+      for (const p of live) {
+        const cur = posValue(p);
+        if (!(cur > target)) continue;
+        let sold: number;
+        if (int) { const k = Math.min(p.shares, Math.floor((cur - target) / p.lastPx)); if (!(k >= 1)) continue; sold = k * p.lastPx; p.shares -= k; }
+        else { sold = cur - target; p.shares = target / p.lastPx; }
+        if (p.rep) p.repVal -= sold;
+        const net = sold * (1 - sr);
+        cash += net; p.realized += net; sellN += sold; costF += (sold * sr) / prevV; traded = true;
+      }
+      for (const p of live) {
+        const cur = posValue(p);
+        if (!(cur < target) || !(cash > 0)) continue;
+        let x: number, outlay: number;
+        if (int) { const k = Math.floor(Math.min(cash / buyMult, target - cur) / p.lastPx); if (!(k >= 1)) continue; x = k * p.lastPx; outlay = x * buyMult; p.shares += k; }
+        else { x = Math.min(target - cur, cash / buyMult); outlay = x * buyMult; p.shares += x / p.lastPx; }
+        if (p.rep) p.repVal += x;
+        cash -= outlay; p.spend += outlay; buyN += outlay; costF += (outlay - x) / prevV; traded = true;
+      }
+      if (traded) out.rebal?.push({ d, m: rs });
+    }
     const en = pendEnt.get(c);
     if (en) {
       pendEnt.delete(c);
       let V = cash;
       for (const p of pos.values()) V += posValue(p);
-      for (const { list, free } of en) {
+      for (const { list, free, m: mEnt } of en) {
         reserved -= free;
         let filled = 0;
         for (const cd of list) {
@@ -92,7 +129,7 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
           const i = cd.s.idx.get(d);
           if (i === undefined) continue;
           if (cd.s.vol[i] === 0) { out.haltSkip++; continue; }
-          const amt = Math.min(cfg.capFrac * V, cash);
+          const amt = Math.min(cfg.capFrac * mEnt * V, cash);
           if (!(amt > 0)) continue;
           const adj = cd.s.close[i], rawPx = cd.s.raw[i];
           let shares: number, spend: number, lastPx: number;
@@ -103,7 +140,7 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
           let ev = 0;
           while (ev < evs.length && evs[ev].eventDate <= d) ev++;
           const rep = !!o.replace?.has(`${cd.code}|${c}`);
-          pos.set(cd.code, { code: cd.code, s: cd.s, shares, lastPx, entryC: c, entryAdj: adj, entryRaw: rawPx, peak: adj, spend, vAtEntry: V, ev, rep, repVal: shares * lastPx, exitSched: false });
+          pos.set(cd.code, { code: cd.code, s: cd.s, shares, lastPx, entryC: c, entryAdj: adj, entryRaw: rawPx, peak: adj, spend, vAtEntry: V, ev, rep, repVal: shares * lastPx, exitSched: false, realized: 0 });
           out.entryCs.push(c);
           filled++;
         }
@@ -114,6 +151,7 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
     if (c > cS) {
       out.dates.push(d); out.ret.push((V / prevV - 1) * 100); out.costFrac.push(costF); out.nPos.push(pos.size);
       out.inv.push(V > 0 ? (V - cash) / V : 0);
+      if (out.mult && out.actual) { out.mult.push(NaN); out.actual.push(NaN); }
       if (o.onDay) o.onDay(c, V, [...pos.values()].map((p) => [p.code, posValue(p)] as [string, number]));
       if (buyN + sellN > 1e-12) out.turn.push({ d, v: prevV > 0 ? (buyN + sellN) / 2 / prevV : 0 });
       if (o.detail) {
@@ -136,14 +174,32 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
         }
       }
       const free = cfg.maxPos - pos.size - reserved;
+      let list: C[] = [];
       if (free > 0) {
-        const list = hooks.candsOf(c, (code) => pos.has(code), (code) => cfg.cooldown > 0 && lastExit.get(code) !== undefined && c - (lastExit.get(code) as number) < cfg.cooldown).filter((x) => !pos.has(x.code) && (cfg.cooldown <= 0 || lastExit.get(x.code) === undefined || c - (lastExit.get(x.code) as number) >= cfg.cooldown));
-        if (list.length) {
-          const arr = pendEnt.get(c + o.lag) ?? [];
-          arr.push({ list, free });
-          pendEnt.set(c + o.lag, arr);
-          reserved += free;
+        list = hooks.candsOf(c, (code) => pos.has(code), (code) => cfg.cooldown > 0 && lastExit.get(code) !== undefined && c - (lastExit.get(code) as number) < cfg.cooldown).filter((x) => !pos.has(x.code) && (cfg.cooldown <= 0 || lastExit.get(x.code) === undefined || c - (lastExit.get(x.code) as number) >= cfg.cooldown));
+      }
+      // 변동성 목표화: 남는 보유 종목 + 이번에 사려는(최대 free개) 종목을 동일 비중으로 담았다고 가정한 배율. 신규 편입은 이 배율로 사고, 보유 종목은 실제 배율이 band 이상 벗어났을 때만 다음 체결일에 맞춘다.
+      let m = 1;
+      if (cfg.vt) {
+        const kept = [...pos.values()].filter((p) => !p.exitSched);
+        const set = [...kept.map((p) => p.s), ...list.slice(0, free).map((x) => x.s)];
+        if (set.length) {
+          m = cfg.vt.sizeMult(c, set);
+          if (out.mult && c > cS) out.mult[out.mult.length - 1] = m;
+          if (kept.length && V > 0) {
+            let w = 0;
+            for (const p of kept) w += posValue(p);
+            const a = w / V / (kept.length * cfg.capFrac);
+            if (out.actual && c > cS) out.actual[out.actual.length - 1] = a;
+            if (Math.abs(m - a) >= cfg.vt.band - 1e-12) pendResize.set(c + o.lag, m);
+          }
         }
+      }
+      if (list.length) {
+        const arr = pendEnt.get(c + o.lag) ?? [];
+        arr.push({ list, free, m });
+        pendEnt.set(c + o.lag, arr);
+        reserved += free;
       }
     }
     prevV = V;

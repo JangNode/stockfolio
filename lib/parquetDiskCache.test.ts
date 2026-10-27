@@ -174,3 +174,24 @@ test("formatParquetCacheSummary: 적중/다운로드 요약 문구", () => {
   assert.ok(formatParquetCacheSummary(stats, false)!.includes("캐시 비활성"));
   assert.equal(formatParquetCacheSummary({ hits: 0, hitBytes: 0, downloads: 0, downloadBytes: 0 }, true), null);
 });
+
+test("고정 스냅샷 모드(PARQUET_CACHE_FROZEN=1): 판별값이 달라도 디스크 파일을 그대로 읽고, 파일이 없으면 받지 않고 실패한다", async () => {
+  const dir = await tempDir();
+  await fs.writeFile(path.join(dir, "2026.parquet"), "SNAP");
+  const prev = process.env.PARQUET_CACHE_FROZEN;
+  process.env.PARQUET_CACHE_FROZEN = "1";
+  try {
+    const stats = newStats();
+    const { calls, source } = fakeSource("NEWER-FILE", { fingerprint: "changed", size: 10 });
+    const buf = await readThroughDiskCache({ cacheDir: dir, fileName: "2026.parquet", source, stats });
+    assert.equal(asText(buf), "SNAP");
+    assert.equal(calls.fingerprint, 0);
+    assert.equal(calls.download, 0);
+    assert.deepEqual(stats, { hits: 1, hitBytes: 4, downloads: 0, downloadBytes: 0 });
+    await assert.rejects(() => readThroughDiskCache({ cacheDir: dir, fileName: "2025.parquet", source, stats }), /고정 스냅샷에 2025.parquet이 없습니다/);
+    assert.equal(calls.download, 0);
+  } finally {
+    if (prev === undefined) delete process.env.PARQUET_CACHE_FROZEN;
+    else process.env.PARQUET_CACHE_FROZEN = prev;
+  }
+});

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), a(연구 A 시험), b(연구 B 시험) 또는 r"
+        description: "실행 선택: dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), snap(연구용 가격 Parquet 스냅샷 점검·고정 저장, 읽기 전용), le(연구 LE 모멘텀 앙상블 시험, 고정 스냅샷만 읽음), a(연구 A 시험), b(연구 B 시험) 또는 r"
         required: false
         default: "dart"
       only:
@@ -52,6 +52,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -60,14 +61,36 @@ jobs:
           restore-keys: |
             parquet-v1-${{ runner.os }}-
 
+      # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
+      - name: Restore 고정 스냅샷 (연구 LE~)
+        id: snap_use
+        if: ${{ inputs.which == 'le' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-snapshot-20261026
+          fail-on-cache-miss: true
+
+      # 스냅샷 만들기: 연구 RG 실행(run 40435189636)이 저장한 연구 브랜치 캐시를 정확한 키로 복원해 고정 키로 다시 저장한다(Supabase Storage 다운로드 0).
+      - name: Restore 스냅샷 원본 캐시 (RG 실행 40435189636)
+        id: snap_src
+        if: ${{ inputs.which == 'snap' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-v1-${{ runner.os }}-40435189636-1
+          fail-on-cache-miss: true
+
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
 
       - name: Parquet cache gate (캐시 적중이 아니면 연구를 실행하지 않는다)
         id: parquet_gate
         env:
-          MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key }}
-          EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.parquet_restore.outputs.cache-matched-key || steps.snap_use.outputs.cache-matched-key || steps.snap_src.outputs.cache-matched-key }}
+          EXACT_HIT: ${{ steps.parquet_restore.outputs.cache-hit || steps.snap_use.outputs.cache-hit || steps.snap_src.outputs.cache-hit }}
           # 2010~2026 중 여기 적은 연도만 캐시에 없어도 통과한다(공백 구분). 비워 두면 17개 파일(2010~2026)이 전부 캐시에 있어야 통과한다(엄격).
           ALLOWED_MISSING_YEARS: ""
         run: |
@@ -91,7 +114,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -261,6 +284,25 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      - name: 연구용 가격 Parquet 스냅샷 점검 (읽기 전용, Supabase 요청 0건)
+        id: snap_check
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'snap' }}
+        run: npx tsx --conditions=react-server scripts/snapshot-parquet.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          SNAP_EXPECTED_END: "2026-10-26"
+
+      - name: 연구 LE(모멘텀 앙상블 로테이션) LE1~LE3 시험 (읽기 전용, 후보당 1회, 고정 스냅샷, 외부 요청 0건)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'le' }}
+        run: npx tsx --conditions=react-server scripts/research-le-ensemble.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          CAND_ONLY: ${{ inputs.only }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: 연구 A 시험 A1(204)·A2(205) (읽기 전용, 후보당 1회, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'a' }}
         run: npx tsx --conditions=react-server scripts/research-a-pref-spread.ts
@@ -300,3 +342,11 @@ jobs:
         with:
           path: .parquet-cache
           key: parquet-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save 고정 스냅샷 (parquet-snapshot-20261026, 점검 통과 시에만; 이미 있으면 저장 실패는 무시)
+        if: ${{ steps.snap_check.conclusion == 'success' && inputs.which == 'snap' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .parquet-cache
+          key: parquet-snapshot-20261026

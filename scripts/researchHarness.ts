@@ -2,6 +2,9 @@
  * [임시 연구 — 병합 금지] 연구 A·B 공용 입력·지표 도구(실행 파일 아님). scripts/research-r-allcap.ts의 입력 적재·069500 기준선·지표 함수를 그대로 옮겼다.
  * 가격 Parquet(Actions 캐시)·적용된 조정 이벤트·069500 일별 가격은 읽기만 한다. DB·Storage 쓰기 0.
  */
+import { createHash } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { parquetReadObjects } from "hyparquet";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
@@ -19,6 +22,7 @@ import { SEASON_STOCK_CODE } from "@/lib/seasonalityConfig";
 import { FLOW_TILT_ENDED_GRACE_DAYS } from "@/lib/foreignFlowTiltConfig";
 import { SAT_SPAC_NAME_KEYWORDS, SAT_REIT_NAME_SUFFIX, SAT_REIT_KSIC_PREFIXES, SAT_REIT_EXPLICIT_CODES } from "@/lib/satelliteV1Config";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
+import { parquetCacheStats } from "@/lib/parquetDiskCache";
 
 export interface S { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; vol: Float64Array; last: string }
 export interface Win { from: string; to: string }
@@ -36,6 +40,11 @@ export function mulberry32(seed: number): () => number {
 export const dbRead: Record<string, number> = {};
 /** Storage에서 내려받은 바이트 합(보고용). */
 export const xfer = { bytes: 0 };
+/** 연구용 데이터 종료일(연구 LE~). 있으면 Parquet은 고정 스냅샷(PARQUET_CACHE_FROZEN=1)에서만 읽고, 이 날짜 뒤의 DB 행·조정 이벤트는 쓰지 않는다. */
+export const SNAP_END: string | undefined = process.env.RESEARCH_DATA_END?.trim() || undefined;
+/** 이번 실행의 Storage 내려받기 합계(바이트) = 월말 시장 목록 등 직접 내려받은 것 + 가격 Parquet 재다운로드(캐시 적중은 0). */
+export const storageBytes = (): number => xfer.bytes + parquetCacheStats.downloadBytes;
+export const storageLine = (): string => `Storage 내려받기 합계 ${(storageBytes() / 1048576).toFixed(2)} MiB(월말 시장 목록 ${(xfer.bytes / 1048576).toFixed(2)} + 가격 Parquet 다운로드 ${(parquetCacheStats.downloadBytes / 1048576).toFixed(2)}, 캐시 적중 ${parquetCacheStats.hits}건 ${(parquetCacheStats.hitBytes / 1048576).toFixed(2)} MiB는 전송 0)`;
 export async function selectAll<T>(label: string, build: (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
@@ -61,12 +70,26 @@ export interface Harness {
   periodStat: (o: Ser, from: string, to: string) => string;
 }
 
+/** 고정 스냅샷의 매니페스트(snapshot.json)와 디스크 파일의 SHA-256을 대조해 같은 바이트인지 확인한다(PARQUET_CACHE_DIR의 연도 파일 전부). 다르면 던진다. */
+export async function verifySnapshotManifest(): Promise<string> {
+  const dir = process.env.PARQUET_CACHE_DIR?.trim();
+  if (!dir) throw new Error("PARQUET_CACHE_DIR 없음");
+  const man = JSON.parse(await fs.readFile(path.join(dir, "snapshot.json"), "utf8")) as { dataEnd: string; createdAt: string; files: { year: number; bytes: number; sha256: string }[] };
+  for (const f of man.files) {
+    const buf = await fs.readFile(path.join(dir, `${f.year}.parquet`));
+    if (buf.byteLength !== f.bytes || createHash("sha256").update(buf).digest("hex") !== f.sha256) throw new Error(`스냅샷 ${f.year}.parquet이 매니페스트와 다릅니다`);
+  }
+  return `고정 스냅샷 매니페스트 대조 통과: 데이터 종료일 ${man.dataEnd}, 만든 시각 ${man.createdAt}, 파일 ${man.files.length}개 SHA-256 일치(합계 ${(man.files.reduce((a, f) => a + f.bytes, 0) / 1048576).toFixed(2)} MiB)`;
+}
+
 /** 입력 적재: 가격 Parquet 2010~, 적용된 조정 이벤트, 069500 가격(DB 읽기), 지표 함수. */
 export async function loadHarness(): Promise<Harness> {
   const adjustments = await loadAppliedAdjustments();
+  if (SNAP_END) for (const [code, list] of adjustments) { const kept = list.filter((e) => e.eventDate <= SNAP_END); if (kept.length) adjustments.set(code, kept); else adjustments.delete(code); }
   dbRead["stock_price_adjustment_events(applied)"] = [...adjustments.values()].reduce((a, l) => a + l.length, 0);
-  const series = await loadAllStockSeriesFromParquet(2010, new Date().getUTCFullYear());
-  const kospi = await getIndexPriceSeries("KOSPI", "2009-01-01", new Date().toISOString().slice(0, 10));
+  const series = await loadAllStockSeriesFromParquet(2010, SNAP_END ? Number(SNAP_END.slice(0, 4)) : new Date().getUTCFullYear());
+  if (SNAP_END) for (const [code, rows] of series) { const kept = rows.filter((r) => r.tradeDate <= SNAP_END); if (kept.length) series.set(code, kept); else series.delete(code); }
+  const kospi = await getIndexPriceSeries("KOSPI", "2009-01-01", SNAP_END ?? new Date().toISOString().slice(0, 10));
   dbRead["beta_price_history(KOSPI)"] = kospi.length;
   interface Row0 { code: string; dates: string[]; close: Float64Array; raw: Float64Array; mcap: Float64Array; avgTv: Float64Array; vol: Float64Array }
   const rows0: Row0[] = [];
@@ -82,6 +105,7 @@ export async function loadHarness(): Promise<Harness> {
   }
   const CAL = [...calSet].sort();
   const nCal = CAL.length, dataEnd = CAL[nCal - 1];
+  if (SNAP_END && dataEnd !== SNAP_END) throw new Error(`고정 스냅샷의 마지막 거래일 ${dataEnd}이 데이터 종료일 ${SNAP_END}과 다릅니다`);
   const calIdx = new Map(CAL.map((d, i) => [d, i]));
   const monthEnds: string[] = [];
   for (let k = 0; k + 1 < nCal; k++) if (CAL[k].slice(0, 7) !== CAL[k + 1].slice(0, 7)) monthEnds.push(CAL[k]);
@@ -96,7 +120,7 @@ export async function loadHarness(): Promise<Harness> {
   console.log(`종목 ${codes.length}개, 거래일 ${nCal}일 ${CAL[0]}~${dataEnd}`);
 
   // ---- 069500 기준선(원주가, 가격 수익만) ----
-  const etfRows = await selectAll<{ trade_date: string; adj_close: number | null; raw_close: number | null }>("etf_daily_prices(069500)", (f, t) => supabaseAdmin.from("etf_daily_prices").select("trade_date, adj_close, raw_close").eq("code", SEASON_STOCK_CODE).order("trade_date").range(f, t));
+  const etfRows = await selectAll<{ trade_date: string; adj_close: number | null; raw_close: number | null }>("etf_daily_prices(069500)", (f, t) => { const q = supabaseAdmin.from("etf_daily_prices").select("trade_date, adj_close, raw_close").eq("code", SEASON_STOCK_CODE); return (SNAP_END ? q.lte("trade_date", SNAP_END) : q).order("trade_date").range(f, t); });
   const kRetByDate = new Map<string, number>();
   for (let i = 1; i < kospi.length; i++) kRetByDate.set(kospi[i].tradeDate, kospi[i].closePrice / kospi[i - 1].closePrice - 1);
   const cut = (o: Ser): Ser => { const k = o.dates.filter((d) => d <= dataEnd).length; return { dates: o.dates.slice(0, k), ret: o.ret.slice(0, k) }; };

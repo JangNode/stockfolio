@@ -81,6 +81,20 @@ export async function readThroughDiskCache(opts: {
   const stats = opts.stats ?? parquetCacheStats;
   const log = opts.log ?? (() => {});
 
+  // 고정 스냅샷 모드(연구 LE~): Storage 메타 조회도 다운로드도 하지 않고 디스크 파일만 읽는다. 파일이 없으면 받지 않고 실패한다.
+  if (cacheDir && process.env.PARQUET_CACHE_FROZEN === "1") {
+    let data: Buffer;
+    try {
+      data = await fs.readFile(path.join(cacheDir, fileName));
+    } catch {
+      throw new Error(`[parquet-cache] 고정 스냅샷에 ${fileName}이 없습니다(PARQUET_CACHE_FROZEN=1이라 다운로드하지 않음)`);
+    }
+    stats.hits++;
+    stats.hitBytes += data.byteLength;
+    log(`[parquet-cache] ${fileName} 고정 스냅샷 ${fmtMb(data.byteLength)} MB`);
+    return toArrayBuffer(data);
+  }
+
   if (!cacheDir) {
     const buf = await source.download();
     if (buf) {

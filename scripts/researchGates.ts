@@ -22,6 +22,8 @@ export interface CandSpec {
   fDenominator: number;
   /** 게이트 H 기준선(필터 없는 대조 실행). 없으면 H 해당 없음. */
   ref?: { id: string; run: SimRun };
+  /** 게이트 H 규칙을 바꿔야 할 때(연구 RG): 전체 구간 후보·기준선 CAGR/MDD를 받아 O/X와 설명을 낸다. 없으면 연구 R의 H. */
+  hRule?: (full: { cagr: number; mdd: number }, ref: { cagr: number; mdd: number }) => { ok: boolean; note: string };
   extra?: (base: SimRun) => void;
 }
 export interface Windows { NW: [string, Win][]; FULL: Win; ALL: [string, Win][] }
@@ -120,10 +122,12 @@ export function evaluate(h: Harness, W: Windows, spec: CandSpec): Verdict {
   let gH: boolean | null = null, hNote = "";
   if (spec.ref) {
     const rb = h.st(spec.ref.run, FULL);
+    if (spec.hRule) { const r = spec.hRule(full, rb); gH = r.ok; hNote = `H 상세: ${spec.ref.id} ${f2(rb.cagr)} / ${f2(rb.mdd)} 대비 ${r.note}`; } else {
     const a1 = full.cagr >= rb.cagr + R_H_CAGR_GAIN_PP && full.mdd <= rb.mdd + R_H_MDD_WORSEN_PP;
     const a2 = full.mdd <= rb.mdd - R_H_MDD_GAIN_PP && full.cagr >= rb.cagr - R_H_CAGR_LOSS_PP;
     gH = a1 || a2;
     hNote = `H 상세: ${spec.ref.id} ${f2(rb.cagr)} / ${f2(rb.mdd)} 대비 ${f2(full.cagr - rb.cagr)}%p / ${f2(full.mdd - rb.mdd)}%p → 조건1(CAGR +${R_H_CAGR_GAIN_PP}%p ∧ MDD ≤ +${R_H_MDD_WORSEN_PP}%p) ${ox(a1)}, 조건2(MDD −${R_H_MDD_GAIN_PP}%p ∧ CAGR ≥ −${R_H_CAGR_LOSS_PP}%p) ${ox(a2)}`;
+    }
   }
   const gates: Record<string, boolean | null> = { [spec.defense ? "A_B" : "A"]: spec.defense ? gAB : gA, B: gB, C: gC, D: gD, E: gE, F: gF, G: gG, H: gH };
   const fail = Object.entries(gates).filter(([, v]) => v === false).map(([k]) => k);

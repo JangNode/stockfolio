@@ -500,6 +500,7 @@ jobs:
         with:
           name: research-prelim-parsed-${{ github.run_id }}
           path: .research-prelim
+          include-hidden-files: true
           retention-days: 30
 
       - name: 연구 PEAD 잠정실적 PE7 시험 (읽기 전용, 후보 1회, 부분집합+파싱 결과+고정 스냅샷+보조 파일, 외부 요청 0건, Storage 읽기 0)

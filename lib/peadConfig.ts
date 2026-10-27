@@ -79,6 +79,8 @@ export const PEAD_PRELIM_STUDY = {
   /** 재무·공시·월말 목록 부분집합(Supabase Storage에서 이번에 한 번만 읽어 필요한 열만 남김) 위치와 Actions 캐시 키. */
   subsetDir: ".research-subset",
   subsetKey: "research-subset-20261028",
+  /** 부분집합 파일 SHA-256(psub 실행 40468978355 기록). 복원한 파일이 다르면 실행하지 않는다. 원본 fin.parquet SHA-256 1f212a32…, filings c0278a48…, 월말 목록 051a6823…. */
+  subsetSha256: { "fin_sub.parquet": "d3b52c03273af167d210fb2dc522dcf3cbb2f397eb79328229c0d5639ca379e1", "filings_sub.parquet": "c0278a482673dc2142a06e26c7eb40a3ba99e9065c06b4554fea4e4bedc6e670", "month_end.parquet": "051a6823fcadbf8028f2b277989bef9c247cd9cf2730595f1fceb7bc23b92032" },
   /** 파싱 결과 Parquet 위치. 캐시 키는 research-prelim-parsed-<run id>. */
   parsedDir: ".research-prelim",
   parsedFile: "prelim-parsed.parquet",

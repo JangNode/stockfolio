@@ -78,7 +78,21 @@ const isCell = (x: string): boolean => numOf(x) !== null || CELL_TEXT.test(x.rep
 const UNITS: Record<string, number> = { 억원: 1e8, 백만원: 1e6, 만원: 1e4, 천원: 1e3, 원: 1 };
 const RC_OF_Q: Record<number, string> = { 1: "11013", 2: "11012", 3: "11014", 4: "11011" };
 
-interface Parsed { ok: boolean; fail: string; unit: string; scale: number; cur: number | null; prevY: number | null; year: number | null; q: number | null; periodSrc: string }
+interface Parsed { labelRaw?: string; ok: boolean; fail: string; unit: string; scale: number; cur: number | null; prevY: number | null; year: number | null; q: number | null; periodSrc: string }
+/** 머리글의 첫 기간 표기(당기)를 (연도, 분기)로. 예: ('23년 2분기) (2018.4Q) (19년 반기) (2023.7.1~ 2023.9.30) ('23.3Q) (2Q23). 해석하지 못하거나 분기 끝이 접수일보다 뒤(아직 끝나지 않은 기간 = 표기 오류)이면 null → 접수 월로 추정. */
+function periodFromLabel(label: string, rceptDt: string): { year: number; q: number } | null {
+  const t = label.replace(/[\s'’‘`＇()]/g, "");
+  const yr = (v: string): number => (v.length === 2 ? 2000 + Number(v) : Number(v));
+  let year: number | null = null, q: number | null = null, m: RegExpExecArray | null;
+  if ((m = /~(\d{2,4})[.\-년/](\d{1,2})/.exec(t))) { const mo = Number(m[2]); if (mo % 3 === 0) { year = yr(m[1]); q = mo / 3; } }
+  else if ((m = /(\d{2,4})(?:년|\.|-|\/)?([1-4])(?:분기|Q|q)/.exec(t))) { year = yr(m[1]); q = Number(m[2]); }
+  else if ((m = /(\d{2,4})(?:년|\.|-|\/)?(?:반기|상반기)/.exec(t))) { year = yr(m[1]); q = 2; }
+  else if ((m = /(\d{2,4})(?:년|\.|-|\/)?(?:연간|사업연도|결산)/.exec(t))) { year = yr(m[1]); q = 4; }
+  else if ((m = /([1-4])[Qq](\d{2,4})/.exec(t))) { year = yr(m[2]); q = Number(m[1]); }
+  if (year === null || q === null || year < 2000 || year > 2100) return null;
+  const end = new Date(Date.UTC(year, q * 3, 0)).toISOString().slice(0, 10);
+  return end <= rceptDt ? { year, q } : null;
+}
 /** 영업(잠정)실적 공정공시 표 파서(셀이 한 줄씩 나열된 구조): 헤더 역할로 열을 정하고, 안 맞으면 값 칸 수(5: 흑자적자전환 열 없음 / 7: 있음)로 정한다. */
 function parseDoc(text: string, rceptDt: string): Parsed {
   const tk = text.split(/[\n|]/).map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -89,11 +103,10 @@ function parseDoc(text: string, rceptDt: string): Parsed {
   const i0 = Math.max(tk.findIndex((x) => x.startsWith("구분")), 0);
   const iRev = tk.findIndex((x, i) => i > i0 && /^매출액|^영업수익|^수익\(매출액\)/.test(x));
   const hdr = iRev > i0 ? tk.slice(i0 + 1, iRev) : [];
-  for (const h of hdr) {
-    const m1 = /(\d{4}|\d{2})\s*(?:년|\.|-|\/)?\s*([1-4])\s*(?:분기|Q|q)/.exec(h.replace(/['’`]/g, "")) , m2 = /([1-4])\s*[Qq]\s*(\d{4}|\d{2})/.exec(h.replace(/['’`]/g, ""));
-    const m = m1 ? { y: m1[1], q: m1[2] } : m2 ? { y: m2[2], q: m2[1] } : null;
-    if (m) { base.year = m.y.length === 2 ? 2000 + Number(m.y) : Number(m.y); base.q = Number(m.q); base.periodSrc = "label"; break; }
-  }
+  const lab = hdr.find((x) => /^[('’‘`＇]/.test(x) && !x.includes("흑자적자"));
+  const fromLabel = lab ? periodFromLabel(lab, rceptDt) : null;
+  if (fromLabel) { base.year = fromLabel.year; base.q = fromLabel.q; base.periodSrc = "label"; }
+  else base.labelRaw = lab ?? "";
   if (base.year === null) {
     const y = Number(rceptDt.slice(0, 4)), mo = Number(rceptDt.slice(5, 7));
     base.year = mo <= 3 ? y - 1 : y; base.q = mo <= 3 ? 4 : mo <= 6 ? 1 : mo <= 9 ? 2 : 3; base.periodSrc = "inferred";
@@ -112,7 +125,7 @@ function parseDoc(text: string, rceptDt: string): Parsed {
   else if (cells.length === 7 && numOf(cells[3]) === null && numOf(cells[6]) === null) { ci = 0; pi = 4; }
   else { base.fail = `열 판별 실패(값 칸 ${cells.length})`; return base; }
   const cur = numOf(cells[ci]), prevY = numOf(cells[pi]);
-  if (cur === null || prevY === null) { base.fail = `값 누락(당기 "${cells[ci]}", 전년동기 "${cells[pi]}")`; return base; }
+  if (cur === null || prevY === null) { base.fail = `값 누락(${cur === null && prevY === null ? "당기·전년동기 모두" : cur === null ? "당기만" : "전년동기만"} 대시·비숫자)`; return base; }
   base.cur = cur * base.scale; base.prevY = prevY * base.scale; base.ok = true;
   return base;
 }
@@ -225,6 +238,7 @@ async function main(): Promise<void> {
     console.log(`파일럿 표본: 연도별 최대 40건 무작위 → ${toGet.length}건`);
   }
   const recs = new Map(prev);
+  const labelRawOf = new Map<string, string>();
   const failures: { rcept_no: string; name: string; reason: string }[] = [];
   const callsBefore = net.calls;
   let n = 0;
@@ -232,6 +246,7 @@ async function main(): Promise<void> {
     let d: { text: string; bytes: number };
     try { d = await fetchDoc(k, r.rcept_no); } catch (e) { if (e instanceof Exhausted) throw e; failures.push({ rcept_no: r.rcept_no, name: `${r.rcept_dt} ${r.corp_name}`, reason: scrub(e instanceof Error ? e.message : String(e)) }); return; }
     const p = parseDoc(d.text, r.rcept_dt);
+    if (p.labelRaw !== undefined) labelRawOf.set(r.rcept_no, p.labelRaw);
     recs.set(r.rcept_no, { corp_code: r.corp_code, stock_code: r.stock_code, rcept_no: r.rcept_no, rcept_dt: r.rcept_dt, report_nm: r.report_nm.replace(/\s+/g, " "), cons: r.report_nm.includes("연결"), cur_won: p.cur, prevy_won: p.prevY, unit: p.unit, period_year: p.year ?? 0, period_q: p.q ?? 0, period_src: p.periodSrc, ok: p.ok, fail: p.fail, zip_bytes: d.bytes });
     if (++n % 2000 === 0) console.log(`  문서 ${n}/${toGet.length}건 처리 (${((Date.now() - T0) / 60000).toFixed(1)}분)`);
   });
@@ -253,6 +268,8 @@ async function main(): Promise<void> {
   console.log(`실패 예(${badEx.length}건): ${badEx.map((r) => `${r.rcept_dt} ${r.report_nm.slice(0, 30)} ${r.rcept_no} [${r.fail}]`).join(" | ") || "-"}`);
   const unitDist = new Map<string, number>();
   for (const r of all) unitDist.set(r.unit || "불명", (unitDist.get(r.unit || "불명") ?? 0) + 1);
+  const infer = all.filter((r) => r.period_src === "inferred");
+  console.log(`기간 추정(inferred) 문서 ${infer.length}건 예(머리글 첫 표기가 해석되지 않은 것): ${infer.filter((_, i) => i % Math.max(Math.floor(infer.length / 6), 1) === 0).slice(0, 8).map((r) => `${r.rcept_no}[${labelRawOf.get(r.rcept_no) ?? "-"}]`).join(", ") || "-"}`);
   console.log(`단위 분포: ${[...unitDist].map(([k, v]) => `${k} ${v}`).join(" / ")} | 기간 표기 출처: ${["label", "inferred"].map((s) => `${s} ${all.filter((r) => r.period_src === s).length}`).join(" / ")}`);
 
   // ---- 4. 정기보고서 값과 전수 대조 ----

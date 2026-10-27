@@ -81,6 +81,8 @@ const RC_OF_Q: Record<number, string> = { 1: "11013", 2: "11012", 3: "11014", 4:
 interface Parsed { labelRaw?: string; ok: boolean; fail: string; unit: string; scale: number; cur: number | null; prevY: number | null; year: number | null; q: number | null; periodSrc: string }
 /** 머리글의 첫 기간 표기(당기)를 (연도, 분기)로. 예: ('23년 2분기) (2018.4Q) (19년 반기) (2023.7.1~ 2023.9.30) ('23.3Q) (2Q23). 해석하지 못하거나 분기 끝이 접수일보다 뒤(아직 끝나지 않은 기간 = 표기 오류)이면 null → 접수 월로 추정. */
 function periodFromLabel(label: string, rceptDt: string): { year: number; q: number } | null {
+  // 월 단위 표기(예: (2022년11월))는 분기 실적이 아니다: q = 0으로 돌려 이벤트에서 제외한다(수집·파싱 통계에는 남는다).
+  if (/\d{2,4}(?:년|\.|-)\s*\d{1,2}\s*월/.test(label)) { const mm = /(\d{2,4})(?:년|\.|-)\s*(\d{1,2})\s*월/.exec(label)!; return { year: mm[1].length === 2 ? 2000 + Number(mm[1]) : Number(mm[1]), q: 0 }; }
   const t = label.replace(/[\s'’‘`＇()]/g, "");
   const yr = (v: string): number => (v.length === 2 ? 2000 + Number(v) : Number(v));
   let year: number | null = null, q: number | null = null, m: RegExpExecArray | null;
@@ -89,7 +91,9 @@ function periodFromLabel(label: string, rceptDt: string): { year: number; q: num
   else if ((m = /(\d{2,4})(?:년|\.|-|\/)?(?:반기|상반기)/.exec(t))) { year = yr(m[1]); q = 2; }
   else if ((m = /(\d{2,4})(?:년|\.|-|\/)?(?:연간|사업연도|결산)/.exec(t))) { year = yr(m[1]); q = 4; }
   else if ((m = /([1-4])[Qq](\d{2,4})/.exec(t))) { year = yr(m[2]); q = Number(m[1]); }
+  else if ((m = /[Qq]([1-4])\.?(\d{2,4})/.exec(t))) { year = yr(m[2]); q = Number(m[1]); }
   if (year === null || q === null || year < 2000 || year > 2100) return null;
+  if (q === 0) return { year, q };
   const end = new Date(Date.UTC(year, q * 3, 0)).toISOString().slice(0, 10);
   return end <= rceptDt ? { year, q } : null;
 }
@@ -105,7 +109,7 @@ function parseDoc(text: string, rceptDt: string): Parsed {
   const hdr = iRev > i0 ? tk.slice(i0 + 1, iRev) : [];
   const lab = hdr.find((x) => /^[('’‘`＇]/.test(x) && !x.includes("흑자적자"));
   const fromLabel = lab ? periodFromLabel(lab, rceptDt) : null;
-  if (fromLabel) { base.year = fromLabel.year; base.q = fromLabel.q; base.periodSrc = "label"; }
+  if (fromLabel) { base.year = fromLabel.year; base.q = fromLabel.q; base.periodSrc = fromLabel.q === 0 ? "month" : "label"; }
   else base.labelRaw = lab ?? "";
   if (base.year === null) {
     const y = Number(rceptDt.slice(0, 4)), mo = Number(rceptDt.slice(5, 7));
@@ -264,6 +268,8 @@ async function main(): Promise<void> {
   const reasons = new Map<string, number>();
   for (const r of bad) { const k = r.fail.replace(/\d+/g, "#").replace(/"[^"]*"/g, '"…"'); reasons.set(k, (reasons.get(k) ?? 0) + 1); }
   console.log(`\n=== 3. 파싱 실패율 (열 판별 실패·값 누락·단위 불명·행 없음 문서 / 받은 문서 전체) ===\n실패 ${bad.length}건 / ${all.length}건 = ${f2(ratio * 100)}% (문턱 ${S.parseFailMax * 100}% 이하)\n사유: ${[...reasons].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}건`).join(" | ") || "없음"}`);
+  const noOi = bad.filter((r) => r.fail.startsWith("값 누락(당기·전년동기 모두")).length;
+  console.log(`참고(판정에는 쓰지 않음): 영업이익 행이 전부 대시인 문서(영업이익 미공시) ${noOi}건(${f2((noOi / Math.max(all.length, 1)) * 100)}%)을 뺀 파싱 실패율 ${f2(((bad.length - noOi) / Math.max(all.length - noOi, 1)) * 100)}% | 월 단위 표기 문서(분기 실적 아님, 이벤트 제외) ${all.filter((r) => r.period_src === "month").length}건`);
   const badEx = bad.filter((_, i) => i % Math.max(Math.floor(bad.length / 6), 1) === 0).slice(0, 6);
   console.log(`실패 예(${badEx.length}건): ${badEx.map((r) => `${r.rcept_dt} ${r.report_nm.slice(0, 30)} ${r.rcept_no} [${r.fail}]`).join(" | ") || "-"}`);
   const unitDist = new Map<string, number>();

@@ -164,15 +164,15 @@ export function yearlyTable(h: Harness, W: Windows, runs: { id: string; run: Sim
   for (const r of runs) console.log(`| ${r.id} | ${years.map((y) => f2(h.yearRet(r.run, y))).join(" | ")} |`);
 }
 
-export function summaryReport(verdicts: Verdict[], doneTrials: number[]): void {
+export function summaryReport(verdicts: Verdict[], doneTrials: number[], opts?: { prior?: number; note?: (id: string) => string }): void {
   console.log(`\n=== 요약 ===\n| 후보(시험) | A 또는 A_B | (참고 A) | B | C | D | E | F | G | H | 결과 | 탈락 사유 |\n|---|---|---|---|---|---|---|---|---|---|---|---|`);
   for (const v of verdicts) {
     const g = (k: string): string => (v.gates[k] === undefined || v.gates[k] === null ? "-" : ox(v.gates[k] as boolean));
     const aKey = v.gates.A_B !== undefined ? "A_B" : "A";
-    console.log(`| ${v.id} (${v.trial}) | ${g(aKey)} | ${ox(v.ref.A)} | ${g("B")} | ${g("C")} | ${g("D")} | ${g("E")} | ${g("F")} | ${g("G")} | 해당 없음 | ${v.pass ? "통과" : "탈락"} | ${v.fail.join(", ") || "-"} |`);
+    console.log(`| ${v.id} (${v.trial})${opts?.note ? ` ${opts.note(v.id)}` : ""} | ${g(aKey)} | ${ox(v.ref.A)} | ${g("B")} | ${g("C")} | ${g("D")} | ${g("E")} | ${g("F")} | ${g("G")} | 해당 없음 | ${v.pass ? "통과" : "탈락"} | ${v.fail.join(", ") || "-"} |`);
   }
-  const cum = 203 + doneTrials.length;
+  const cum = (opts?.prior ?? 203) + doneTrials.length;
   console.log("경고(홀드아웃 오염): 보류 구간(2022~)은 이미 여러 번 본 데이터이고 학습·확인 구간도 앞선 연구들에서 반복해 본 구간이라 순수 검증이 아니다.");
-  console.log(`경고(우연 통과): 누적 시험 ${cum}번 중 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${cum} × 0.05 = ${(cum * 0.05).toFixed(2)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${cum} = ${f2((1 - Math.pow(0.95, cum)) * 100)}% (시험들이 독립이 아니므로 근사). (A+B 4건 모두 실행 시 207번)`);
+  console.log(`경고(우연 통과): 누적 시험 ${cum}번 중 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${cum} × 0.05 = ${(cum * 0.05).toFixed(2)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${cum} = ${f2((1 - Math.pow(0.95, cum)) * 100)}% (시험들이 독립이 아니므로 근사).${opts?.prior === undefined ? " (A+B 4건 모두 실행 시 207번)" : ""}`);
   console.log("통과 여부와 무관하게 운영 적용·PR 생성은 하지 않고 보고만 한다.");
 }

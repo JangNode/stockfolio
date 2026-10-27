@@ -74,6 +74,8 @@ export interface GuruEvent {
   /** 점수 묶음별 원자료. 같은 묶음 안에서는 연결/별도를 섞지 않는다(CFS가 완비되면 CFS, 아니면 OFS). */
   v: { ni: number; eq: number } | null;
   q: { ni: number; oi: number; rev: number; eq: number; eqPrev: number; liab: number; posQ: number } | null;
+  /** Q'(흑자 분기 수 제외): q와 같되 최근 4분기 순이익이 없어도 값이 있다. */
+  qp: { ni: number; oi: number; rev: number; eq: number; eqPrev: number; liab: number } | null;
   /** 진단용 계정별 계산 가능 여부(연결·별도 어느 쪽이든). */
   has: { rev: boolean; oi: boolean; ni: boolean; ni4: boolean; eq: boolean; eqAvg: boolean; liab: boolean };
 }
@@ -87,7 +89,7 @@ export function guruEventOf(idx: Idx, corp: string, y: string, rc: string, lim: 
   let base: GuruFinRow | undefined;
   for (const fs of FS) { const r = idx.get(key(corp, y, rc, fs)); if (usable(r, lim, pit)) { base = r; break; } }
   if (!base) return null;
-  const ev: GuruEvent = { rceptDt: base.rcept_dt, rceptNo: base.rcept_no, v: null, q: null, has: noHas() };
+  const ev: GuruEvent = { rceptDt: base.rcept_dt, rceptNo: base.rcept_no, v: null, q: null, qp: null, has: noHas() };
   for (const fs of FS) {
     const r = idx.get(key(corp, y, rc, fs));
     if (!usable(r, lim, pit)) continue;
@@ -98,6 +100,7 @@ export function guruEventOf(idx: Idx, corp: string, y: string, rc: string, lim: 
     h.rev ||= rev !== null; h.oi ||= oi !== null; h.ni ||= ni !== null; h.ni4 ||= q4 !== null;
     h.eq ||= eq !== null; h.eqAvg ||= eq !== null && eqP !== null; h.liab ||= liab !== null;
     if (!ev.v && ni !== null && eq !== null) ev.v = { ni, eq };
+    if (!ev.qp && ni !== null && oi !== null && rev !== null && eq !== null && eqP !== null && liab !== null) ev.qp = { ni, oi, rev, eq, eqPrev: eqP, liab };
     if (!ev.q && ni !== null && oi !== null && rev !== null && eq !== null && eqP !== null && liab !== null && q4 !== null) ev.q = { ni, oi, rev, eq, eqPrev: eqP, liab, posQ: q4.filter((x) => x > 0).length };
   }
   return ev;
@@ -156,7 +159,7 @@ export function guruEventsByCorp(rows: GuruFinRow[], filings: FilingRow[]): { ev
     if (f.correction !== "N") continue;
     push(origs, f.corp_code, f);
     if (isAnnualFiling(f)) push(annOrigs, f.corp_code, f);
-    if (!have.has(f.rcept_no)) push(out, f.corp_code, { rceptDt: f.rcept_dt, rceptNo: f.rcept_no, v: null, q: null, has: noHas() });
+    if (!have.has(f.rcept_no)) push(out, f.corp_code, { rceptDt: f.rcept_dt, rceptNo: f.rcept_no, v: null, q: null, qp: null, has: noHas() });
     if (isAnnualFiling(f) && !seenAnn.has(f.rcept_no)) push(ann, f.corp_code, { rceptDt: f.rcept_dt, rceptNo: f.rcept_no, g: null, has: { rev: false, oi: false } });
   }
   const byDt = (a: FilingRow, b: FilingRow): number => (a.rcept_dt < b.rcept_dt ? -1 : a.rcept_dt > b.rcept_dt ? 1 : a.rcept_no < b.rcept_no ? -1 : 1);

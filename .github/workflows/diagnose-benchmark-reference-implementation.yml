@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       which:
-        description: "실행 선택: pflow(수급 정리본이 가격 스냅샷 달력의 몇 %를 덮는지·채우기 호출 수 추정, 읽기 전용, 고정 스냅샷+Storage 정리본 약 18 MiB), pclean(연구 PEAD 전용 Actions 캐시·아티팩트 목록/삭제, only=list|delete), pinv(Supabase 연구 객체·수급 현황 읽기 전용, only=list|db|read), psub(연구 PEAD 잠정실적 PE7 0단계: fin·filings·월말 목록 한 번 읽어 부분집합 캐시 구축), pcol(PE7 잠정실적 공정공시 대량 수집+품질 점검, DART 연구용 키만, 시험 없음; pilot=1이면 표본 파일럿), pead7(PE7 시험 1회, 부분집합+파싱 결과+고정 스냅샷+보조 파일만 읽음, Storage 읽기 0), dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), snap(연구용 가격 Parquet 스냅샷 점검·고정 저장, 읽기 전용), le(연구 LE 모멘텀 앙상블 시험, 고정 스냅샷만 읽음), lv(연구 LV LE2+변동성 목표화 시험, 고정 스냅샷만 읽음), am(연구 AM LE2+절대 모멘텀 청산 시험, 고정 스냅샷만 읽음), lw(연구 LW 앙상블 모멘텀 종목 수 확대 시험, 고정 스냅샷만 읽음), mdd(MDD 해부 진단, 시험 아님, 고정 스냅샷만 읽음), aux(연구 LC 0단계: 069500 원주가 보조 파일 구축, KRX 소량, KST 14:00~15:40 금지), lc(연구 LC 변동성 목표화+절대 모멘텀 청산 시험, 고정 스냅샷+보조 파일만 읽음), prelim2(연구 PEAD 잠정실적 파일럿 2차: 정기보고서 대조·시각 문맥·코스닥 3건, DART 연구용 키만, Storage 읽기 0), prelim(연구 PEAD 잠정실적 공정공시 점검+파일럿, 시험 아님, DART 연구용 키만, 호출 150건 이내), pead3(연구 PEAD 보유 단축·진입 차단 PE4~PE6 시험; only=NONE이면 기준선 표만), pead2(연구 PEAD 2단계 PE1~PE3 시험, 고정 스냅샷+보조 파일+R 재무 Storage 읽기; only=NONE이면 기준선 표만), pead1(연구 PEAD 1단계 가능성 점검, 시험 아님, 고정 스냅샷+R 재무 Storage 읽기), a(연구 A 시험), b(연구 B 시험) 또는 r"
+        description: "실행 선택: pdoc(공개 문서 페이지 5곳의 본문 앞부분을 읽어 출력, API 호출 아님, 키 없음), pflow(수급 정리본이 가격 스냅샷 달력의 몇 %를 덮는지·채우기 호출 수 추정, 읽기 전용, 고정 스냅샷+Storage 정리본 약 18 MiB), pclean(연구 PEAD 전용 Actions 캐시·아티팩트 목록/삭제, only=list|delete), pinv(Supabase 연구 객체·수급 현황 읽기 전용, only=list|db|read), psub(연구 PEAD 잠정실적 PE7 0단계: fin·filings·월말 목록 한 번 읽어 부분집합 캐시 구축), pcol(PE7 잠정실적 공정공시 대량 수집+품질 점검, DART 연구용 키만, 시험 없음; pilot=1이면 표본 파일럿), pead7(PE7 시험 1회, 부분집합+파싱 결과+고정 스냅샷+보조 파일만 읽음, Storage 읽기 0), dart, kis, verify, test, q, q2fill, q2, rprobe, rfin, rverify, mm(월말 시장 구분 이어받기, 평일 15:40 KST 이후만), apre(연구 A 사전 점검, 읽기 전용), pname(우선주 쌍 종목명 대조, KRX 최대 40건, 14:00~15:40 KST 금지), c(연구 C 점검+시험, 읽기 전용), l(연구 L 대형주 집중 시험), ls(연구 LS trailing stop 시험), lm(연구 LM 모멘텀 로테이션 시험), rg(연구 RG 국면 필터 시험), snap(연구용 가격 Parquet 스냅샷 점검·고정 저장, 읽기 전용), le(연구 LE 모멘텀 앙상블 시험, 고정 스냅샷만 읽음), lv(연구 LV LE2+변동성 목표화 시험, 고정 스냅샷만 읽음), am(연구 AM LE2+절대 모멘텀 청산 시험, 고정 스냅샷만 읽음), lw(연구 LW 앙상블 모멘텀 종목 수 확대 시험, 고정 스냅샷만 읽음), mdd(MDD 해부 진단, 시험 아님, 고정 스냅샷만 읽음), aux(연구 LC 0단계: 069500 원주가 보조 파일 구축, KRX 소량, KST 14:00~15:40 금지), lc(연구 LC 변동성 목표화+절대 모멘텀 청산 시험, 고정 스냅샷+보조 파일만 읽음), prelim2(연구 PEAD 잠정실적 파일럿 2차: 정기보고서 대조·시각 문맥·코스닥 3건, DART 연구용 키만, Storage 읽기 0), prelim(연구 PEAD 잠정실적 공정공시 점검+파일럿, 시험 아님, DART 연구용 키만, 호출 150건 이내), pead3(연구 PEAD 보유 단축·진입 차단 PE4~PE6 시험; only=NONE이면 기준선 표만), pead2(연구 PEAD 2단계 PE1~PE3 시험, 고정 스냅샷+보조 파일+R 재무 Storage 읽기; only=NONE이면 기준선 표만), pead1(연구 PEAD 1단계 가능성 점검, 시험 아님, 고정 스냅샷+R 재무 Storage 읽기), a(연구 A 시험), b(연구 B 시험) 또는 r"
         required: false
         default: "dart"
       only:
@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -546,6 +546,26 @@ jobs:
           RESEARCH_DATA_END: "2026-10-26"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 공개 문서 페이지 읽기 (KRX Open API·공공데이터포털·KIS 개발자센터 안내 페이지, API 호출·키 사용 없음)
+        if: ${{ inputs.which == 'pdoc' }}
+        run: |
+          for u in "https://www.data.go.kr/dcat/metadata/15094808" "https://www.data.go.kr/data/15094808/openapi.do" "https://www.data.go.kr/data/15094775/openapi.do" "https://openapi.krx.co.kr/contents/OPP/MAIN/main/index.cmd" "https://apiportal.koreainvestment.com/apiservice-apiservice"; do
+            echo "=== $u ($(date -u +%FT%TZ)) ==="
+            code=$(curl -sL -m 30 -o /tmp/page.html -w "%{http_code} %{size_download}B %{time_total}s" "$u" || echo "curl 실패")
+            echo "HTTP/크기/시간: $code"
+            python3 - <<'PY'
+          import re,html
+          try:
+              t=open('/tmp/page.html',encoding='utf-8',errors='replace').read()
+          except Exception as e:
+              print('읽기 실패',e); raise SystemExit
+          t=re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>',' ',t)
+          t=re.sub(r'(?s)<[^>]+>',' ',t)
+          t=html.unescape(re.sub(r'\s+',' ',t)).strip()
+          print(t[:2600])
+          PY
+          done
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'mdd' }}

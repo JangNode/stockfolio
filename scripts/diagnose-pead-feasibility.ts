@@ -48,6 +48,14 @@ async function main(): Promise<void> {
   const stockOfCorp = new Map<string, string>();
   for (const r of finRows) if (r.stock_code) stockOfCorp.set(r.corp_code, r.stock_code);
 
+  // (a-2) 보고서(사업연도·종류)별 값 채움 — 영업이익 당기/전기 열이 언제부터 있는지
+  console.log(`\n(a-2) 상태 orig 행의 사업연도 × 보고서 종류별 영업이익 값 채움 % (11013 1분기, 11012 반기, 11014 3분기, 11012·11014는 당분기 oi_c/oi_p 기준)`);
+  console.log(`| 사업연도 | 종류 | orig 행 | 접수일 범위 | oi_c 있음 % | oi_p 있음 % | oi_a 있음 % | oi_pa 있음 % |\n|---|---|---|---|---|---|---|---|`);
+  const grp = new Map<string, FinRow[]>();
+  for (const r of finRows) if (r.status === "orig") { const k = `${r.bsns_year}|${r.reprt_code}`; const l = grp.get(k) ?? []; l.push(r); grp.set(k, l); }
+  const pc = (l: FinRow[], c: keyof FinRow): string => f2((l.filter((r) => r[c] !== null && r[c] !== undefined).length / l.length) * 100);
+  for (const k of [...grp.keys()].sort()) { const l = grp.get(k)!, [y, rc] = k.split("|"); if (Number(y) > 2017) continue; const ds = l.map((r) => r.rcept_dt).sort(); console.log(`| ${y} | ${rc} | ${l.length} | ${ds[0]}~${ds[ds.length - 1]} | ${pc(l, "oi_c")} | ${pc(l, "oi_p")} | ${pc(l, "oi_a")} | ${pc(l, "oi_pa")} |`); }
+
   // 정정 처리: 원본 이벤트(정정 전 접수일 기준) vs 정정 점 시점 이벤트
   const evOrig = eventsByCorp(finRows, filRows);
   const pit = eventsByCorpPit(finRows, filRows);
@@ -151,6 +159,9 @@ async function main(): Promise<void> {
   const inU = (k: UKind, e: Ev): boolean => uAt(k, CAL[e.sig]).some((s) => s.code === e.code);
   const evU = new Map<UKind, Ev[]>();
   for (const k of UK) evU.set(k, evs.filter((e) => e.sig >= cS && inU(k, e)));
+  const evByYear = new Map<string, number>();
+  for (const e of evs) { const k = e.rceptDt.slice(0, 4); evByYear.set(k, (evByYear.get(k) ?? 0) + 1); }
+  console.log(`분기 영업이익·전년 동기 값이 있는 원본 접수 이벤트의 접수 연도별 건수(유니버스 무관): ${[...evByYear].sort().map(([y, n]) => `${y} ${n}`).join(" | ")}`);
   console.log(`(c-1) 유니버스 안 원본 접수 이벤트(분기 영업이익 전년 동기 비교 가능; 신호일 기준 ${PEAD_EVAL_FROM}~): ${UK.map((k) => `${k} ${evU.get(k)!.length}건`).join(" / ")}`);
   console.log(`| 연도 | ${UK.map((k) => `${k} 비교 가능 | ${k} 영업이익>0 ∧ 전년>0 | ${PEAD_COUNT_GROWTHS.map((g) => `${k} 증가율≥${g * 100}%`).join(" | ")}`).join(" | ")} |\n|---|${UK.map(() => ["---", "---", ...PEAD_COUNT_GROWTHS.map(() => "---")].join("|")).join("|")}|`);
   const pos = (e: Ev): boolean => e.qOi > 0 && e.qOiPrev > 0;

@@ -28,7 +28,11 @@ export interface SimHooks<C extends SimCand> {
   /** 판단일 c(종가)의 보유 종목 청산 사유(없으면 null). i = 판단일 보유 종목의 행 번호(그날 행이 없으면 undefined). */
   exitReason: (p: SimPos, c: number, i: number | undefined) => string | null;
 }
-export interface SimOpts { lag: number; int?: number; replace?: Set<string>; detail?: boolean }
+export interface SimOpts {
+  lag: number; int?: number; replace?: Set<string>; detail?: boolean;
+  /** 보고용: 수익률 집계일마다 계좌 평가액 V와 보유 종목별 평가액을 받는다(시뮬레이션에는 영향 없음). */
+  onDay?: (c: number, V: number, held: [string, number][]) => void;
+}
 
 export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: SimHooks<C>, o: SimOpts): SimRun {
   const { CAL, nCal, cS } = env;
@@ -110,6 +114,7 @@ export function simSlots<C extends SimCand>(env: SimEnv, cfg: SimCfg, hooks: Sim
     if (c > cS) {
       out.dates.push(d); out.ret.push((V / prevV - 1) * 100); out.costFrac.push(costF); out.nPos.push(pos.size);
       out.inv.push(V > 0 ? (V - cash) / V : 0);
+      if (o.onDay) o.onDay(c, V, [...pos.values()].map((p) => [p.code, posValue(p)] as [string, number]));
       if (buyN + sellN > 1e-12) out.turn.push({ d, v: prevV > 0 ? (buyN + sellN) / 2 / prevV : 0 });
       if (o.detail) {
         let mx = 0;

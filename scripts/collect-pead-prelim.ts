@@ -189,7 +189,8 @@ async function main(): Promise<void> {
       const d = await fetchDoc(keys[0], no);
       const tk = d.text.split(/[\n|]/).map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean);
       const i = tk.findIndex((x) => /^영업\s*(이익|손익)(\s*\(.*\))?$/.test(x));
-      console.log(`[debug ${no}] zip ${d.bytes} B, 토큰 ${tk.length}개, 첫 영업이익 행 위치 ${i} | 머리 40토큰: ${tk.slice(0, 40).join(" ¦ ")}\n  영업이익 주변: ${i < 0 ? "-" : tk.slice(Math.max(0, i - 12), i + 26).join(" ¦ ")}\n  파싱: ${JSON.stringify(parseDoc(d.text, "2020-01-01"))}`);
+      const g = tk.findIndex((x) => x.startsWith("구분")), m = tk.findIndex((x, ix) => ix > g && /^매출액|^영업수익|^수익\(매출액\)/.test(x));
+      console.log(`[debug ${no}] zip ${d.bytes} B, 토큰 ${tk.length}개, 구분 위치 ${g}, 첫 영업이익 행 위치 ${i} | 머리글(구분~매출액): ${g >= 0 && m > g ? tk.slice(g, m + 1).join(" ¦ ") : "-"}\n  영업이익 주변: ${i < 0 ? "-" : tk.slice(Math.max(0, i - 12), i + 26).join(" ¦ ")}\n  파싱: ${JSON.stringify(parseDoc(d.text, "2020-01-01"))}`);
     }
     return;
   }

@@ -23,6 +23,7 @@ import { FLOW_TILT_ENDED_GRACE_DAYS } from "@/lib/foreignFlowTiltConfig";
 import { SAT_SPAC_NAME_KEYWORDS, SAT_REIT_NAME_SUFFIX, SAT_REIT_KSIC_PREFIXES, SAT_REIT_EXPLICIT_CODES } from "@/lib/satelliteV1Config";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { parquetCacheStats } from "@/lib/parquetDiskCache";
+import { BENCH_AUX_FILE, BENCH_AUX_SHA256 } from "@/lib/benchmarkAuxConfig";
 
 export interface S { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; vol: Float64Array; last: string }
 export interface Win { from: string; to: string }
@@ -63,6 +64,8 @@ export interface Harness {
   adjustments: Awaited<ReturnType<typeof loadAppliedAdjustments>>;
   endedBefore: string;
   bhP: Ser; bhRet: Map<string, number>;
+  /** 069500 기준선을 DB(etf_daily_prices)만으로 만든 값. 보조 파일을 쓰지 않는 실행에서는 bhP와 같다(연구 LC의 신·구 기준선 비교용). */
+  bhPDb: Ser;
   stockBuyMult: number; sellRate: (d: string) => number;
   st: (o: { dates: string[]; ret: number[]; costFrac?: number[]; turn?: { d: string; v: number }[]; nPos?: number[]; inv?: number[] }, win: Win) => { cagr: number; mdd: number; sharpe: number; vol: number; turnover: number; cost: number; avgN: number; avgInv: number };
   yearRet: (o: Ser, y: number) => number;
@@ -137,7 +140,17 @@ export async function loadHarness(): Promise<Harness> {
     console.log(`069500 ${label}: ${raw0.length}행 ${raw0[0]?.date}~${raw0[raw0.length - 1]?.date}, 정제로 바꾼 날 ${nCh}개`);
     return cut({ dates: e.slice(1).map((x) => x.date), ret: e.slice(1).map((x, i) => (x.px / e[i].px - 1) * 100) });
   };
-  const bhP = clean(etfRows.filter((r) => r.raw_close !== null).map((r) => ({ date: r.trade_date, px: Number(r.raw_close) })), "원주가(raw_close, 가격)");
+  const bhPDb = clean(etfRows.filter((r) => r.raw_close !== null).map((r) => ({ date: r.trade_date, px: Number(r.raw_close) })), "원주가(raw_close, 가격)");
+  // 연구 LC~: BENCH_AUX_069500=1이면 069500 원주가를 보조 파일(데이터 종료일까지 채움, SHA-256 대조)로 대체한다. 켜지 않으면 위 DB 값을 그대로 쓴다(기존 시험과 동일).
+  let bhP = bhPDb;
+  if (process.env.BENCH_AUX_069500 === "1") {
+    const buf = await fs.readFile(BENCH_AUX_FILE);
+    const sha = createHash("sha256").update(buf).digest("hex");
+    if (sha !== BENCH_AUX_SHA256) throw new Error(`069500 보조 파일 SHA-256 불일치: ${sha} (기대 ${BENCH_AUX_SHA256})`);
+    const aux = JSON.parse(buf.toString("utf8")) as { rows: [string, number, number][] };
+    console.log(`069500 보조 파일 SHA-256 일치(${sha.slice(0, 12)}…), ${aux.rows.length}행 ${aux.rows[0][0]}~${aux.rows[aux.rows.length - 1][0]}, 그중 KRX로 채운 행 ${aux.rows.filter((r) => r[2] === 1).length}개`);
+    bhP = clean(aux.rows.map((r) => ({ date: r[0], px: r[1] })), "원주가(보조 파일)");
+  }
   const bhRet = new Map(bhP.dates.map((d, i) => [d, bhP.ret[i] / 100]));
 
   const stockBuyMult = computeEffectiveBuyPrice(1);
@@ -177,7 +190,7 @@ export async function loadHarness(): Promise<Harness> {
     const x = computeCumulativeAndMdd(r);
     return `${f2(x.totalReturnPct)} / ${f2(x.mddPct)}`;
   };
-  return { CAL, nCal, calIdx, dataEnd, monthEnds, stocks, byCode, codes, adjustments, endedBefore, bhP, bhRet, stockBuyMult, sellRate, st, yearRet, worst12, periodStat };
+  return { CAL, nCal, calIdx, dataEnd, monthEnds, stocks, byCode, codes, adjustments, endedBefore, bhP, bhPDb, bhRet, stockBuyMult, sellRate, st, yearRet, worst12, periodStat };
 }
 
 /** 이름(dart_corp_codes)·업종·ETF 겹침 → 제외 규칙(4c1557a: 우선주·ETF·스팩·리츠) 적용 후의 K200P(d) 구성. 월말 시장 목록은 Storage에서 읽는다(약 0.2 MiB). */

@@ -13,3 +13,5 @@ export const BENCH_AUX_OVERLAP_DAYS = 60;
 /** KRX 호출 금지 시간대(KST, 자정 기준 분): 14:00 이상 15:40 미만. */
 export const BENCH_AUX_BLOCK_FROM_KST_MIN = 14 * 60;
 export const BENCH_AUX_BLOCK_TO_KST_MIN = 15 * 60 + 40;
+/** 보조 파일의 SHA-256(2026-10-27 구축 실행 40450410361: 4,638행 2008-01-02~2026-10-26, KRX로 채운 6일). 실행마다 대조한다. */
+export const BENCH_AUX_SHA256 = "336fdcd99cd89239360046bcdcf60f0f815d1578ec16480d7a9d6f41bf1dd7d5";

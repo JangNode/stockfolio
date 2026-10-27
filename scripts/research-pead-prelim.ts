@@ -137,7 +137,40 @@ async function main(): Promise<void> {
     }
   }
   // 잠정실적 후보: 선택 규칙(연결 우선, 파싱 성공 문서)
-  const prelimSel = [...selectPrelim(prelimAll).entries()].filter(([, r]) => r.ok && r.cur_won !== null && r.prevy_won !== null);
+  // ---- 품질 문턱(승인 정정 반영: 영업이익 행 전체가 대시인 '영업이익 미공시' 문서는 파싱 실패 분모·분자에서 뺀다) ----
+  const noOiDocs = prelimAll.filter((r) => !r.ok && r.fail.startsWith("값 누락(당기·전년동기 모두"));
+  const badAll = prelimAll.filter((r) => !r.ok).length;
+  const failRate = (badAll - noOiDocs.length) / Math.max(prelimAll.length - noOiDocs.length, 1);
+  console.log(`품질 1) 파싱 실패율(영업이익 미공시 ${noOiDocs.length}건 제외): ${badAll - noOiDocs.length} / ${prelimAll.length - noOiDocs.length} = ${f2(failRate * 100)}% (문턱 ${PEAD_PRELIM_STUDY.parseFailMax * 100}% 이하) | 글자 그대로의 비율 ${f2((badAll / Math.max(prelimAll.length, 1)) * 100)}%(참고)`);
+  if (failRate > PEAD_PRELIM_STUDY.parseFailMax) throw new Error("파싱 실패율 문턱 미통과 — 시험하지 않는다");
+  const finIdx = new Map<string, FinRow>();
+  for (const r of finRows) finIdx.set(`${r.corp_code}|${r.bsns_year}|${r.reprt_code}|${r.fs_div}`, r);
+  const RC_OF_Q2: Record<number, string> = { 1: "11013", 2: "11012", 3: "11014", 4: "11011" };
+  const nzv = (x: unknown): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  /** 같은 기업·분기 정기보고서 분기 영업이익(원): 1~3분기 = 해당 보고서 당기, 4분기 = 사업보고서 연간 − 3분기 누적. fs = 연결 CFS / 별도 OFS. 데이터 정리(제외 판정)와 일치율 점검에만 쓰고 신호에는 쓰지 않는다. */
+  const regOi = (corp: string, y: number, q: number, fsd: string): number | null => {
+    if (q < 4) { const r = finIdx.get(`${corp}|${y}|${RC_OF_Q2[q]}|${fsd}`); return r ? nzv(r.oi_c) : null; }
+    const f = finIdx.get(`${corp}|${y}|11011|${fsd}`), q3 = finIdx.get(`${corp}|${y}|11014|${fsd}`);
+    const fc = f ? nzv(f.oi_c) : null, qa = q3 ? nzv(q3.oi_a) : null;
+    return fc !== null && qa !== null ? fc - qa : null;
+  };
+  const UNIT_WON: Record<string, number> = { 억원: 1e8, 백만원: 1e6, 만원: 1e4, 천원: 1e3, 원: 1 };
+  const prelimParsedSel = [...selectPrelim(prelimAll).entries()].filter(([, r]) => r.ok && r.cur_won !== null && r.prevy_won !== null);
+  // 품질 2) 선택 문서 전수 대조 일치율(전체 / 기간 표기 출처별). 허용오차 = max(1% × |정기|, 표기 단위 1개).
+  const mstat: Record<string, [number, number]> = { all: [0, 0], label: [0, 0], inferred: [0, 0] };
+  const tenX: PrelimRec[] = [];
+  const prelimSel = prelimParsedSel.filter(([, r]) => {
+    const reg = regOi(r.corp_code, r.period_year, r.period_q, r.cons ? "CFS" : "OFS");
+    if (reg === null) return true;
+    const tol = Math.max(PEAD_PRELIM_STUDY.matchRelTol * Math.abs(reg), UNIT_WON[r.unit] ?? 1), hit = Math.abs((r.cur_won as number) - reg) <= tol ? 1 : 0;
+    for (const k of ["all", r.period_src]) if (mstat[k]) { mstat[k][0] += hit; mstat[k][1]++; }
+    // 승인 추가 제외: 정기보고서 값(영업이익 당기)과 10배 이상 어긋난 문서(문서 값이 정기의 10배 이상 또는 1/10 이하; 정기 값이 0이면 판정 불가로 둔다)는 이벤트에서 뺀다.
+    if (reg !== 0) { const ratio = Math.abs(r.cur_won as number) / Math.abs(reg); if (ratio >= 10 || ratio <= 0.1) { tenX.push(r); return false; } }
+    return true;
+  });
+  const mr = (k: string): string => `${mstat[k][0]} / ${mstat[k][1]} = ${f2((mstat[k][0] / Math.max(mstat[k][1], 1)) * 100)}%`;
+  console.log(`품질 2) 정기보고서 당기 영업이익 일치율(선택·파싱 성공 문서, 비교 가능분): 전체 ${mr("all")} (문턱 ${PEAD_PRELIM_STUDY.matchMin * 100}% 이상) | 기간 표기 해석(label) ${mr("label")} | 기간 접수 월 추정(inferred) ${mr("inferred")} | 월 단위 표기 문서 ${prelimAll.filter((r) => r.period_src === "month").length}건은 이벤트 제외 | 정기와 10배 이상 어긋나 이벤트 제외 ${tenX.length}건`);
+  if (mstat.all[0] / Math.max(mstat.all[1], 1) < PEAD_PRELIM_STUDY.matchMin) throw new Error("일치율 문턱 미통과 — 시험하지 않는다");
   const prelim = new Map<string, Cand>();
   for (const [key, r] of prelimSel) {
     const code = stockOfCorp.get(r.corp_code) ?? r.stock_code;
@@ -275,7 +308,8 @@ async function main(): Promise<void> {
         const pct = (a: number, b: number): string => f2((a / Math.max(b, 1)) * 100);
         const allE = [...evU[k].values()].flat(), passE = allE.filter(okEv);
         console.log(`${id} 이벤트 소스 비중 — K200P 안 전체 이벤트 ${allE.length}건: 정기 ${allE.filter((e) => e.src === "정기").length} / 잠정 ${allE.filter((e) => e.src === "잠정").length}(${pct(allE.filter((e) => e.src === "잠정").length, allE.length)}%) | 조건(흑자·증가율·가격 상승) 통과 ${passE.length}건: 정기 ${passE.filter((e) => e.src === "정기").length} / 잠정 ${passE.filter((e) => e.src === "잠정").length}(${pct(passE.filter((e) => e.src === "잠정").length, passE.length)}%)`);
-        const srcOf = (t: { code: string; entryC: number }): Src | "?" => (evU[k].get(t.entryC - 1) ?? []).filter((e) => e.code === t.code && okEv(e)).sort((a, b) => b.growth - a.growth)[0]?.src ?? "?";
+        const evOf = (t: { code: string; entryC: number }): Ev | undefined => (evU[k].get(t.entryC - 1) ?? []).filter((e) => e.code === t.code && okEv(e)).sort((a, b) => b.growth - a.growth)[0];
+        const srcOf = (t: { code: string; entryC: number }): Src | "?" => evOf(t)?.src ?? "?";
         for (const sn of ["정기", "잠정", "?"] as const) {
           const ts = run.trades.filter((t) => srcOf(t) === sn);
           if (!ts.length) continue;
@@ -285,6 +319,10 @@ async function main(): Promise<void> {
         const ySrc = new Map<string, [number, number]>();
         for (const t of run.trades) { const y = CAL[t.entryC].slice(0, 4), v = ySrc.get(y) ?? [0, 0]; if (srcOf(t) === "잠정") v[1]++; else v[0]++; ySrc.set(y, v); }
         console.log(`${id} 연도별 진입 건수(정기 / 잠정): ${[...ySrc].sort().map(([y, v]) => `${y} ${v[0]} / ${v[1]}`).join(" | ")}`);
+        // 정기보고서만 쓴 PE4 대비 진입 시점이 앞당겨진 정도: 잠정 소스 거래는 같은 기간 정기보고서 접수일까지의 차이(달력일·거래일), 정기 소스 거래는 0일
+        const advs = run.trades.map((t) => { const e = evOf(t); return e && e.src === "잠정" && e.regDt ? { cal: (Date.parse(e.regDt) - Date.parse(e.rceptDt)) / 86_400_000, trd: lowerBound(e.regDt) - e.r0 } : null; }).filter((x): x is { cal: number; trd: number } => x !== null);
+        console.log(`${id} 진입 시점 앞당김(정기보고서 이벤트였다면 신호가 났을 시점 대비): 잠정 소스 거래 ${advs.length}건 평균 ${f2(avg(advs.map((a) => a.cal)))}달력일 / ${f2(avg(advs.map((a) => a.trd)))}거래일(중앙값 ${f2(median(advs.map((a) => a.cal)))} / ${f2(median(advs.map((a) => a.trd)))}) | 전체 거래 ${run.trades.length}건 평균(정기 소스 0일 포함) ${f2(advs.reduce((a, x) => a + x.cal, 0) / Math.max(run.trades.length, 1))}달력일 / ${f2(advs.reduce((a, x) => a + x.trd, 0) / Math.max(run.trades.length, 1))}거래일`);
+        console.log(`${id} 접수 시각이 없어 보수적 규칙 사용: 신호 확정일 = 접수일(비거래일이면 그 뒤 첫 거래일) 다음 거래일, 체결 = 그다음 거래일 종가(장중·장마감 구분 없이 접수일 종가 대비 신호일 종가 상승 조건 적용)`);
         // 잠정실적이 같은 기간 정기보고서보다 먼저 나온 일수(달력일): 선택·파싱 성공 잠정 문서 전체(정기 이벤트가 있는 것) / 채택된(더 이른) 이벤트
         const leadStat = (v: number[], name: string): void => { const a = [...v].sort((x, y) => x - y), qq = (p: number): string => (a.length ? String(a[Math.min(Math.floor(a.length * p), a.length - 1)]) : "-"); console.log(`${id} ${name} ${a.length}건: 최소 ${qq(0)} / 10분위 ${qq(0.1)} / 25분위 ${qq(0.25)} / 중앙값 ${qq(0.5)} / 75분위 ${qq(0.75)} / 90분위 ${qq(0.9)} / 최대 ${a.length ? a[a.length - 1] : "-"} | 7일 이상 ${a.filter((x) => x >= 7).length}건, 14일 이상 ${a.filter((x) => x >= 14).length}건, 30일 이상 ${a.filter((x) => x >= 30).length}건 | 정기보고서가 먼저/같은 날(≤ 0일) ${a.filter((x) => x <= 0).length}건`); };
         leadStat([...prelim.values()].filter((c) => c.regDt !== null).map((c) => (Date.parse(c.regDt as string) - Date.parse(c.dt)) / 86_400_000), "잠정 → 정기보고서 접수까지 달력일 — 파싱 성공·선택된 잠정 문서 중 같은 기간 정기보고서 이벤트가 있는 것");

@@ -104,3 +104,7 @@ export const PEAD_PRELIM_STUDY = {
   matchMin: 0.7,
   matchRelTol: 0.01,
 } as const;
+/** PE7(시도 241): PE4와 모두 같고 이벤트 소스만 "정기보고서와 잠정실적 중 접수일이 더 이른 원본 하나". 게이트 D 이웃은 원래 정의대로 증가율 ±10%p(20·40%)와 보유 10·30거래일 모두. */
+export const PEAD_PRELIM_CAND = { PE7: { trial: 241, universe: "K200P", growth: 0.3, hold: 20, growthNeighbors: [0.2, 0.4], holdNeighbors: [10, 30] } } as const;
+/** 비교 열 PE4(연구 PEAD 보유 단축, 시도 238)와 그 이전 시험 값(같은 스냅샷·기준선에서 다시 계산해 일치를 확인한다). */
+export const PEAD_PE4_REF = { growth: 0.3, hold: 20, cagr: 14.21, mdd: 23.99 } as const;

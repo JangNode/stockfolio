@@ -183,6 +183,16 @@ async function main(): Promise<void> {
     console.log(`이어받기: 기존 파싱 결과 ${prev.size}건(덮어쓰지 않고 없는 접수번호만 받음)`);
   } catch { /* 처음 실행 */ }
 
+  // ---- 진단 모드: PCOL_SAMPLE=debug:<접수번호,...> — 목록 없이 해당 문서만 받아 영업이익 행 주변 토큰을 보여 준다(파서 점검 전용, 저장 없음) ----
+  if (process.env.PCOL_SAMPLE?.startsWith("debug:")) {
+    for (const no of process.env.PCOL_SAMPLE.slice(6).split(",").filter(Boolean)) {
+      const d = await fetchDoc(keys[0], no);
+      const tk = d.text.split(/[\n|]/).map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean);
+      const i = tk.findIndex((x) => /^영업\s*(이익|손익)(\s*\(.*\))?$/.test(x));
+      console.log(`[debug ${no}] zip ${d.bytes} B, 토큰 ${tk.length}개, 첫 영업이익 행 위치 ${i} | 머리 40토큰: ${tk.slice(0, 40).join(" ¦ ")}\n  영업이익 주변: ${i < 0 ? "-" : tk.slice(Math.max(0, i - 12), i + 26).join(" ¦ ")}\n  파싱: ${JSON.stringify(parseDoc(d.text, "2020-01-01"))}`);
+    }
+    return;
+  }
   // ---- 1. 목록: 분기 창 40개, 모든 페이지 ----
   const windows: { from: string; to: string; total: number; pages: number }[] = [];
   for (let y = Number(S.from.slice(0, 4)); y <= Number(S.to.slice(0, 4)); y++) for (const [a, b] of [["01-01", "03-31"], ["04-01", "06-30"], ["07-01", "09-30"], ["10-01", "12-31"]]) { const from = `${y}-${a}`, to = `${y}-${b}` > S.to ? S.to : `${y}-${b}`; if (from <= S.to) windows.push({ from, to, total: 0, pages: 0 }); }
@@ -302,7 +312,7 @@ async function main(): Promise<void> {
   // ---- 판정 ----
   const pf = ratio <= S.parseFailMax, mt = rate >= S.matchMin;
   const calls = net.calls, perKey = keys.map((k) => `${k.name} ${k.used}`).join(", ");
-  console.log(`\n=== 6. 판정 ===\n${sample ? "(파일럿 표본 — 판정 아님) " : ""}파싱 실패율 ${f2(ratio * 100)}% ${pf ? "≤" : ">"} ${S.parseFailMax * 100}% → ${pf ? "통과" : "중단"} | 일치율 ${f2(rate * 100)}% ${mt ? "≥" : "<"} ${S.matchMin * 100}% → ${mt ? "통과" : "중단"} | 수집 완료 여부: 못 받은 ${unfetched.length}건, 수집 실패 ${failures.length}건 → 문턱 ${pf && mt && !unfetched.length ? "통과(시험 진행 가능)" : "미통과 또는 미완(시험 금지)"}`);
+  console.log(`\n=== 6. 판정 ===\n${sample ? "(파일럿 표본 — 판정 아님) " : ""}파싱 실패율 ${f2(ratio * 100)}% ${pf ? "≤" : ">"} ${S.parseFailMax * 100}% → ${pf ? "통과" : "중단"} | 일치율 ${f2(rate * 100)}% ${mt ? "≥" : "<"} ${S.matchMin * 100}% → ${mt ? "통과" : "중단"} | 수집 완료 여부: 키 한도로 못 받은 ${unfetched.length}건(0이어야 함), 수집 실패 ${failures.length}건(목록 보고, 이벤트에서 제외; 이어받기 한 번 더 시도) → 문턱 ${pf && mt && !unfetched.length ? "통과(시험 진행 가능)" : "미통과 또는 미완(시험 금지)"}`);
   console.log(`DART 호출 ${calls}건(키별 ${perKey}) | 내려받기 목록 ${(net.listBytes / MiB).toFixed(2)} MiB + 문서 zip ${(net.docBytes / MiB).toFixed(2)} MiB = ${((net.listBytes + net.docBytes) / MiB).toFixed(2)} MiB | 연구 호출 누적 ${S.rUsed + S.prevPrelimCalls + calls}건 (상한 ${S.totalCap}) | Supabase·Storage 읽기·쓰기 0 | 가격 성과 계산 없음 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분 | 시도 번호 소진 없음`);
 }
 

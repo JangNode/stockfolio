@@ -50,3 +50,28 @@ export const PEAD_SHORT_CANDS = {
 export const PEAD_PE1_REF = { growth: 0.3, hold: 40, cagr: 10.32, mdd: 48.66 } as const;
 /** 삼성전기(009150)의 2026-03 진입 거래를 069500으로 바꿔 보는 보고용 점검(PEAD에서 단일 거래 의존이 컸다). */
 export const PEAD_SEMCO = { code: "009150", entryMonth: "2026-03" } as const;
+
+// ---- 연구 PEAD 잠정실적 공정공시 이벤트 가능성 점검 + 파일럿(시험 아님, 시도 번호 소진 없음). 사용자 지정 2026-10-28. 사전등록 초안: docs/research/pead-preliminary-disclosure-prereg.md ----
+export const PEAD_PRELIM = {
+  keyword: "영업(잠정)실적",
+  /** 추정 구간(접수일)과 분기 단위 창(DART 목록 API는 회사 지정이 없으면 검색 기간이 3개월로 제한). */
+  from: "2017-01-01",
+  to: "2026-10-26",
+  /** 보고서 종류 코드 후보(거래일 공시 I의 세부 종류). 프로브로 공정공시 쪽을 고른다. */
+  detailCodes: ["I002", "I001", "I"] as const,
+  probeFrom: "2024-04-15",
+  probeTo: "2024-05-31",
+  /** 연도당 표본 목록 페이지 수(page_count 100)와 코스닥 파일럿용 표본 페이지 수, 파일럿 문서 수 상한, 시드. */
+  sampleLoopPagesPerYear: 2,
+  kosdaqSamplePages: 2,
+  pilotDocs: 20,
+  pilotKospi: 14,
+  seed: 20261028,
+  /** 이번 점검의 DART 호출 상한(연구용 키 두 개 합계), 호출 간격(ms). */
+  callCap: 150,
+  gapMs: 150,
+  /** 연구용 키 일 한도(키당), 전체 상한, 연구 R 기록상 누적 호출. */
+  dailyCapPerKey: 18_000,
+  totalCap: 100_000,
+  rUsed: 8_403,
+} as const;

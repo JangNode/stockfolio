@@ -6,7 +6,7 @@
  */
 import { parquetReadObjects } from "hyparquet";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_STOCK_STORE_PREFIX, INVESTOR_FLOW_STOCK_CLEAN_PREFIX } from "@/lib/investorFlowConfig";
+import { INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_STOCK_CLEAN_PREFIX } from "@/lib/investorFlowConfig";
 
 const MODE = process.env.INV_MODE ?? "list";
 const MiB = 1048576;
@@ -39,13 +39,9 @@ async function main(): Promise<void> {
   console.log(`Supabase 연구 객체 현황 INV_MODE=${MODE}: ${new Date().toISOString()}`);
   if (MODE === "list") {
     const all = await listAll();
-    const per = new Map<string, { n: number; b: number }>();
-    for (const o of all) { const v = per.get(o.bucket) ?? { n: 0, b: 0 }; v.n++; v.b += o.size; per.set(o.bucket, v); }
-    console.log(`\n=== 버킷별 객체 수·크기 ===\n${[...per].map(([k, v]) => `${k}: ${v.n}개 ${(v.b / MiB).toFixed(2)} MiB`).join("\n")}\n합계 ${all.length}개 ${(all.reduce((a, o) => a + o.size, 0) / MiB).toFixed(2)} MiB`);
     const res = all.filter((o) => o.bucket === INVESTOR_FLOW_STOCK_STORE_BUCKET && o.path.startsWith("research/"));
     const grp = new Map<string, { n: number; b: number }>();
     for (const o of res) { const g = o.path.split("/").slice(0, 2).join("/"); const v = grp.get(g) ?? { n: 0, b: 0 }; v.n++; v.b += o.size; grp.set(g, v); }
-    console.log(`\n=== ${INVESTOR_FLOW_STOCK_STORE_BUCKET}/research/ 아래 접두사별 ===\n${[...grp].sort().map(([k, v]) => `${k}: ${v.n}개 ${(v.b / MiB).toFixed(2)} MiB`).join("\n")}\n연구 접두사 합계 ${res.length}개 ${(res.reduce((a, o) => a + o.size, 0) / MiB).toFixed(2)} MiB`);
     console.log(`\n=== 파일 목록(연구 접두사 중 파일 수가 적은 접두사는 전부, 많은 접두사는 앞 30개) ===`);
     for (const [g] of [...grp].sort()) {
       const files = res.filter((o) => o.path.startsWith(`${g}/`) || o.path === g);
@@ -55,6 +51,10 @@ async function main(): Promise<void> {
     }
     const hits = all.filter((o) => /pead|prelim|잠정|subset|disclos/i.test(o.path));
     console.log(`\n=== PEAD·잠정실적·부분집합 관련 이름 검색(전 버킷) ===\n${hits.length ? hits.map((o) => `${o.bucket}/${o.path} ${o.size} B`).join("\n") : "해당 객체 없음(Supabase에는 PEAD 전용 객체를 저장한 적이 없다)"}`);
+    const per = new Map<string, { n: number; b: number }>();
+    for (const o of all) { const v = per.get(o.bucket) ?? { n: 0, b: 0 }; v.n++; v.b += o.size; per.set(o.bucket, v); }
+    console.log(`\n=== 버킷별 객체 수·크기 ===\n${[...per].map(([k, v]) => `${k}: ${v.n}개 ${(v.b / MiB).toFixed(2)} MiB`).join("\n")}\n합계 ${all.length}개 ${(all.reduce((a, o) => a + o.size, 0) / MiB).toFixed(2)} MiB`);
+    console.log(`\n=== ${INVESTOR_FLOW_STOCK_STORE_BUCKET}/research/ 아래 접두사별 ===\n${[...grp].sort().map(([k, v]) => `${k}: ${v.n}개 ${(v.b / MiB).toFixed(2)} MiB`).join("\n")}\n연구 접두사 합계 ${res.length}개 ${(res.reduce((a, o) => a + o.size, 0) / MiB).toFixed(2)} MiB`);
     console.log(`\nSupabase 쓴 행 0 | Storage 쓰기·삭제 0 | 내려받기 0 MiB | 외부 요청 0`);
     return;
   }
@@ -89,11 +89,12 @@ async function main(): Promise<void> {
   }
   // read: 수급 Parquet
   let bytes = 0;
-  for (const prefix of [INVESTOR_FLOW_STOCK_STORE_PREFIX, INVESTOR_FLOW_STOCK_CLEAN_PREFIX]) {
+  // 용량 절약: 주가 거래일과 대조한 정리본(_clean)만 읽는다(원본과 크기 차이는 목록의 파일 크기로 비교).
+  for (const prefix of [INVESTOR_FLOW_STOCK_CLEAN_PREFIX, "research/n_book"]) {
     console.log(`\n=== ${prefix} (연도별 Parquet) ===\n| 파일 | 크기 MiB | 행 수 | 종목 수 | 기간 | 외국인 금액 결측 % | 기관 금액 결측 % | 개인 금액 결측 % | 외국인 수량 결측 % | 모두 0인 행 % |\n|---|---|---|---|---|---|---|---|---|---|`);
     const { data: ls, error } = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).list(prefix, { limit: 100 });
     if (error) throw new Error(error.message);
-    const files = (ls ?? []).filter((x) => x.name.endsWith(".parquet")).map((x) => x.name).sort();
+    const files = (ls ?? []).filter((x) => x.name.endsWith(".parquet") && (prefix !== "research/n_book" || x.name === "kis_flow_fill.parquet")).map((x) => x.name).sort();
     let tr = 0;
     const allStocks = new Set<string>();
     for (const f of files) {

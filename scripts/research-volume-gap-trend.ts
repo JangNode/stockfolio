@@ -88,11 +88,13 @@ async function main(): Promise<void> {
 
   // ---- 종목별 누적합(이동평균·평균 거래대금용) ----
   const preCache = new Map<string, Pre>();
+  /** 거래대금 = 원 종가 × 거래량(모든 기간 통일; Parquet trading_value 열은 2015~2022 등에서 비어 있어 쓰지 않는다 — 정정 기록: prereg 13절). */
+  const tvOf = (s: S, i: number): number => s.raw[i] * s.vol[i];
   const pre = (s: S): Pre => {
     let v = preCache.get(s.code);
     if (!v) {
       const n = s.close.length, cumC = new Float64Array(n + 1), cumTv = new Float64Array(n + 1);
-      for (let i = 0; i < n; i++) { cumC[i + 1] = cumC[i] + s.close[i]; cumTv[i + 1] = cumTv[i] + (s.tv[i] > 0 ? s.tv[i] : 0); }
+      for (let i = 0; i < n; i++) { cumC[i + 1] = cumC[i] + s.close[i]; cumTv[i + 1] = cumTv[i] + (tvOf(s, i) > 0 ? tvOf(s, i) : 0); }
       v = { cumC, cumTv };
       preCache.set(s.code, v);
     }
@@ -109,8 +111,8 @@ async function main(): Promise<void> {
     if (!prevOk(s, i, c) || !(s.vol[i] > 0) || i < VGT_VOL_WINDOW) return null;
     const pc = pre(s);
     const avgTv = (pc.cumTv[i] - pc.cumTv[i - VGT_VOL_WINDOW]) / VGT_VOL_WINDOW;
-    if (!(avgTv > 0) || !(s.tv[i] > 0)) return null;
-    const ratio = s.tv[i] / avgTv;
+    if (!(avgTv > 0) || !(tvOf(s, i) > 0)) return null;
+    const ratio = tvOf(s, i) / avgTv;
     if (!(ratio >= p.volMult - EPS)) return null;
     const m = maAt(pc.cumC, i, p.maLen);
     if (!(s.close[i] > m)) return null;
@@ -259,9 +261,37 @@ async function main(): Promise<void> {
   const runsOf = new Map<string, (o: { lag: number; detail?: boolean; replace?: Set<string>; onDay?: (c: number, V: number, held: [string, number][]) => void }) => SimRun>();
   const poolFor = (key: string, c: number, make: () => S[]): S[] => { const k = `${key}|${c}`; let v = poolCache.get(k); if (!v) { v = make(); poolCache.set(k, v); } return v; };
 
+  const dBaseOf = (id: DId): DP => {
+    const cd = VGT_D_CANDS[id];
+    return { kind: cd.kind, volMult: cd.volMult, retMin: "retMin" in cd ? cd.retMin : 0, clvMin: "clvMin" in cd ? cd.clvMin : 0, gapMin: "gapMin" in cd ? cd.gapMin : 0, maLen: cd.maLen, hold: cd.hold, needFlow: cd.needFlow };
+  };
+  if (process.env.SIGNAL_COUNT_ONLY === "1") {
+    // 정정 확인용(시험 아님): 연도별 신호 조건 통과 종목-일 수만 센다. 수익률·성과 계산 없음.
+    const ids = (["D1", "D3", "D5"] as const).filter((x) => only.has(x));
+    const cnt = new Map<string, Map<string, number>>();
+    for (let c = cS; c < nCal - 1; c++) {
+      const d = CAL[c], y = d.slice(0, 4);
+      for (const s of kAt(d)) {
+        const i = s.idx.get(d);
+        if (i === undefined) continue;
+        for (const id of ids) {
+          const base = dBaseOf(id);
+          if (dSignal(base, s, i, c) === null) continue;
+          if (base.needFlow) { const fv = flowOf(s.code, d); if (fv === undefined || fv === null || !(fv > 0)) continue; }
+          const m = cnt.get(y) ?? new Map<string, number>();
+          m.set(id, (m.get(id) ?? 0) + 1);
+          cnt.set(y, m);
+        }
+      }
+    }
+    console.log(`\n=== 정정 확인: 연도별 신호 조건 통과 종목-일 수 (슬롯·보유 규칙 적용 전, 성과 계산 없음) ===\n| 연도 | ${ids.join(" | ")} |\n|---|${ids.map(() => "---").join("|")}|`);
+    for (const y of [...new Set(CAL.slice(cS).map((d) => d.slice(0, 4)))]) console.log(`| ${y} | ${ids.map((id) => cnt.get(y)?.get(id) ?? 0).join(" | ")} |`);
+    console.log(`${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | 시도 번호 소진 없음`);
+    return;
+  }
   const mkD = (id: DId): CandSpec => {
     const cd = VGT_D_CANDS[id];
-    const base: DP = { kind: cd.kind, volMult: cd.volMult, retMin: "retMin" in cd ? cd.retMin : 0, clvMin: "clvMin" in cd ? cd.clvMin : 0, gapMin: "gapMin" in cd ? cd.gapMin : 0, maLen: cd.maLen, hold: cd.hold, needFlow: cd.needFlow };
+    const base = dBaseOf(id);
     const nb: { label: string; run: () => SimRun }[] = [];
     for (const v of cd.nbVolMult) nb.push({ label: `거래대금 배수 ≥ ${v}`, run: () => simSlots(env, cfgD, dHooks({ ...base, volMult: v }), { lag: 1 }) });
     if (cd.kind === "spike") for (const v of (cd as typeof VGT_D_CANDS.D1).nbRetMin) nb.push({ label: `당일 수익률 ≥ ${Math.round(v * 100)}%`, run: () => simSlots(env, cfgD, dHooks({ ...base, retMin: v }), { lag: 1 }) });

@@ -629,7 +629,8 @@ jobs:
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
           BENCH_AUX_069500: "1"
-          CAND_ONLY: ${{ inputs.only }}
+          CAND_ONLY: ${{ inputs.only == 'COUNT' && 'D1,D3,D5' || inputs.only }}
+          SIGNAL_COUNT_ONLY: ${{ inputs.only == 'COUNT' && '1' || '' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

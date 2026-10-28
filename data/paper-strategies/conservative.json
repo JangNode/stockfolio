@@ -1,7 +1,7 @@
 {
   "label": "분산 방어 강화형",
-  "rationale": "지난 재생성(10/26, #477) 이후 새 커밋은 시장 국면 배치 실행 시각 주석 정리뿐이라 ma_cross/peg_lynch 신호 로직과는 무관합니다. 주간 백테스트도 이번 주 재계산 전이라 ma_cross CAGR +8.1%·peg_lynch +7.5% 수치가 최신 상태 그대로입니다. 새로운 판단 근거가 없어 안정형은 ma_cross+peg_lynch 구성과 기존 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 그대로 유지합니다.",
-  "generated_at": "2026-10-27T05:12:36Z",
+  "rationale": "지난 재생성(10/27, #478) 이후 \"KODEX 200 + 업종 모멘텀 위성\"이라는 별개 전략(#468)이 머지됐지만, 이는 완전히 독립된 신규 계산 모듈·화면·테이블이고 마이그레이션 적용·pg_cron 등록은 아직 하지 않은 1단계라 ma_cross/peg_lynch 신호나 source_rule_types에는 영향이 없습니다. 주간 백테스트도 이번 주 재계산 전이라 수치가 최신 상태 그대로입니다. 안정형은 ma_cross+peg_lynch 구성과 기존 조건(진입 -2%~9%, 14종목, 후보 풀 30개, 회당 투입 6%, 손절 3%·익절 8%)을 그대로 유지합니다.",
+  "generated_at": "2026-10-28T05:12:01Z",
   "entry_conditions": {
     "source_rule_types": ["ma_cross", "peg_lynch"],
     "min_signal_return_pct": -2,

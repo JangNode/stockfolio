@@ -343,7 +343,7 @@ jobs:
       # 연구 LC: 069500 보조 파일(원주가를 2026-10-26까지 채움). aux가 만들고 고정 키로 저장하며, lc는 같은 키를 복원해 SHA-256을 대조한 뒤 쓴다.
       - name: Restore 069500 보조 파일 (연구 LC)
         id: aux_use
-        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' }}
+        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:

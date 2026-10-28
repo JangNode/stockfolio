@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -68,7 +68,7 @@ jobs:
       # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
       - name: Restore 고정 스냅샷 (연구 LE~)
         id: snap_use
-        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -343,7 +343,7 @@ jobs:
       # 연구 LC: 069500 보조 파일(원주가를 2026-10-26까지 채움). aux가 만들고 고정 키로 저장하며, lc는 같은 키를 복원해 SHA-256을 대조한 뒤 쓴다.
       - name: Restore 069500 보조 파일 (연구 LC)
         id: aux_use
-        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' }}
+        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -771,6 +771,42 @@ jobs:
           P "등록 직후 해당 job의 실행 기록(없어야 함)" "select count(*) as runs from cron.job_run_details d join cron.job j on j.jobid = d.jobid where j.jobname = 'trigger-kodex-sector-signal'"
           P "표 권한 비교(anon·authenticated)" "select table_name, grantee, string_agg(privilege_type, ',' order by privilege_type) as privs from information_schema.role_table_grants where table_schema = 'public' and table_name in ('kodex_sector_signals', 'kodex_sector_track', 'market_regime_daily', 'strategy_backtest_summary', 'krx_trading_calendar', 'schedule_scrape_status', 'beta_price_history') and grantee in ('anon', 'authenticated') group by table_name, grantee order by table_name, grantee"
           P "표 RLS·정책 수 비교" "select c.relname, c.relrowsecurity as rls, (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname) as policies, (select string_agg(p.policyname || ':' || p.cmd, ',') from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname) as policy_list from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relname in ('kodex_sector_signals', 'kodex_sector_track', 'market_regime_daily', 'strategy_backtest_summary', 'krx_trading_calendar', 'schedule_scrape_status', 'beta_price_history') order by c.relname"
+
+      # 연구 LTR(시도 251~253): 연구 WFR이 저장한 예측 점수(Actions 캐시 wfr-scores-40616510084)를 그대로 재사용한다. lowprep은 캐시 존재 확인과 점수 파일 해시만(성과 계산 없음).
+      - name: Restore 저장된 WFR 점수 (lowprep, 없어도 계속)
+        id: wfr_scores_prep
+        if: ${{ inputs.which == 'lowprep' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .wfr
+          key: wfr-scores-40616510084
+
+      - name: 저장된 WFR 점수 확인 (캐시 적중 여부, 파일 크기·해시; 성과 계산 없음)
+        if: ${{ inputs.which == 'lowprep' }}
+        run: |
+          echo "cache-hit=${{ steps.wfr_scores_prep.outputs.cache-hit }} matched=${{ steps.wfr_scores_prep.outputs.cache-matched-key }}"
+          ls -la .wfr 2>/dev/null || echo ".wfr 없음"
+          for f in scores_M2.f32 scores_M3.f32 meta.json X.f32 dayIdx.i32 stockIdx.i32 raw20.f32; do [ -f ".wfr/$f" ] && sha256sum ".wfr/$f" || echo "없음: $f"; done
+
+      - name: Restore 저장된 WFR 점수 (lowturn, 없으면 중단)
+        if: ${{ inputs.which == 'lowturn' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .wfr
+          key: wfr-scores-40616510084
+          fail-on-cache-miss: true
+
+      - name: 연구 LTR 저회전 매매 규칙 W1~W3 시험 (읽기 전용, 후보당 1회, 저장된 점수 재사용, 외부 요청 0건)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'lowturn' }}
+        run: npx tsx --conditions=react-server scripts/research-low-turnover.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          BENCH_AUX_069500: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'mdd' }}

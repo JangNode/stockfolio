@@ -29,9 +29,9 @@ export interface CandSpec {
 export interface Windows { NW: [string, Win][]; FULL: Win; ALL: [string, Win][] }
 export interface Verdict { id: string; trial: number; gates: Record<string, boolean | null>; ref: { A: boolean }; pass: boolean; fail: string[]; run: SimRun; full: { cagr: number; mdd: number } }
 
-export function makeWindows(h: Harness, evalFromIdx: number): Windows {
+export function makeWindows(h: Harness, evalFromIdx: number, trainLabel = "학습 2011~2016"): Windows {
   const from = h.CAL[evalFromIdx];
-  const NW: [string, Win][] = [["학습 2011~2016", { from, to: "2016-12-31" }], ["확인 2017~2021", { from: "2017-01-01", to: "2021-12-31" }], ["보류 2022~", { from: "2022-01-01", to: "9999-12-31" }]];
+  const NW: [string, Win][] = [[trainLabel, { from, to: "2016-12-31" }], ["확인 2017~2021", { from: "2017-01-01", to: "2021-12-31" }], ["보류 2022~", { from: "2022-01-01", to: "9999-12-31" }]];
   const FULL: Win = { from, to: "9999-12-31" };
   return { NW, FULL, ALL: [...NW, ["평가 구간 전체", FULL]] };
 }

@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -68,7 +68,7 @@ jobs:
       # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
       - name: Restore 고정 스냅샷 (연구 LE~)
         id: snap_use
-        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -343,7 +343,7 @@ jobs:
       # 연구 LC: 069500 보조 파일(원주가를 2026-10-26까지 채움). aux가 만들고 고정 키로 저장하며, lc는 같은 키를 복원해 SHA-256을 대조한 뒤 쓴다.
       - name: Restore 069500 보조 파일 (연구 LC)
         id: aux_use
-        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -588,7 +588,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Restore 수급 부분집합 (연구 D5)
-        if: ${{ inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' }}
         uses: actions/cache/restore@v4
         with:
           path: .research-flow
@@ -631,6 +631,62 @@ jobs:
           BENCH_AUX_069500: "1"
           CAND_ONLY: ${{ inputs.only == 'COUNT' && 'D1,D3,D5' || inputs.only }}
           SIGNAL_COUNT_ONLY: ${{ inputs.only == 'COUNT' && '1' || '' }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 연구 WFR(시도 248~250): 특성 내보내기(TS) -> LightGBM 연 1회 재학습(Python) -> 시뮬레이션·게이트(TS). wfrprep은 후보 성과를 계산하지 않는 사전 점검, wfrsim은 저장된 점수로 3단계만 다시 돌리는 코드 오류 복구 전용.
+      - name: 연구 WFR 특성·라벨 내보내기 (읽기 전용, 고정 스냅샷 + 보조 파일 + 수급 캐시, 외부 요청 0건)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && (inputs.which == 'wfrprep' || inputs.which == 'wfr') }}
+        run: npx tsx --conditions=react-server scripts/wfr-export.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          BENCH_AUX_069500: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 연구 WFR 파이썬 환경 (lightgbm 설치, 버전 기록)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && (inputs.which == 'wfrprep' || inputs.which == 'wfr') }}
+        run: |
+          python3 --version
+          python3 -m pip install --break-system-packages lightgbm numpy
+          python3 -c "import lightgbm, numpy, sys; print('python', sys.version.split()[0], '| lightgbm', lightgbm.__version__, '| numpy', numpy.__version__)"
+          nproc
+
+      - name: 연구 WFR 환경 점검 적합 (SMOKE, 성과 지표 없음)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'wfrprep' }}
+        run: SMOKE=1 python3 scripts/wfr_train.py
+
+      - name: 연구 WFR 학습·예측 (연 1회 확장 윈도우, 변형 12개)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'wfr' }}
+        run: python3 scripts/wfr_train.py
+
+      - name: Save 연구 WFR 점수 (코드 오류 복구용)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'wfr' && always() }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .wfr
+          key: wfr-scores-${{ github.run_id }}
+
+      - name: Restore 연구 WFR 점수 (wfrsim 전용)
+        if: ${{ inputs.which == 'wfrsim' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .wfr
+          key: wfr-scores-${{ inputs.only }}
+          fail-on-cache-miss: true
+
+      - name: 연구 WFR 시뮬레이션·게이트 (사전 점검은 후보 성과 계산 없이 기준선 표만)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && (inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim') }}
+        run: npx tsx --conditions=react-server scripts/research-walkforward-ranker.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          BENCH_AUX_069500: "1"
+          WFR_MODE: ${{ inputs.which == 'wfrprep' && 'prep' || '' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

@@ -58,4 +58,9 @@ export const ALLOC_CANDS: Record<"P1" | "P2" | "P3", { trial: number; weights: W
   },
 };
 /** 구성요소 일별 순수익(원래 평가 시작부터, 비용 반영 후) 저장 파일의 SHA-256. 사전 점검 실행(ALLOC_MODE=repro)이 기록한 뒤 사전등록에 적고 여기에 옮긴다. null이면 대조하지 않는다. */
-export const ALLOC_SERIES_SHA: Record<AllocCompId, string> | null = null;
+export const ALLOC_SERIES_SHA: Record<AllocCompId, string> | null = {
+  PE4: "d33a43fc9bb28efe6a1748582c3d06a9e2faa7595fb1cbca9f52e763a1b89ead",
+  W3: "44f7963ef442336ce98fadbec8c3ae86b0b26033b096da647823209600d16bab",
+  LV1: "6d09c3056cde4fc66f9c4017d76a450e864d60626951b3f4e2dc674619f2701e",
+  L3: "032a487a00e217d770d4e600b8a292ccd8c1ca548c581ca31f1c4d5a7a87f290",
+};

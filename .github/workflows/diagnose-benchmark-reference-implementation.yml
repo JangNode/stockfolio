@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -709,6 +709,68 @@ jobs:
           q "schedule_scrape_status 제약" "select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.schedule_scrape_status'::regclass order by conname"
           q "schedule_scrape_status 행(source)" "select source from public.schedule_scrape_status order by source"
           q "kodex_sector 행 수" "select (select count(*) from public.kodex_sector_signals) as signals, (select count(*) from public.kodex_sector_track) as track"
+
+      # 연구 브랜치 전용(PR #468 3단계): 등록 전 읽기 전용 확인. Supabase 관리 API로 SELECT만 실행한다(값 출력 없음, psql 직접 연결 없음).
+      - name: pg_cron 등록 전 확인 (관리 API, SELECT만)
+        if: ${{ inputs.which == 'ksspre' }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -uo pipefail
+          API="https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query"
+          Q() { jq -n --arg q "$1" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
+          P() { echo "--- $1"; Q "$2" | jq -c 'if type=="array" then .[] else . end'; }
+          P "vault: GITHUB_ACTIONS_PAT 존재 여부(값 출력 없음)" "select count(*) as named_secrets, count(*) filter (where decrypted_secret is not null) as with_value from vault.decrypted_secrets where name = 'GITHUB_ACTIONS_PAT'"
+          P "확장(pg_net·pg_cron·vault)" "select extname, extversion from pg_extension where extname in ('pg_net', 'pg_cron', 'supabase_vault') order by extname"
+          P "krx_trading_calendar 존재와 열" "select to_regclass('public.krx_trading_calendar')::text as rel, (select string_agg(column_name || ':' || data_type, ', ' order by ordinal_position) from information_schema.columns where table_schema = 'public' and table_name = 'krx_trading_calendar') as cols"
+          P "krx_trading_calendar 범위" "select min(trade_date)::text as min_date, max(trade_date)::text as max_date, count(*) as n from public.krx_trading_calendar"
+          P "2026-11월 달력(행 수·개장일 수)" "select count(*) as rows_in_nov, count(*) filter (where is_open) as open_days, min(trade_date)::text as first_day, max(trade_date)::text as last_day from public.krx_trading_calendar where trade_date between '2026-11-01' and '2026-11-30'"
+          P "2026-10-26~11-06 달력 행" "select trade_date::text as d, to_char(trade_date, 'Dy') as dow, is_open from public.krx_trading_calendar where trade_date between '2026-10-26' and '2026-11-06' order by trade_date"
+          P "cron.job 전체" "select jobid, jobname, schedule, active, command from cron.job order by jobid"
+          P "같은 이름 작업(없어야 함)" "select count(*) as same_name from cron.job where jobname = 'trigger-kodex-sector-signal'"
+          P "기존 KODEX 함수(없어야 함)" "select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'kodex_sector%' or p.proname like 'trigger_kodex%') order by p.proname"
+          P "cron.timezone" "select current_setting('cron.timezone', true) as cron_timezone"
+
+      # 연구 브랜치 전용(PR #468 3단계): main의 docs/kodex-sector/pg_cron_register.sql을 관리 API로 한 번만 실행하고 읽기 전용으로 검증한다.
+      # 이 단계는 trigger_kodex_sector_signal_dispatch()를 호출하지 않는다(dispatch·테스트 호출 금지). 날짜 검증은 kodex_sector_should_dispatch(date) 조회만 한다.
+      - name: Checkout main (등록할 SQL)
+        if: ${{ inputs.which == 'kssreg' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+
+      - name: pg_cron 등록 (main의 SQL 1회) 및 읽기 전용 검증
+        if: ${{ inputs.which == 'kssreg' }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -uo pipefail
+          API="https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query"
+          SQL_FILE=main-src/docs/kodex-sector/pg_cron_register.sql
+          echo "main commit: $(git -C main-src rev-parse HEAD)"
+          sha256sum "$SQL_FILE"
+          grep -n "'0 1 \* \* 1-5'" "$SQL_FILE"
+          echo "--- 등록 SQL 실행(1회)"
+          jq -n --rawfile q "$SQL_FILE" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- -w "\nHTTP %{http_code}\n"
+          Q() { jq -n --arg q "$1" '{query: $q}' | curl -sS -X POST "$API" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
+          P() { echo "--- $1"; Q "$2" | jq -c 'if type=="array" then .[] else . end'; }
+          PR() { echo "--- $1"; Q "$2" | jq -r '.[] | to_entries[] | .value'; }
+          P "cron.job: KODEX 항목" "select jobid, jobname, schedule, active, command, database, username from cron.job where jobname = 'trigger-kodex-sector-signal'"
+          P "cron.job: 시장 국면 항목(그대로여야 함)" "select jobid, jobname, schedule, active, command from cron.job where jobname = 'trigger-market-regime'"
+          P "cron.job 전체 개수" "select count(*) as jobs, count(*) filter (where active) as active_jobs from cron.job"
+          P "함수 ACL과 보안 정의" "select p.proname, p.prosecdef as security_definer, p.proconfig, p.proacl::text as acl from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('trigger_kodex_sector_signal_dispatch', 'kodex_sector_should_dispatch') order by p.proname"
+          P "역할별 실행 권한(anon·authenticated는 false여야 함)" "select r.rolname, has_function_privilege(r.rolname, 'public.trigger_kodex_sector_signal_dispatch()', 'execute') as can_dispatch, has_function_privilege(r.rolname, 'public.kodex_sector_should_dispatch(date)', 'execute') as can_check from pg_roles r where r.rolname in ('anon', 'authenticated', 'service_role', 'postgres') order by r.rolname"
+          P "routine_privileges(grantee 목록; PUBLIC 없어야 함)" "select routine_name, grantee, privilege_type from information_schema.routine_privileges where routine_schema = 'public' and routine_name in ('trigger_kodex_sector_signal_dispatch', 'kodex_sector_should_dispatch') order by routine_name, grantee"
+          echo "--- 함수 정의: kodex_sector_should_dispatch (조회만, net.http_post 없음 확인용)"
+          PR "def" "select pg_get_functiondef('public.kodex_sector_should_dispatch(date)'::regprocedure)"
+          echo "--- 함수 정의: trigger_kodex_sector_signal_dispatch (dispatch는 이 함수만 한다)"
+          PR "def" "select pg_get_functiondef('public.trigger_kodex_sector_signal_dispatch()'::regprocedure)"
+          P "날짜 판정(kodex_sector_should_dispatch만 호출, 워크플로 호출 없음)" "select d::text as date, to_char(d, 'Dy') as dow, c.is_open as calendar_is_open, public.kodex_sector_should_dispatch(d) as should_dispatch from unnest(array['2026-10-29','2026-10-30','2026-11-01','2026-11-02','2026-11-03']::date[]) as d left join public.krx_trading_calendar c on c.trade_date = d order by d"
+          P "오늘(KST) 판정" "select (now() at time zone 'Asia/Seoul')::date::text as today_kst, public.kodex_sector_should_dispatch((now() at time zone 'Asia/Seoul')::date) as should_dispatch"
+          P "등록 직후 해당 job의 실행 기록(없어야 함)" "select count(*) as runs from cron.job_run_details d join cron.job j on j.jobid = d.jobid where j.jobname = 'trigger-kodex-sector-signal'"
+          P "표 권한 비교(anon·authenticated)" "select table_name, grantee, string_agg(privilege_type, ',' order by privilege_type) as privs from information_schema.role_table_grants where table_schema = 'public' and table_name in ('kodex_sector_signals', 'kodex_sector_track', 'market_regime_daily', 'strategy_backtest_summary', 'krx_trading_calendar', 'schedule_scrape_status', 'beta_price_history') and grantee in ('anon', 'authenticated') group by table_name, grantee order by table_name, grantee"
+          P "표 RLS·정책 수 비교" "select c.relname, c.relrowsecurity as rls, (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname) as policies, (select string_agg(p.policyname || ':' || p.cmd, ',') from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname) as policy_list from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relname in ('kodex_sector_signals', 'kodex_sector_track', 'market_regime_daily', 'strategy_backtest_summary', 'krx_trading_calendar', 'schedule_scrape_status', 'beta_price_history') order by c.relname"
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'mdd' }}

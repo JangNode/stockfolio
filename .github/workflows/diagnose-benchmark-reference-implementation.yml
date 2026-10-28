@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -68,7 +68,7 @@ jobs:
       # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
       - name: Restore 고정 스냅샷 (연구 LE~)
         id: snap_use
-        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -570,6 +570,16 @@ jobs:
       - name: 하네스 시가·고가·저가·거래대금 확장 검증 (읽기 전용, 고정 스냅샷, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'vohlc' }}
         run: npx tsx --conditions=react-server scripts/verify-ohlc-adjust.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: 연구 D 정정 거래대금 열 진단 (읽기 전용, 고정 스냅샷, 외부 요청 0건)
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'vtv' }}
+        run: npx tsx --conditions=react-server scripts/diagnose-trading-value.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
           PARQUET_CACHE_FROZEN: "1"

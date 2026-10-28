@@ -25,7 +25,7 @@ import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { parquetCacheStats } from "@/lib/parquetDiskCache";
 import { BENCH_AUX_FILE, BENCH_AUX_SHA256 } from "@/lib/benchmarkAuxConfig";
 
-export interface S { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; vol: Float64Array; last: string }
+export interface S { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; vol: Float64Array; last: string; /** 연구 D·T(시도 242~): 수정 시가·고가·저가(종가와 같은 수정 계수), 거래대금(원, 수정 불필요). 기존 연구는 쓰지 않는다. */ open: Float64Array; high: Float64Array; low: Float64Array; tv: Float64Array }
 export interface Win { from: string; to: string }
 export type Ser = { dates: string[]; ret: number[] };
 export const MS_DAY = 86_400_000;
@@ -94,7 +94,7 @@ export async function loadHarness(): Promise<Harness> {
   if (SNAP_END) for (const [code, rows] of series) { const kept = rows.filter((r) => r.tradeDate <= SNAP_END); if (kept.length) series.set(code, kept); else series.delete(code); }
   const kospi = await getIndexPriceSeries("KOSPI", "2009-01-01", SNAP_END ?? new Date().toISOString().slice(0, 10));
   dbRead["beta_price_history(KOSPI)"] = kospi.length;
-  interface Row0 { code: string; dates: string[]; close: Float64Array; raw: Float64Array; mcap: Float64Array; avgTv: Float64Array; vol: Float64Array }
+  interface Row0 { code: string; dates: string[]; close: Float64Array; raw: Float64Array; mcap: Float64Array; avgTv: Float64Array; vol: Float64Array; open: Float64Array; high: Float64Array; low: Float64Array; tv: Float64Array }
   const rows0: Row0[] = [];
   const calSet = new Set<string>();
   for (const [code, rows] of series) {
@@ -104,7 +104,7 @@ export async function loadHarness(): Promise<Harness> {
     const al = adjustments.get(code);
     if (al) applyAdjustmentsInPlace(adj, al);
     for (const r of rows) if (r.tradeDate >= "2010-01-01") calSet.add(r.tradeDate);
-    rows0.push({ code, dates: rows.map((r) => r.tradeDate), close: Float64Array.from(adj.map((r) => r.closePrice)), raw: Float64Array.from(rows.map((r) => r.closePrice)), mcap: Float64Array.from(rows.map((r) => r.marketCapEok)), vol: Float64Array.from(rows.map((r) => r.volume)), avgTv: computeTrailingAvgTradingValue(adj, PIT_LIQUIDITY_LOOKBACK_DAYS) });
+    rows0.push({ code, dates: rows.map((r) => r.tradeDate), close: Float64Array.from(adj.map((r) => r.closePrice)), raw: Float64Array.from(rows.map((r) => r.closePrice)), mcap: Float64Array.from(rows.map((r) => r.marketCapEok)), vol: Float64Array.from(rows.map((r) => r.volume)), avgTv: computeTrailingAvgTradingValue(adj, PIT_LIQUIDITY_LOOKBACK_DAYS), open: Float64Array.from(adj.map((r) => r.openPrice)), high: Float64Array.from(adj.map((r) => r.highPrice)), low: Float64Array.from(adj.map((r) => r.lowPrice)), tv: Float64Array.from(rows.map((r) => r.tradingValue)) });
   }
   const CAL = [...calSet].sort();
   const nCal = CAL.length, dataEnd = CAL[nCal - 1];
@@ -115,7 +115,7 @@ export async function loadHarness(): Promise<Harness> {
   const endedBefore = new Date(Date.parse(dataEnd) - FLOW_TILT_ENDED_GRACE_DAYS * MS_DAY).toISOString().slice(0, 10);
   const stocks: S[] = rows0
     .filter((r) => r.dates.some((d) => d >= "2010-01-01"))
-    .map((r) => ({ code: r.code, dates: r.dates, idx: new Map(r.dates.map((d, i) => [d, i])), close: r.close, raw: r.raw, mcapRow: r.mcap, avgTvRow: r.avgTv, vol: r.vol, last: r.dates[r.dates.length - 1] }))
+    .map((r) => ({ code: r.code, dates: r.dates, idx: new Map(r.dates.map((d, i) => [d, i])), close: r.close, raw: r.raw, mcapRow: r.mcap, avgTvRow: r.avgTv, vol: r.vol, last: r.dates[r.dates.length - 1], open: r.open, high: r.high, low: r.low, tv: r.tv }))
     .sort((a, b) => (a.code < b.code ? -1 : 1));
   rows0.length = 0;
   const byCode = new Map(stocks.map((s) => [s.code, s]));

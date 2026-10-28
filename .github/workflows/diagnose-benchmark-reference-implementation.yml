@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -689,6 +689,26 @@ jobs:
           WFR_MODE: ${{ inputs.which == 'wfrprep' && 'prep' || '' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 연구 브랜치 전용 읽기 전용 점검(PR #468 2단계 적용 전·후): Supabase 관리 API로 SELECT만 실행한다. 쓰기·마이그레이션 적용 없음.
+      - name: 원격 마이그레이션·KODEX 표·RLS·권한 조회 (관리 API, SELECT만)
+        if: ${{ inputs.which == 'kssverify' }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          q() {
+            echo "--- $1"
+            jq -n --arg q "$2" '{query: $q}' | curl -sS -X POST "https://api.supabase.com/v1/projects/yxknesiiwhtjpgbwvggp/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- | jq -c '.'
+          }
+          q "원격 마이그레이션 이력 전체 버전(건수와 목록)" "select count(*) as total, string_agg(version, ',' order by version) as versions from supabase_migrations.schema_migrations"
+          q "kodex_sector 표 존재" "select table_name from information_schema.tables where table_schema = 'public' and table_name like 'kodex_sector%' order by table_name"
+          q "RLS 상태" "select c.relname, c.relrowsecurity as rls, c.relforcerowsecurity as force_rls from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'kodex_sector%' order by c.relname"
+          q "RLS 정책(select 정책 없어야 함)" "select tablename, policyname, cmd, roles from pg_policies where schemaname = 'public' and tablename like 'kodex_sector%'"
+          q "표 권한(anon·authenticated·PUBLIC)" "select table_name, grantee, string_agg(privilege_type, ',' order by privilege_type) as privs from information_schema.role_table_grants where table_schema = 'public' and table_name like 'kodex_sector%' and grantee in ('anon','authenticated','PUBLIC') group by table_name, grantee order by table_name, grantee"
+          q "schedule_scrape_status 제약" "select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.schedule_scrape_status'::regclass order by conname"
+          q "schedule_scrape_status 행(source)" "select source from public.schedule_scrape_status order by source"
+          q "kodex_sector 행 수" "select (select count(*) from public.kodex_sector_signals) as signals, (select count(*) from public.kodex_sector_track) as track"
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'mdd' }}

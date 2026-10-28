@@ -14,7 +14,7 @@ export const VGT_STUDY = {
   flowDir: ".research-flow",
   flowFile: "flow_frgn.parquet",
   flowCacheKey: "research-flow-subset-20261028",
-  flowSha256: "PLACEHOLDER_FLOW_SHA256",
+  flowSha256: "e4eae79b4d09940a28d4ad5e33be506095715ea4031d8c60b5df9560ee19706d",
 } as const;
 
 /** D 계열 후보. volMult = 거래대금 배수 하한, retMin = 당일 수익률(전일 종가 대비) 하한, clvMin = 종가 위치 (종가−저가)/(고가−저가) 하한, gapMin = 시가 갭(시가 ÷ 전일 종가 − 1) 하한, maLen = 종가가 위여야 하는 이동평균 일수, hold = 보유 거래일(체결 후 N거래일 지나면 다음 거래일 종가 매도). */

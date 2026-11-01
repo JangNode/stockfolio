@@ -23,7 +23,7 @@ import { WFR_EVAL_FROM } from "@/lib/walkforwardRankerConfig";
 import { LTR_CANDS, LTR_PORT } from "@/lib/lowTurnoverConfig";
 import { KSS_R3_DRAWS, KSS_R3_SEED, F_E_TOP_TRADES } from "@/lib/kodexSectorSatConfig";
 import { ALLOC_COMP_IDS, ALLOC_REPRO, ALLOC_REBAL_COST, ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConfig";
-import { CAPREC_PRIOR_TESTS, CAPREC_COMP_CUT_REF, CAPREC_P2_REF, CAPREC_MOVE_COST, CAPREC_MOVE_COST_SENS, CAPREC_F_DENOMINATOR, CAPREC_W_NEIGHBOR, CAPREC_F_QUANTILES, CAPREC_CANDS } from "@/lib/capitalRecyclingConfig";
+import { CAPREC_PRIOR_TESTS, CAPREC_COMP_CUT_REF, CAPREC_P2_REF, CAPREC_MOVE_COST, CAPREC_MOVE_COST_SENS, CAPREC_F_DENOMINATOR, CAPREC_W_NEIGHBOR, CAPREC_F_QUANTILES, CAPREC_CANDS, CAPREC_PE4_SPLIT_SHA } from "@/lib/capitalRecyclingConfig";
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, type S, type Win } from "./researchHarness";
 import { evaluate, yearlyTable, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
@@ -416,6 +416,7 @@ async function main(): Promise<void> {
   const splitBody = JSON.stringify({ id: "PE4", note: "PE4 분해(공통 평가 구간): f = 종가 체결 뒤 투입 비율, rHold = 투입된 자본의 거래비용 차감 전 수익률(소수), costFrac = 거래비용(계좌 대비), ret = 일수익률(%)", dates: dates0, f: peBase.f, rHold: peBase.rHold, costFrac: peBase.costFrac, ret: peBase.ret });
   await fs.writeFile(path.join(outDir, "PE4_split.json"), splitBody);
   console.log(`PE4 분해 파일 ${outDir}/PE4_split.json SHA-256 ${sha(splitBody)}`);
+  if (sha(splitBody) !== CAPREC_PE4_SPLIT_SHA) throw new Error("PE4 분해 파일 SHA-256이 사전 점검 기록과 다르다 — 중단");
 
   // 공통 평가 구간(2017-04-04~) 성적이 연구 ALLOC 보고 표와 같은지 확인
   console.log(`\n구성요소 공통 평가 구간(${FULL.from}~) 전체 CAGR / MDD 재현 (연구 ALLOC 보고 표)\n| 구성요소 | 이번 | 기록 | 일치 |\n|---|---|---|---|`);

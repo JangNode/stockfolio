@@ -27,3 +27,5 @@ export const CAPREC_CANDS = {
   Q3: { trial: 259, w: 1 / 3, core: ["W3", "LV1"] },
 } as const;
 export type CaprecCompId = "PE4" | "W3" | "LV1" | "L3";
+/** PE4 분해 파일(PE4_split.json: 날짜, f, rHold, costFrac, ret)의 SHA-256. 사전 점검 실행(run 41359098160)이 기록한 값이며, 시험 실행은 같은 값이어야 한다. */
+export const CAPREC_PE4_SPLIT_SHA = "8a24d4281415b6e14489b2419c2e9288dd9d8c29d2e3cdedcdb1dbf693c72ea4";

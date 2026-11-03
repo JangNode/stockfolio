@@ -10,5 +10,14 @@ export const DS56_CANDS = {
   DS5: { trial: 270, coreW: 0.4, coreN: 2, sat: ["W3", "LV1"], nNeighbors: [1, 3], fixedEqNb: true, sideCapNb: ["W3", "LV1"], winNb: [] },
   DS6: { trial: 271, coreW: 0.4, coreN: 2, sat: ["LV1"], nNeighbors: [1, 3], fixedEqNb: false, sideCapNb: [], winNb: [120, 500] },
 } as const;
-/** 참고 열: 연구 DS4(코어 40% + PE4 20% 상한 위성)의 평가 구간 전체 CAGR / MDD. 소수 둘째 자리까지 같아야 한다. */
-export const DS56_DS4_REF = { cagr: 15.2, mdd: 33.11 } as const;
+/** 참고 열(재계산하지 않고 연구 기록값을 그대로 표시한다 — PE4가 들어간 계열을 다시 돌리면 공시 부분집합 캐시를 읽어야 하므로): CAGR / MDD, 키 = 학습·확인·보류·전체·2026년 제외. 출처: research/core-satellite-prereg.md(CS2), delay-robust-core-satellite-prereg.md(DS2), ds4-prereg.md(DS4). */
+export const DS56_RECORDED = {
+  CS2: { 학습: [8.71, 19.83], 확인: [21.94, 21.76], 보류: [18.44, 31.01], 전체: [16.26, 31.01], ex26: [12.79, 27.17] },
+  DS2: { 학습: [5.65, 27.08], 확인: [15.01, 29.82], 보류: [19.22, 35.66], 전체: [14.28, 35.66], ex26: [10.28, 33.23] },
+  DS4: { 학습: [6.99, 23.91], 확인: [17.93, 26.77], 보류: [19.0, 33.11], 전체: [15.2, 33.11], ex26: [11.44, 30.28] },
+  /** 연도별 수익률 %, 2017(04-04부터)~2026(10-26까지). */
+  yearly: {
+    CS2: [18.74, -11.2, 19.22, 35.5, 9.71, -21.83, 18.52, -10.48, 84.82, 47.4],
+    DS4: [18.74, -15.55, 20.0, 31.2, 5.98, -22.36, 20.03, -11.09, 85.93, 50.04],
+  },
+} as const;

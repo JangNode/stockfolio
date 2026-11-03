@@ -2,14 +2,12 @@
  * [임시 연구 — 병합 금지, 읽기 전용, 외부 요청 0건] 연구 DS5(270)·DS6(271): 공시(DART) 데이터를 쓰지 않는 DS4 변형. 사전 등록: docs/research/ds5-prereg.md.
  * DS5 = 코어 40% + 위성 60%(W3 + LV1 변동성 역수, PE4 제거), DS6 = 코어 40% + 위성 60%(LV1 단독). 코어는 연구 DS4와 같다(월말 K200P 안 당일 시총 상위 2종목 시총 비율, 순위 밖 5거래일 연속일 때만 교체).
  * 구성요소는 연구 ALLOC·CAPREC·IVA·CS·DS와 같은 코드·같은 캐시에서 다시 돌린다(Storage 읽기 0, 공시·DART 키 사용 없음). 환경 변수 ALLOC_MODE=repro: 재현·자체 점검만 하고 DS5·DS6 성과는 계산하지 않는다(사전 점검).
- * 참고로 PE4 구성요소 계산에는 연구 DS4 재현을 위해 저장된 공시 부분집합 캐시를 읽지만(재현 확인용 참고 열 DS4·CS·R3에만 쓰임), DS5·DS6 후보의 신호·비중·성과에는 쓰지 않는다.
+ * 공시(DART) 데이터는 쓰지 않는다: PE4 구성요소와 그 입력(공시 부분집합 캐시)을 아예 읽지 않으며, DS4·CS2·DS2 같은 PE4가 들어간 참고 열은 다시 계산하지 않고 연구 기록값(lib/ds56Config.ts DS56_RECORDED)을 그대로 표시한다. DART 호출·키 사용 없음.
  */
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { simSlots, type SimCand, type SimPos, type SimRun, type SimTrade, type SimVt } from "@/lib/slotSim";
-import { decodeTable } from "@/lib/nBookStore";
-import { eventsByCorp, type FinRow, type FilingRow } from "@/lib/rFinMetrics";
 import { L_CANDS, L_SLIPPAGE, L_EVAL_AFTER } from "@/lib/megacapTrendConfig";
 import { LS_COOLDOWN_DAYS } from "@/lib/megacapTrailingConfig";
 import { LE_CANDS, LE_LEGS, LE_ENTRY_LEG, LE_RANK_DEPTH } from "@/lib/momentumEnsembleConfig";
@@ -25,7 +23,7 @@ import { IVA_VOL_WINDOW, IVA_MOVE_COST, IVA_P2_REF, IVA_W_QUANTILES, IVA_TARGET_
 import { CAPREC_COMP_CUT_REF } from "@/lib/capitalRecyclingConfig";
 import { DS_F_DENOMINATOR, DS_CANDS, DS_REF, capRedistribute } from "@/lib/delayRobustCoreSatelliteConfig";
 import { DS4_CAND, DS4_REF } from "@/lib/ds4Config";
-import { DS56_PRIOR_TESTS, DS5_SIDE_CAP, DS56_CANDS, DS56_DS4_REF } from "@/lib/ds56Config";
+import { DS56_PRIOR_TESTS, DS5_SIDE_CAP, DS56_CANDS, DS56_RECORDED } from "@/lib/ds56Config";
 import { CS_PRIOR_TESTS, CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST, CS_MOVE_COST_SENS, CS_CORE_W_NEIGHBOR, CS_F_DENOMINATOR, CS_SAT_COMPS, CS_CANDS, CS_R3_REF, CS_R1_REF, CS_ACCOUNTING_TOL_PP } from "@/lib/coreSatelliteConfig";
 import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
 import { RMD_WINDOWS_2017, RMD_DOWN_DAY, RMD_K_ITER, RMD_BENCH_REF } from "@/lib/riskMatchedDiagnosticConfig";
@@ -65,8 +63,6 @@ async function main(): Promise<void> {
   console.log(`연구 DS5·DS6(공시 미사용 DS4 변형) ${REPRO ? "사전 점검(재현·자체 점검만, DS5·DS6 성과 미계산)" : "시도 270~271 시험"} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
-  const subDir = process.env.RESEARCH_SUBSET_DIR?.trim();
-  if (!subDir) throw new Error("PE4 입력 부분집합 폴더(RESEARCH_SUBSET_DIR)가 없다 — Storage에서 다시 읽지 않는다");
   console.log(await verifySnapshotManifest());
   const h = await loadHarness();
   const { CAL, nCal, byCode } = h;
@@ -115,68 +111,6 @@ async function main(): Promise<void> {
   };
   // 주의: L3는 순위 깊이 30, LV1은 60까지 담지만 L3는 상위 5위·10위 밖만, LV1은 풀 30·시총 40위 밖만 본다. 같은 정렬의 앞부분이므로 깊이 60 목록으로 둘 다 재현된다(재현 확인으로 검증).
   const comps: Comp[] = [];
-
-  // ================= PE4 =================
-  {
-    const cd = PEAD_SHORT_CANDS.PE4, HOLD_REASON = "보유 만료";
-    const cS = cPE;
-    for (const [f, want] of Object.entries(PEAD_PRELIM_STUDY.subsetSha256)) {
-      const got = sha(await fs.readFile(path.join(subDir, f)));
-      if (got !== want) throw new Error(`PE4 입력 부분집합 ${f} SHA-256 불일치: ${got}`);
-    }
-    const ab = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-    const finRows = (await decodeTable(ab(await fs.readFile(path.join(subDir, "fin_sub.parquet"))))) as unknown as FinRow[];
-    const filRows = (await decodeTable(ab(await fs.readFile(path.join(subDir, "filings_sub.parquet"))))) as unknown as FilingRow[];
-    console.log(`PE4 입력: 부분집합 SHA-256 대조 통과 | fin ${finRows.length}행, filings ${filRows.length}행 (Storage 읽기 0)`);
-    const stockOfCorp = new Map<string, string>();
-    for (const r of finRows) if (r.stock_code) stockOfCorp.set(r.corp_code, r.stock_code);
-    const evOrig = eventsByCorp(finRows, filRows);
-    const lowerBound = (d: string): number => { let lo = 0, hi = nCal; while (lo < hi) { const m = (lo + hi) >> 1; if (CAL[m] < d) lo = m + 1; else hi = m; } return lo; };
-    const closeAtOrBefore = (s: S, c: number): number => { for (let k = c; k >= Math.max(c - 5, 0); k--) { const i = s.idx.get(CAL[k]); if (i !== undefined) return s.close[i]; } return NaN; };
-    interface Ev { code: string; sig: number; qOi: number; qOiPrev: number; growth: number; up: boolean }
-    const evK = new Map<number, Ev[]>();
-    const kSet = new Map<number, Set<string>>();
-    const inK = (c: number, code: string): boolean => { let v = kSet.get(c); if (!v) { v = new Set(kAt(CAL[c]).map((s) => s.code)); kSet.set(c, v); } return v.has(code); };
-    let nEv = 0;
-    for (const [corp, list] of evOrig) {
-      const code = stockOfCorp.get(corp), s = code ? byCode.get(code) : undefined;
-      if (!s) continue;
-      for (const e of list) {
-        if (e.qOi === null || e.qOiPrev === null) continue;
-        const r0 = lowerBound(e.rceptDt), sig = r0 + 1;
-        if (sig >= nCal - 1 || sig < cS) continue;
-        nEv++;
-        if (!inK(sig, s.code)) continue;
-        const l = evK.get(sig) ?? [];
-        l.push({ code: s.code, sig, qOi: e.qOi, qOiPrev: e.qOiPrev, growth: e.qOiPrev > 0 ? e.qOi / e.qOiPrev - 1 : NaN, up: closeAtOrBefore(s, sig) > closeAtOrBefore(s, r0) });
-        evK.set(sig, l);
-      }
-    }
-    console.log(`PE4 이벤트: 분기 영업이익·전년 동기 값이 있는 원본 접수 이벤트(신호 확정일 ${PEAD_RUN_START} 이후) ${nEv}건 | K200P 안 ${[...evK.values()].reduce((a, l) => a + l.length, 0)}건`);
-    const cfg = { slip: PEAD_SLIPPAGE.K200P, maxPos: PEAD_MAX_POS, capFrac: 1 / PEAD_MAX_POS, cooldown: PEAD_COOLDOWN_DAYS };
-    const hooks = {
-      candsOf: (c: number): SimCand[] => {
-        const l = evK.get(c);
-        if (!l) return [];
-        return l.filter((e) => e.qOi > 0 && e.qOiPrev > 0 && e.growth >= cd.growth - 1e-12 && e.up).sort((a, b) => b.growth - a.growth || (a.code < b.code ? -1 : 1)).map((e) => ({ s: byCode.get(e.code)!, code: e.code }));
-      },
-      exitReason: (p: SimPos, c: number): string | null => (c - p.entryC >= cd.hold ? HOLD_REASON : null),
-    };
-    comps.push({
-      id: "PE4", label,
-      run: (o) => simSlots(env(cS), cfg, hooks, { lag: o.lag, replace: o.replace, detail: o.detail, onDay: o.onDay }),
-      random: (rng, ob) => simSlots(env(cS), cfg, {
-        candsOf: (c, held, blocked) => {
-          const n = ob.get(c) ?? 0;
-          if (!n) return [];
-          const pool = (evK.get(c) ?? []).filter((e) => e.up && !held(e.code) && !blocked(e.code)), out: SimCand[] = [];
-          while (out.length < n && pool.length) { const e = pool.splice(Math.floor(rng() * pool.length), 1)[0]; out.push({ s: byCode.get(e.code)!, code: e.code }); }
-          return out;
-        },
-        exitReason: hooks.exitReason,
-      }, { lag: 1 }),
-    });
-  }
 
   // ================= W3 (저장된 WFR 점수) =================
   {
@@ -490,8 +424,8 @@ async function main(): Promise<void> {
     return s;
   };
   const baseSl = new Map(comps.map((cp) => [cp.id, getSl(cp, 1)]));
-  const dates0 = baseSl.get("PE4")!.dates;
-  for (const [id, s] of baseSl) if (s.dates.length !== dates0.length || s.dates.some((d, k) => d !== dates0[k])) throw new Error(`${id} 날짜가 PE4와 다르다`);
+  const dates0 = baseSl.get(comps[0].id)!.dates;
+  for (const [id, s] of baseSl) if (s.dates.length !== dates0.length || s.dates.some((d, k) => d !== dates0[k])) throw new Error(`${id} 날짜가 첫 구성요소와 다르다`);
   const nDays = dates0.length;
   for (let i = 0; i < nDays; i++) zeros.push(0);
   const zeroSl: Sl = { dates: dates0, ret: zeros, costFrac: zeros, nPos: zeros, inv: zeros, turn: zeros, wMax: zeros };
@@ -506,29 +440,7 @@ async function main(): Promise<void> {
   }
   if (mism2.length) throw new Error(`공통 구간 재현 불일치(${mism2.join(", ")}) — 중단하고 보고한다`);
 
-  // ---- 연구 ALLOC P2 재계산(재현 확인과 비교 열) ----
-  const combineP = (parts: { sl: Sl; w: number }[], rate: number): SimRun => {
-    const k = parts.length, s = parts.map((p) => p.w), pending = parts.map(() => 0), ret: number[] = [];
-    for (let i = 0; i < nDays; i++) {
-      const Vprev = s.reduce((a, x) => a + x, 0);
-      for (let j = 0; j < k; j++) s[j] *= 1 + parts[j].sl.ret[i] / 100;
-      let mv = 0;
-      if (pending.some((x) => x !== 0)) {
-        for (let j = 0; j < k; j++) { s[j] += pending[j]; if (pending[j] > 0) mv += pending[j]; }
-        const cs = rate * mv;
-        if (mv > 0) for (let j = 0; j < k; j++) if (pending[j] > 0) s[j] -= (cs * pending[j]) / mv;
-      }
-      const V = s.reduce((a, x) => a + x, 0);
-      ret.push((V / Vprev - 1) * 100);
-      for (let j = 0; j < k; j++) pending[j] = parts[j].w * V - s[j];
-    }
-    return { dates: dates0, ret } as unknown as SimRun;
-  };
-  const p2Run = combineP(comps.map((cp) => ({ sl: baseSl.get(cp.id)!, w: 0.25 })), ALLOC_REBAL_COST);
   {
-    const s = h.st(p2Run, FULL), ok = f2(s.cagr) === f2(IVA_P2_REF.cagr) && f2(s.mdd) === f2(IVA_P2_REF.mdd);
-    console.log(`P2(연구 ALLOC, 4개 균등·매일 재배분·이동 금액의 0.25%) 재계산: ${f2(s.cagr)} / ${f2(s.mdd)} (기록 ${IVA_P2_REF.cagr.toFixed(2)} / ${IVA_P2_REF.mdd.toFixed(2)}) → ${ok ? "일치" : "불일치"}`);
-    if (!ok) throw new Error("P2 재계산이 연구 ALLOC 기록과 다르다 — 중단");
     const b = h.st(h.bhP, FULL), okb = f2(b.cagr) === f2(RMD_BENCH_REF.cagr) && f2(b.mdd) === f2(RMD_BENCH_REF.mdd);
     console.log(`069500 기준선 전체 ${f2(b.cagr)} / ${f2(b.mdd)} (기록 ${RMD_BENCH_REF.cagr.toFixed(2)} / ${RMD_BENCH_REF.mdd.toFixed(2)}) → ${okb ? "일치" : "불일치"}`);
     if (!okb) throw new Error("069500 기준선이 기록과 다르다 — 중단");
@@ -700,21 +612,8 @@ async function main(): Promise<void> {
   const allocBase = new Map<string, Out>();
   const warmEnd = (o: Out): number => { const k = o.warm.findIndex((x) => !x); return k < 0 ? nDays : k; };
 
-  // ---- 기준 계열: R1(4개 구성요소), R3(위성) ----
+  // ---- 기준 계열 ----
   const slOf = (r: SimRun): Sl => ({ dates: r.dates, ret: r.ret, costFrac: r.costFrac, nPos: r.nPos, inv: r.inv, turn: r.turn.map((x) => x.v), wMax: r.wMax });
-  const satCps = CS_SAT_COMPS.map((id) => compOf.get(id as CId)!);
-  const r1Out = buildAlloc(comps.map((cp) => cdOf(cp, 1)), IVA_VOL_WINDOW, null);
-  const r3Out = buildAlloc(satCps.map((cp) => cdOf(cp, 1)), IVA_VOL_WINDOW, null);
-  console.log(`\n=== 1b. 위성·기준 계열 재현 (변동성 역수 배분, 직전 ${IVA_VOL_WINDOW}거래일, 이동 금액의 ${IVA_MOVE_COST * 100}%; 평가 구간 전체 CAGR % / MDD %) ===\n| 대상 | 이번 | 연구 IVA 기록 | 일치 |\n|---|---|---|---|`);
-  {
-    const mism3: string[] = [];
-    for (const [id, out, ref] of [["R1 (PE4+W3+LV1+L3)", r1Out, CS_R1_REF], ["R3 (PE4+W3+LV1) = 위성", r3Out, CS_R3_REF]] as const) {
-      const s = h.st(out.run, FULL), ok = f2(s.cagr) === f2(ref.cagr) && f2(s.mdd) === f2(ref.mdd);
-      if (!ok) mism3.push(id);
-      console.log(`| ${id} | ${f2(s.cagr)} / ${f2(s.mdd)} | ${ref.cagr.toFixed(2)} / ${ref.mdd.toFixed(2)} | ${ok ? "일치" : "불일치"} |`);
-    }
-    if (mism3.length) throw new Error(`R1·R3 재현 불일치(${mism3.join(", ")}) — 중단하고 보고한다`);
-  }
   const coreCache = new Map<string, CoreRun>(), coreSlCache = new Map<string, Sl>();
   const keyC = (N: number, lag: number, repl?: Set<string>): string => `${N}|${lag}|${repl ? [...repl].sort().join(",") : ""}`;
   const getCore = (N: number, lag: number, repl?: Set<string>): CoreRun => { const k = keyC(N, lag, repl); let r = coreCache.get(k); if (!r) { r = simCore(N, { lag, replace: repl }); coreCache.set(k, r); } return r; };
@@ -794,29 +693,12 @@ async function main(): Promise<void> {
   }
 
 
-  // ---- 연구 CS 후보(CS1·CS2)와 위성 R3 기준 계열 (참고 표시·재현용; 새 후보 아님) ----
-  const coreSl2 = getCoreSl(2, 1);
-  const cs1Run = combineCS(coreSl2, slOf(r3Out.run), CS_CANDS.CS1.coreW, CS_MOVE_COST).run, cs2Run = combineCS(coreSl2, slOf(r3Out.run), CS_CANDS.CS2.coreW, CS_MOVE_COST).run;
-  console.log(`\n=== 1d. 연구 CS 후보 재현 (평가 구간 전체 CAGR % / MDD %; 소수 둘째 자리까지 같아야 한다) ===\n| 대상 | 이번 | 연구 CS·IVA 기록 | 일치 |\n|---|---|---|---|`);
-  {
-    const mism5: string[] = [];
-    for (const [id, run, ref] of [["CS1", cs1Run, DS_REF.CS1], ["CS2", cs2Run, DS_REF.CS2], ["R3", r3Out.run, DS_REF.R3]] as const) {
-      const s = h.st(run, FULL), ok = f2(s.cagr) === f2(ref.cagr) && f2(s.mdd) === f2(ref.mdd);
-      if (!ok) mism5.push(id);
-      console.log(`| ${id} | ${f2(s.cagr)} / ${f2(s.mdd)} | ${ref.cagr.toFixed(2)} / ${ref.mdd.toFixed(2)} | ${ok ? "일치" : "불일치"} |`);
-    }
-    if (mism5.length) throw new Error(`CS1·CS2·R3 재현 불일치(${mism5.join(", ")}) — 중단하고 보고한다`);
-  }
-
   // ---- 위성 비중 구조 자체 점검 (성과 아님) ----
   const CP = (id: string): Comp => compOf.get(id as CId)!;
   type SatNb = { kind: "fixedEq" } | { kind: "cap"; id: string; v: number } | { kind: "win"; w: number };
   interface DSDef { readonly trial: number; readonly coreW: number; readonly coreN: number; readonly sat: readonly string[]; readonly cap: { id: string; v: number } | null; readonly nNeighbors: readonly number[]; readonly satNb: readonly SatNb[] }
   const nbOf = (c: { fixedEqNb: boolean; sideCapNb: readonly string[]; winNb: readonly number[] }): SatNb[] => [...(c.fixedEqNb ? [{ kind: "fixedEq" } as SatNb] : []), ...c.sideCapNb.map((id) => ({ kind: "cap", id, v: DS5_SIDE_CAP }) as SatNb), ...c.winNb.map((w) => ({ kind: "win", w }) as SatNb)];
   const CANDS_ALL: Record<string, DSDef> = {
-    DS2: { trial: DS_CANDS.DS2.trial, coreW: DS_CANDS.DS2.coreW, coreN: DS_CANDS.DS2.coreN, sat: DS_CANDS.DS2.sat, cap: null, nNeighbors: DS_CANDS.DS2.nNeighbors, satNb: [] },
-    DS3: { trial: DS_CANDS.DS3.trial, coreW: DS_CANDS.DS3.coreW, coreN: DS_CANDS.DS3.coreN, sat: DS_CANDS.DS3.sat, cap: { id: "PE4", v: 0.2 }, nNeighbors: DS_CANDS.DS3.nNeighbors, satNb: [] },
-    DS4: { trial: DS4_CAND.trial, coreW: DS4_CAND.coreW, coreN: DS4_CAND.coreN, sat: DS4_CAND.sat, cap: { id: "PE4", v: 0.2 }, nNeighbors: DS4_CAND.nNeighbors, satNb: [] },
     DS5: { trial: DS56_CANDS.DS5.trial, coreW: DS56_CANDS.DS5.coreW, coreN: DS56_CANDS.DS5.coreN, sat: DS56_CANDS.DS5.sat, cap: null, nNeighbors: DS56_CANDS.DS5.nNeighbors, satNb: nbOf(DS56_CANDS.DS5) },
     DS6: { trial: DS56_CANDS.DS6.trial, coreW: DS56_CANDS.DS6.coreW, coreN: DS56_CANDS.DS6.coreN, sat: DS56_CANDS.DS6.sat, cap: null, nNeighbors: DS56_CANDS.DS6.nNeighbors, satNb: nbOf(DS56_CANDS.DS6) },
   };
@@ -853,8 +735,6 @@ async function main(): Promise<void> {
   }
   // ---- 후보 ----
   const WIN = W;
-  const p2Ser = p2Run as unknown as { dates: string[]; ret: number[] };
-  const r3Ser = r3Out.run as unknown as { dates: string[]; ret: number[] }, cs1Ser = cs1Run as unknown as { dates: string[]; ret: number[] }, cs2Ser = cs2Run as unknown as { dates: string[]; ret: number[] };
   const coreSerOf = (N: number): { dates: string[]; ret: number[] } => { const sl0 = getCoreSl(N, 1); return { dates: sl0.dates, ret: sl0.ret }; };
   interface Lg { core: number; sat: Record<string, number> }
   const lgAll = (cd: DSDef, n: number): Lg => ({ core: n, sat: Object.fromEntries(cd.sat.map((id) => [id, n])) });
@@ -867,20 +747,8 @@ async function main(): Promise<void> {
     return { sat, coreRun, core, res: combineCS(core, slOf(sat.run), wC, CS_MOVE_COST) };
   };
   const baseBuilt = new Map<string, BuiltDS>();
-  const ds2Run = buildDS(CANDS_ALL.DS2, {}).res.run, ds3Run = buildDS(CANDS_ALL.DS3, {}).res.run, ds4Run = buildDS(CANDS_ALL.DS4, {}).res.run;
-  const ds2Ser = ds2Run as unknown as { dates: string[]; ret: number[] }, ds3Ser = ds3Run as unknown as { dates: string[]; ret: number[] }, ds4Ser = ds4Run as unknown as { dates: string[]; ret: number[] };
-  console.log(`\n=== 1f. 연구 DS·DS4 참고 계열 재현 (평가 구간 전체 CAGR % / MDD %; 소수 둘째 자리까지 같아야 한다) ===\n| 대상 | 이번 | 연구 DS 기록 | 일치 |\n|---|---|---|---|`);
-  {
-    const mism6: string[] = [];
-    for (const [id, run, ref] of [["DS2", ds2Run, DS4_REF.DS2], ["DS3", ds3Run, DS4_REF.DS3], ["DS4", ds4Run, DS56_DS4_REF]] as const) {
-      const sv = h.st(run, FULL), ok = f2(sv.cagr) === f2(ref.cagr) && f2(sv.mdd) === f2(ref.mdd);
-      if (!ok) mism6.push(id);
-      console.log(`| ${id} | ${f2(sv.cagr)} / ${f2(sv.mdd)} | ${ref.cagr.toFixed(2)} / ${ref.mdd.toFixed(2)} | ${ok ? "일치" : "불일치"} |`);
-    }
-    if (mism6.length) throw new Error(`DS2·DS3·DS4 재현 불일치(${mism6.join(", ")}) — 중단하고 보고한다`);
-  }
   if (REPRO) {
-    console.log(`\n사전 점검 종료: 구성요소 4개 재현(원래 시작·공통 구간)·일별 순수익 해시·P2·R1·R3·CS1·CS2·DS2·DS3·DS4·069500 기준선 모두 일치, 코어 구조·회계 점검과 위성 비중 구조(상한·반반 고정·창 이웃) 점검 통과. DS5·DS6 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    console.log(`\n사전 점검 종료: 구성요소(W3·LV1·L3) 재현(원래 시작·공통 구간)·일별 순수익 해시·W3·LV1·L3 구성요소 재현과 069500 기준선이 일치, 코어 구조·회계 점검과 위성 비중 구조(상한·반반 고정·창 이웃) 점검 통과. DS5·DS6 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     return;
   }
   const mkSpec = (cid: "DS5" | "DS6"): CandSpec => {
@@ -901,7 +769,7 @@ async function main(): Promise<void> {
       title: `코어 ${Math.round(wC0 * 100)}%(월말 K200P 안 당일 시총 상위 ${N0}종목, 시총 비율, 교체는 순위 밖 ${CS_SWAP_CONFIRM_DAYS}거래일 연속일 때만, 신호 종가·체결 다음 거래일 종가) + 위성 ${Math.round((1 - wC0) * 100)}%(${cd.sat.join("+")}${cd.sat.length > 1 ? ` 변동성 역수 비중, 직전 ${IVA_VOL_WINDOW}거래일` : " 단독"}), 매일 목표 비율로 되돌림(이동 금액의 ${CS_MOVE_COST * 100}%)`,
       defense: false, capFrac: 1 / 10, fDenominator: DS_F_DENOMINATOR, ref: { id: "069500", run: bhAsRun },
       hRule: (full, rb) => {
-        const a = hVs(full, rb), refTxt = ([["DS4", h.st(ds4Run, FULL)], ["DS2", h.st(ds2Run, FULL)], ["CS2", h.st(cs2Run, FULL)]] as const).map(([n, s]) => { const v = hVs(full, s); return `${n} ${f2(s.cagr)} / ${f2(s.mdd)} → ${v.ok ? "O" : "X"} (${v.text})`; }).join(" | ");
+        const a = hVs(full, rb), refTxt = ([["DS4", DS56_RECORDED.DS4.전체], ["DS2", DS56_RECORDED.DS2.전체], ["CS2", DS56_RECORDED.CS2.전체]] as const).map(([n, r]) => { const sv = { cagr: r[0], mdd: r[1] }, v = hVs(full, sv); return `${n}(연구 기록값) ${f2(sv.cagr)} / ${f2(sv.mdd)} → ${v.ok ? "O" : "X"} (${v.text})`; }).join(" | ");
         return { ok: a.ok, note: `[사전등록: 069500만 판정] 069500 ${f2(rb.cagr)} / ${f2(rb.mdd)} → ${a.ok ? "O" : "X"} (${a.text}) | 참고(판정 아님): ${refTxt}` };
       },
       run: (o) => {
@@ -926,7 +794,7 @@ async function main(): Promise<void> {
         console.log(`${cid} 게이트 E 해석(사전등록): 판정은 위성 구성요소(${cd.sat.join("·")}) 각각의 평가 구간 닫힌 거래 중 구성요소 계좌 대비 손익 상위 3개를 069500 수익률로 바꾼 위성과 실제 코어를 합성한 전체 CAGR ≥ 069500. 코어 상위 3개 거래(기간 끝에 열린 보유 포함) 대체와 둘 다 대체는 아래에 보고만 하고 판정하지 않는다.`);
         console.log(`${cid} 게이트 F 해석(사전등록): 위성 구성요소(${cd.sat.join("·")})마다 원래 시험의 무작위 대조(같은 신호일·주문 수, 같은 청산 규칙, 시드 ${KSS_R3_SEED}, ${KSS_R3_DRAWS}회)를 같은 번호끼리 같은 배분 규칙(변동성 역수 비중, 상한 없음)으로 합친 위성 + 실제 코어(고정)를 같은 비율로 합성한 분포 대비 백분위. 코어는 무작위화하지 않는다.`);
         console.log(`${cid} 게이트 G: 진입 건수는 위성 구성요소 진입 건수 + 코어 진입 건수의 합(평가 시작 이후; 위성 ${satCpsD.map((cp) => `${cp.id} ${getRun(cp, 1).entryCs.filter((c) => CAL[c] >= FULL.from).length}`).join(" + ")} + 코어 ${b.coreRun.entryCs.filter((c) => CAL[c] >= FULL.from).length})`);
-        console.log(`${cid} 게이트 H 해석(사전등록): 기준선 069500만 판정(기존 H 규칙: CAGR +${PEAD_H_CAGR_GAIN_PP}%p, 또는 MDD 개선 ${PEAD_H_MDD_GAIN_PP}%p ∧ CAGR ≥ −${PEAD_H_CAGR_FLOOR_PP}%p). DS4·DS2·CS2는 참고 표시.`);
+        console.log(`${cid} 게이트 H 해석(사전등록): 기준선 069500만 판정(기존 H 규칙: CAGR +${PEAD_H_CAGR_GAIN_PP}%p, 또는 MDD 개선 ${PEAD_H_MDD_GAIN_PP}%p ∧ CAGR ≥ −${PEAD_H_CAGR_FLOOR_PP}%p). DS4·DS2·CS2(연구 기록값)는 참고 표시.`);
         console.log(`${cid} 위성 워밍업: ${cd.sat.includes("PE4") ? `PE4 이력이 ${IVA_VOL_WINDOW}거래일 미만인 동안 가용 구성요소만 균등 비중(표시). 워밍업 ${we}일(${dates0[0]}~${dates0[Math.max(we - 1, 0)]}), 변동성 역수 비중 시작일 ${we < nDays ? dates0[we] : "없음"}` : `${cd.sat.join("·")}은 평가 시작 전 이력이 충분해 워밍업 ${we}일`}`);
         // E 보고
         {
@@ -991,9 +859,9 @@ async function main(): Promise<void> {
           const dts = ser.dates, eps = episodes(ser.ret).sort((a, c2) => c2.depth - a.depth).slice(0, 3);
           console.log(`  ${name}: ${eps.map((e, kk) => `${kk + 1}) 고점 ${e.peakIdx < 0 ? FULL.from : dts[e.peakIdx]} → 저점 ${dts[e.troughIdx]} ${f2(e.depth * 100)}% → 회복 ${e.recIdx === null ? "미회복" : dts[e.recIdx]}`).join(" | ")}`);
         };
-        topEp(run, cid); topEp(coreSerOf(N0), `코어 단독(N=${N0})`); topEp(ds2Ser, "DS2"); topEp(ds3Ser, "DS3"); topEp(cs2Ser, "CS2"); topEp(r3Ser, "R3"); topEp(bhFrom, "069500(새)"); topEp(p2Ser, "P2(재계산)");
-        console.log(`${cid} 하락 구간 성과 (누적 % / MDD %): ${cid} | 코어 | DS2 | DS3 | CS2 | R3 | 069500 | P2`);
-        for (const [name, f, t] of PEAD_DOWNTURNS) console.log(`  ${name}: ${cid} ${h.periodStat(run, f, t)} | 코어 ${h.periodStat(coreSerOf(N0), f, t)} | DS2 ${h.periodStat(ds2Ser, f, t)} | DS3 ${h.periodStat(ds3Ser, f, t)} | CS2 ${h.periodStat(cs2Ser, f, t)} | R3 ${h.periodStat(r3Ser, f, t)} | 069500 ${h.periodStat(bhFrom, f, t)} | P2 ${h.periodStat(p2Ser, f, t)}`);
+        topEp(run, cid); topEp(coreSerOf(N0), `코어 단독(N=${N0})`); topEp(bhFrom, "069500(새)");
+        console.log(`${cid} 하락 구간 성과 (누적 % / MDD %): ${cid} | 코어 | 위성 단독 | 069500`);
+        for (const [name, f, t] of PEAD_DOWNTURNS) console.log(`  ${name}: ${cid} ${h.periodStat(run, f, t)} | 코어 ${h.periodStat(coreSerOf(N0), f, t)} | 위성 단독 ${h.periodStat(al.run, f, t)} | 069500 ${h.periodStat(bhFrom, f, t)}`);
         // 위험 일치, 두 종목 뺀 K200P
         console.log(`${cid} 진단 [판정 불사용] 위험 일치 기준선 대비 CAGR 차이 (%p; 기준선 = 일수익률 × k + 현금, MDD 일치 / 변동성 일치)
 | 구간 | ${cid} CAGR / MDD / 변동성 | 069500 MDD 일치 k | 기준선 CAGR | 차이 | 069500 변동성 일치 k | 기준선 CAGR | 차이 | K200P ex-두 종목 CAGR / MDD | ${cid} − K200P ex | K200P ex MDD 일치 k | 기준선 CAGR | 차이 |
@@ -1092,23 +960,26 @@ async function main(): Promise<void> {
 
   // ---- 공통 보고 ----
   const coreN2 = coreSerOf(2);
+  const winKeys = ["학습", "확인", "보류", "전체"] as const;
+  const recCell = (r: readonly [number, number]): string => `${f2(r[0])} / ${f2(r[1])}`;
   console.log(`
-=== 구간별 CAGR / MDD — 069500(새 기준선) · P2 · CS2 · DS4(참고) · 코어 단독 N=2 · 후보 ===
-| 구간 | 069500 | P2 | CS2 | DS4 | 코어 N=2 | ${verdicts.map((v) => v.id).join(" | ")} |
+=== 구간별 CAGR / MDD — 069500(새 기준선) · CS2·DS2·DS4(연구 기록값, 재계산 없음) · 코어 단독 N=2 · 후보 ===
+| 구간 | 069500 | CS2 (기록) | DS2 (기록) | DS4 (기록) | 코어 N=2 | ${verdicts.map((v) => v.id).join(" | ")} |
 |---|---|---|---|---|---|${verdicts.map(() => "---").join("|")}|`);
-  for (const [wn, w] of [...W.ALL, ["2026년 제외 (~2025-12-31)", ex26] as [string, Win]]) {
+  for (const [k, [wn, w]] of ([...W.ALL, ["2026년 제외 (~2025-12-31)", ex26] as [string, Win]]).entries()) {
     const cell = (r: { dates: string[]; ret: number[] }): string => { const sv = h.st(r, w); return `${f2(sv.cagr)} / ${f2(sv.mdd)}`; };
-    console.log(`| ${wn} | ${cell(h.bhP)} | ${cell(p2Ser)} | ${cell(cs2Ser)} | ${cell(ds4Ser)} | ${cell(coreN2)} | ${verdicts.map((v) => cell(v.run)).join(" | ")} |`);
+    const key = k < 4 ? winKeys[k] : "ex26";
+    console.log(`| ${wn} | ${cell(h.bhP)} | ${recCell(DS56_RECORDED.CS2[key])} | ${recCell(DS56_RECORDED.DS2[key])} | ${recCell(DS56_RECORDED.DS4[key])} | ${cell(coreN2)} | ${verdicts.map((v) => cell(v.run)).join(" | ")} |`);
   }
   console.log(`
-구간별 최악 12개월 %: ${W.ALL.map(([wn, w]) => `${wn} — 069500 ${f2(h.worst12(h.bhP, w))}, CS2 ${f2(h.worst12(cs2Ser, w))}, DS4 ${f2(h.worst12(ds4Ser, w))}, ${verdicts.map((v) => `${v.id} ${f2(h.worst12(v.run, w))}`).join(", ")}`).join(" | ")}`);
+구간별 최악 12개월 %: ${W.ALL.map(([wn, w]) => `${wn} — 069500 ${f2(h.worst12(h.bhP, w))}, ${verdicts.map((v) => `${v.id} ${f2(h.worst12(v.run, w))}`).join(", ")}`).join(" | ")}`);
   summaryReport(verdicts, verdicts.map((v) => v.trial), { prior: DS56_PRIOR_TESTS });
-  yearlyTable(h, W, [{ id: "CS2(참고)", run: cs2Ser as unknown as SimRun }, { id: "DS4(참고)", run: ds4Ser as unknown as SimRun }, { id: "코어 단독 N=2", run: coreN2 as unknown as SimRun }, ...verdicts.map((v) => ({ id: v.id, run: v.run }))]);
+  yearlyTable(h, W, [{ id: "코어 단독 N=2", run: coreN2 as unknown as SimRun }, ...verdicts.map((v) => ({ id: v.id, run: v.run }))]);
+  console.log(`연도별 연구 기록값(재계산 없음) %: 2017~2026 순서\n| DS4 (기록) | ${DS56_RECORDED.yearly.DS4.map(f2).join(" | ")} |\n| CS2 (기록) | ${DS56_RECORDED.yearly.CS2.map(f2).join(" | ")} |`);
   console.log(`
 === 실행 지표 ===
 Supabase 읽은 행: ${Object.entries(dbRead).map(([kk, v]) => `${kk} ${v}`).join(" | ") || "없음"} | 합계 ${Object.values(dbRead).reduce((a, b) => a + b, 0)}`);
-  console.log(`${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분 | 시험한 번호 ${verdicts.map((v) => v.trial).join(", ")}`);
-  void cs1Ser; void r3Ser; void ds2Ser; void ds3Ser;
+  console.log(`${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 공시 부분집합 캐시 읽기 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분 | 시험한 번호 ${verdicts.map((v) => v.trial).join(", ")}`);
 }
 
 main().catch((e) => { console.error(e instanceof Error ? e.stack : e); process.exit(1); });

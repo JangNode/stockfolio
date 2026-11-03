@@ -61,9 +61,12 @@ async function main(): Promise<void> {
   console.log(await verifySnapshotManifest());
   const h0 = await loadHarness();
   // 달력을 평가 끝(2016-12-30)에서 자른다 — 이후 모든 시뮬레이션·통계는 그 날짜 이후 데이터를 보지 않는다(스냅샷의 나머지 연도는 읽기만 하고 쓰지 않는다).
-  const cEndH = h0.CAL.indexOf(P17_END);
-  if (cEndH < 0) throw new Error(`${P17_END}이 거래일 달력에 없음`);
-  const h = { ...h0, CAL: h0.CAL.slice(0, cEndH + 1), nCal: cEndH + 1, dataEnd: P17_END };
+  // 사용자 지정 끝 2016-12-30은 거래일이 아니다(연말 휴장일). 달력에서 그 날짜 이하의 마지막 거래일에서 자른다.
+  let cEndH = -1;
+  for (let i = 0; i < h0.CAL.length; i++) if (h0.CAL[i] <= P17_END) cEndH = i;
+  if (cEndH < 0) throw new Error(`${P17_END} 이하 거래일 없음`);
+  console.log(`평가 끝: 지정 ${P17_END}${h0.CAL[cEndH] === P17_END ? "" : ` (거래일 아님 — 연말 휴장일; 그 이하 마지막 거래일 ${h0.CAL[cEndH]}에서 자름)`}`);
+  const h = { ...h0, CAL: h0.CAL.slice(0, cEndH + 1), nCal: cEndH + 1, dataEnd: h0.CAL[cEndH] };
   const { CAL, nCal, byCode } = h;
   const { excluded, membAt, kAt, nameOf, indOf, mmDates } = await loadK200P(h);
   const mmFirstAtOrBefore = (ds: string[], d: string): string | undefined => { let r: string | undefined; for (const x of ds) { if (x <= d) r = x; else break; } return r; };

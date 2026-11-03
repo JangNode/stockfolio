@@ -390,6 +390,8 @@ async function main(): Promise<void> {
         return { w: cap && jc >= 0 ? capRedistribute(w0v, jc, cap.v) : w0v, warm: false };
       }
       const n = v.filter(Number.isFinite).length;
+      // 구현 보완(사전 점검에서 드러남): 이력이 있는 구성요소가 하나도 없는 처음 구간(이번 구간 시작이 LV1 자신의 시작과 같다)은 모든 구성요소 균등 비중이다 — 구성요소가 하나인 DS6에서는 LV1 100%.
+      if (n === 0) return { w: v.map(() => 1 / v.length), warm: true };
       return { w: v.map((x) => (Number.isFinite(x) ? 1 / n : 0)), warm: true };
     };
     const w0 = weightsAt(-1), s = w0.w.slice();

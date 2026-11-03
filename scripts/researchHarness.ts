@@ -194,7 +194,7 @@ export async function loadHarness(): Promise<Harness> {
 }
 
 /** 이름(dart_corp_codes)·업종·ETF 겹침 → 제외 규칙(4c1557a: 우선주·ETF·스팩·리츠) 적용 후의 K200P(d) 구성. 월말 시장 목록은 Storage에서 읽는다(약 0.2 MiB). */
-export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; nameOf: Map<string, string>; indOf: Map<string, string>; excluded: Set<string>; membAt: (d: string) => Map<string, string> | undefined }> {
+export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; nameOf: Map<string, string>; indOf: Map<string, string>; excluded: Set<string>; membAt: (d: string) => Map<string, string> | undefined; mmDates: string[] }> {
   const nameOf = new Map<string, string>(), indOf = new Map<string, string>(), etfSet = new Set<string>();
   for (let i = 0; i < h.codes.length; i += 200) {
     const chunk = h.codes.slice(i, i + 200);
@@ -245,6 +245,6 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
     }
     return v;
   };
-  return { kAt, nameOf, indOf, excluded, membAt: (d) => { const md = mmFor(d); return md !== undefined ? memb.get(md) : undefined; } };
+  return { kAt, nameOf, indOf, excluded, membAt: (d) => { const md = mmFor(d); return md !== undefined ? memb.get(md) : undefined; }, mmDates };
 }
 export { SLIPPAGE_PCT_PER_SIDE };

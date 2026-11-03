@@ -26,7 +26,8 @@ export interface CandSpec {
   hRule?: (full: { cagr: number; mdd: number }, ref: { cagr: number; mdd: number }) => { ok: boolean; note: string };
   extra?: (base: SimRun) => void;
 }
-export interface Windows { NW: [string, Win][]; FULL: Win; ALL: [string, Win][] }
+/** noEx26: 평가 구간이 2026년을 포함하지 않으면 "2026년 제외" 줄을 내지 않는다. contamNote: 요약의 첫 경고 문구를 바꾼다(기본 문구는 2017 이후 구간용). */
+export interface Windows { NW: [string, Win][]; FULL: Win; ALL: [string, Win][]; noEx26?: boolean; contamNote?: string }
 export interface Verdict { id: string; trial: number; gates: Record<string, boolean | null>; ref: { A: boolean }; pass: boolean; fail: string[]; run: SimRun; full: { cagr: number; mdd: number } }
 
 export function makeWindows(h: Harness, evalFromIdx: number, trainLabel = "학습 2011~2016"): Windows {
@@ -54,9 +55,11 @@ export function evaluate(h: Harness, W: Windows, spec: CandSpec): Verdict {
     if (win !== FULL && okB) bCount++;
     console.log(`| ${name} | ${f2(s.cagr)} | ${f2(s.mdd)} | ${f2(h.worst12(o, win))} | ${f2(s.sharpe)} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${win === FULL ? "-" : ox(okB)} |`);
   }
-  const ex26 = { from: FULL.from, to: "2025-12-31" };
-  const s26 = h.st(o, ex26), b26 = h.st(h.bhP, ex26);
-  console.log(`2026년 제외(${ex26.from}~${ex26.to}): ${spec.id} CAGR ${f2(s26.cagr)} / MDD ${f2(s26.mdd)} | 069500 ${f2(b26.cagr)} / ${f2(b26.mdd)}`);
+  if (!W.noEx26) {
+    const ex26 = { from: FULL.from, to: "2025-12-31" };
+    const s26 = h.st(o, ex26), b26 = h.st(h.bhP, ex26);
+    console.log(`2026년 제외(${ex26.from}~${ex26.to}): ${spec.id} CAGR ${f2(s26.cagr)} / MDD ${f2(s26.mdd)} | 069500 ${f2(b26.cagr)} / ${f2(b26.mdd)}`);
+  }
 
   // 거래 통계
   const closedIn = (win: Win): SimTrade[] => o.trades.filter((t) => CAL[t.exitC] >= win.from && CAL[t.exitC] <= win.to);
@@ -180,7 +183,7 @@ export function yearlyTable(h: Harness, W: Windows, runs: { id: string; run: Sim
   for (const r of runs) console.log(`| ${r.id} | ${years.map((y) => f2(h.yearRet(r.run, y))).join(" | ")} |`);
 }
 
-export function summaryReport(verdicts: Verdict[], doneTrials: number[], opts?: { prior?: number; note?: (id: string) => string }): void {
+export function summaryReport(verdicts: Verdict[], doneTrials: number[], opts?: { prior?: number; note?: (id: string) => string; contamNote?: string }): void {
   console.log(`\n=== 요약 ===\n| 후보(시험) | A 또는 A_B | (참고 A) | B | C | D | E | F | G | H | 결과 | 탈락 사유 |\n|---|---|---|---|---|---|---|---|---|---|---|---|`);
   for (const v of verdicts) {
     const g = (k: string): string => (v.gates[k] === undefined || v.gates[k] === null ? "-" : ox(v.gates[k] as boolean));
@@ -188,7 +191,7 @@ export function summaryReport(verdicts: Verdict[], doneTrials: number[], opts?: 
     console.log(`| ${v.id} (${v.trial})${opts?.note ? ` ${opts.note(v.id)}` : ""} | ${g(aKey)} | ${ox(v.ref.A)} | ${g("B")} | ${g("C")} | ${g("D")} | ${g("E")} | ${g("F")} | ${g("G")} | ${v.gates.H === null || v.gates.H === undefined ? "해당 없음" : ox(v.gates.H as boolean)} | ${v.pass ? "통과" : "탈락"} | ${v.fail.join(", ") || "-"} |`);
   }
   const cum = (opts?.prior ?? 203) + doneTrials.length;
-  console.log("경고(홀드아웃 오염): 보류 구간(2022~)은 이미 여러 번 본 데이터이고 학습·확인 구간도 앞선 연구들에서 반복해 본 구간이라 순수 검증이 아니다.");
+  console.log(opts?.contamNote ?? "경고(홀드아웃 오염): 보류 구간(2022~)은 이미 여러 번 본 데이터이고 학습·확인 구간도 앞선 연구들에서 반복해 본 구간이라 순수 검증이 아니다.");
   console.log(`경고(우연 통과): 누적 시험 ${cum}번 중 실력이 없어도 5% 수준 기준 하나를 우연히 넘는 후보가 평균 ${cum} × 0.05 = ${(cum * 0.05).toFixed(2)}개 나올 것으로 기대되고, 적어도 하나가 걸릴 확률은 1 − 0.95^${cum} = ${f2((1 - Math.pow(0.95, cum)) * 100)}% (시험들이 독립이 아니므로 근사).${opts?.prior === undefined ? " (A+B 4건 모두 실행 시 207번)" : ""}`);
   console.log("통과 여부와 무관하게 운영 적용·PR 생성은 하지 않고 보고만 한다.");
 }

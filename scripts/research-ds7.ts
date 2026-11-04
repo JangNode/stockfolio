@@ -561,7 +561,7 @@ async function main(): Promise<void> {
   // DS7: 계좌 전체 노출 배율 s(t) = min(1, 목표변동성 ÷ σ(t)), σ(t) = 직전 win거래일(전일까지) DS6 기본 계좌(배율 적용 전) 일별 수익률 표본 표준편차 × √252
   // =====================================================================================================================
   interface OvOpts { tv: number; win: number; delay: number; rate: number }
-  interface OvOut { ret: number[]; s: number[]; moved: number[]; cost: number[] }
+  interface OvOut { ret: number[]; s: number[]; moved: number[]; cost: number[]; x0: number[] }
   /**
    * 계산 순서(거래일 t = 0..n−1): ① t일 수익 반영(위험 계좌 X만 DS6 기본 계좌 수익률로 움직이고 현금 C는 수익 0) ② 종가 t에 목표 노출 tgt를 정한다:
    * d[k] = (k ≥ win−1이면) min(1, 목표변동성 ÷ σ_k), 아니면 1; σ_k는 k일 종가까지 직전 win일 기본 계좌 수익률의 표본 표준편차 × √252. tgt = d[t − delay](delay 0 = 같은 종가 체결).
@@ -578,9 +578,10 @@ async function main(): Promise<void> {
       d[t] = sig > 0 ? Math.min(1, (o.tv * 100) / sig) : 1;
     }
     let X = 1, C = 0;
-    const ret: number[] = [], moved: number[] = [], cost: number[] = [], s = new Array<number>(n).fill(1);
+    const ret: number[] = [], moved: number[] = [], cost: number[] = [], x0: number[] = [], s = new Array<number>(n).fill(1);
     for (let t = 0; t < n; t++) {
       const Vprev = X + C;
+      x0.push(X / Vprev);
       X *= 1 + baseRet[t] / 100;
       const V = X + C, k = t - o.delay, tgt = k >= 0 ? d[k] : 1;
       const m = tgt * V - X, c = o.rate * Math.abs(m);
@@ -588,7 +589,7 @@ async function main(): Promise<void> {
       ret.push(((X + C) / Vprev - 1) * 100); moved.push(Math.abs(m) / Vprev); cost.push(c / Vprev);
       if (t + 1 < n) s[t + 1] = tgt;
     }
-    return { ret, s, moved, cost };
+    return { ret, s, moved, cost, x0 };
   };
   const makeRun = (r: SimRun, ov: OvOut): SimRun => ({
     ...r, ret: ov.ret,
@@ -610,10 +611,10 @@ async function main(): Promise<void> {
     // (a) 독립 계산한 s: s[t] = t < win ? 1 : min(1, 목표 ÷ (표본 std(r[t−win..t−1]) × √252)) — 전일까지 정보만 쓴다
     let maxS = 0;
     for (let t = 0; t < n; t++) { const sExp = t < W60 ? 1 : Math.min(1, (DS7_TARGET_VOL * 100) / (std(r.slice(t - W60, t)) * Math.sqrt(DS7_ANN_DAYS))); maxS = Math.max(maxS, Math.abs(sExp - base0.s[t])); }
-    // (b) 비용 0이면 일수익률 = s × 기본 수익률, 비용이 있으면 그 차이가 이동 비용
+    // (b) 비용 0이면 일수익률 = s × 기본 수익률. 비용이 있으면 일수익률 = (그날 시작 위험 계좌 비중 x0) × 기본 수익률 − 이동 비용(정확한 항등식)이고 x0는 목표 s에서 이동 비용 비율 이내로만 벗어난다
     const noCost = overlay(r, { ...ovBase, rate: 0 });
-    let maxA = 0, maxB = 0;
-    for (let t = 0; t < n; t++) { maxA = Math.max(maxA, Math.abs(noCost.ret[t] - noCost.s[t] * r[t])); maxB = Math.max(maxB, Math.abs(base0.ret[t] - (base0.s[t] * r[t] - base0.cost[t] * 100))); }
+    let maxA = 0, maxB = 0, maxX = 0;
+    for (let t = 0; t < n; t++) { maxA = Math.max(maxA, Math.abs(noCost.ret[t] - noCost.s[t] * r[t])); maxB = Math.max(maxB, Math.abs(base0.ret[t] - (base0.x0[t] * r[t] - base0.cost[t] * 100))); maxX = Math.max(maxX, Math.abs(base0.x0[t] - base0.s[t])); }
     // (c) 목표가 매우 커서 항상 s = 1이면 기본 수익률 그대로, 이동·비용 0
     const big = overlay(r, { ...ovBase, tv: 100 });
     const maxC = Math.max(...big.ret.map((x, t) => Math.abs(x - r[t]))), mvSum = big.moved.reduce((a, x) => a + x, 0);
@@ -627,8 +628,8 @@ async function main(): Promise<void> {
     let maxE = Math.abs(dl.s[1] - 1);
     for (let t = 1; t + 1 < n; t++) maxE = Math.max(maxE, Math.abs(dl.s[t + 1] - base0.s[t]));
     const nLow = base0.s.filter((x) => x < 1).length, firstLow = base0.s.findIndex((x) => x < 1);
-    console.log(`  (a) 독립 계산 s와 최대 차이 ${maxS.toExponential(2)} | (b) 비용 0 일수익 = s×기본 최대 차이 ${maxA.toExponential(2)}, 비용 있을 때 = s×기본 − 이동비용 최대 차이 ${maxB.toExponential(2)} | (c) 목표 100(항상 s=1) 기본과 최대 차이 ${maxC.toExponential(2)}, 이동 합 ${mvSum.toExponential(2)} | (d) 250일 수익률을 3배로 바꿔도 0~250일 배율 최대 변화 ${maxD.toExponential(2)} | (e) 하루 지연 배율 = 전날 배율 최대 차이 ${maxE.toExponential(2)} | 합성 계열에서 s<1인 날 ${nLow}일, 첫 s<1 ${firstLow < 0 ? "-" : `${firstLow}번째 날(워밍업 ${W60}일)`}`);
-    if (maxS > 1e-12 || maxA > 1e-9 || maxB > 1e-9 || maxC > 1e-9 || mvSum > 1e-12 || maxD > 0 || maxE > 1e-12 || firstLow < W60) throw new Error("노출 배율 구조 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)");
+    console.log(`  (a) 독립 계산 s와 최대 차이 ${maxS.toExponential(2)} | (b) 비용 0 일수익 = s×기본 최대 차이 ${maxA.toExponential(2)}, 비용 있을 때 = x0×기본 − 이동비용 최대 차이 ${maxB.toExponential(2)}, |x0 − s| 최대 ${maxX.toExponential(2)} | (c) 목표 100(항상 s=1) 기본과 최대 차이 ${maxC.toExponential(2)}, 이동 합 ${mvSum.toExponential(2)} | (d) 250일 수익률을 3배로 바꿔도 0~250일 배율 최대 변화 ${maxD.toExponential(2)} | (e) 하루 지연 배율 = 전날 배율 최대 차이 ${maxE.toExponential(2)} | 합성 계열에서 s<1인 날 ${nLow}일, 첫 s<1 ${firstLow < 0 ? "-" : `${firstLow}번째 날(워밍업 ${W60}일)`}`);
+    if (maxS > 1e-12 || maxA > 1e-9 || maxB > 1e-9 || maxX > CS_MOVE_COST || maxC > 1e-9 || mvSum > 1e-12 || maxD > 0 || maxE > 1e-12 || firstLow < W60) throw new Error("노출 배율 구조 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)");
   }
 
   // ---- DS6 기본 계좌 일관성 (DS6 후속 진단 기록: 연속 전체 11.70 / 39.15, 구간 1 4.10 / 24.51) ----

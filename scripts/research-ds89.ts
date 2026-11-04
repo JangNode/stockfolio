@@ -459,10 +459,11 @@ async function main(): Promise<void> {
   // ---- DS6 기본 계좌 일관성 (DS6 기록: 연속 전체 11.70 / 39.15, 구간 1 4.10 / 24.51, 롤링 창 CAGR 우위 92.81%·MDD 우위 32.03%) ----
   const b6 = build(DS6D);
   {
-    const sF = h.st(b6.res.run, FULL), s1 = h.st(b6.res.run, NW[0][1]);
+    // 기록 4.10 / 24.51은 CAGR 기간을 연말 휴장일 2016-12-30까지로 센 값(연구 DS6 시험 272·후속 진단과 같은 계산)이다. 사용자 지정 구간 1 끝(2016-12-29)으로 세면 같은 일별 수익에서 CAGR이 4.11이 된다(MDD 같음).
+    const sF = h.st(b6.res.run, FULL), s1 = h.st(b6.res.run, { from: FULL.from, to: "2016-12-30" }), s1b = h.st(b6.res.run, NW[0][1]);
     const rr = rollRows(b6.res.run.ret);
     const ok = f2(sF.cagr) === f2(DS89_DS6_REF.전체[0]) && f2(sF.mdd) === f2(DS89_DS6_REF.전체[1]) && f2(s1.cagr) === f2(DS89_DS6_REF.구간1[0]) && f2(s1.mdd) === f2(DS89_DS6_REF.구간1[1]) && f2(rr.cagrShare) === f2(DS89_DS6_REF.rollCagrShare) && f2(rr.mddShare) === f2(DS89_DS6_REF.rollMddShare);
-    console.log(`\nDS6 기본 계좌 일관성: 연속 전체 ${f2(sF.cagr)} / ${f2(sF.mdd)} (기록 ${DS89_DS6_REF.전체.join(" / ")}), 구간 1 ${NW[0][1].from}~${NW[0][1].to} ${f2(s1.cagr)} / ${f2(s1.mdd)} (기록 ${DS89_DS6_REF.구간1.join(" / ")}), 롤링 3년 창 ${rr.n}개 중 069500보다 CAGR 높은 창 ${f2(rr.cagrShare)}% (기록 ${DS89_DS6_REF.rollCagrShare}%) · MDD 작은 창 ${f2(rr.mddShare)}% (기록 ${DS89_DS6_REF.rollMddShare}%) → ${ok ? "일치" : "불일치"}`);
+    console.log(`\nDS6 기본 계좌 일관성: 연속 전체 ${f2(sF.cagr)} / ${f2(sF.mdd)} (기록 ${DS89_DS6_REF.전체.join(" / ")}), 구간 1(기록과 같은 CAGR 기간 ${FULL.from}~2016-12-30) ${f2(s1.cagr)} / ${f2(s1.mdd)} (기록 ${DS89_DS6_REF.구간1.join(" / ")}; 사용자 지정 끝 ${NW[0][1].to}로 세면 ${f2(s1b.cagr)} / ${f2(s1b.mdd)}), 롤링 3년 창 ${rr.n}개 중 069500보다 CAGR 높은 창 ${f2(rr.cagrShare)}% (기록 ${DS89_DS6_REF.rollCagrShare}%) · MDD 작은 창 ${f2(rr.mddShare)}% (기록 ${DS89_DS6_REF.rollMddShare}%) → ${ok ? "일치" : "불일치"}`);
     if (!ok) throw new Error("DS6 기록과 다르다 — 중단하고 보고한다");
   }
   if (REPRO) {

@@ -121,6 +121,11 @@ export async function readThroughDiskCache(opts: {
     }
   }
 
+  // 연구 DS6 포워드: PARQUET_CACHE_DOWNLOAD_ONLY_YEARS(예 "2025,2026")가 있으면 그 연도만 받을 수 있다. 다른 연도가 캐시와 다르면 받지 않고 중단한다. 환경변수가 없으면 기존 동작 그대로.
+  const onlyYears = process.env.PARQUET_CACHE_DOWNLOAD_ONLY_YEARS?.trim();
+  if (onlyYears && !onlyYears.split(",").map((y) => y.trim()).includes(fileName.slice(0, 4))) {
+    throw new Error(`[parquet-cache] ${fileName}이 캐시와 달라 다운로드가 필요하지만 허용 연도(${onlyYears})가 아니라 받지 않고 중단합니다`);
+  }
   const buf = await source.download();
   if (!buf) return null;
   stats.downloads++;

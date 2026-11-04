@@ -86,7 +86,7 @@ export async function verifySnapshotManifest(): Promise<string> {
 }
 
 /** 입력 적재: 가격 Parquet 2010~, 적용된 조정 이벤트, 069500 가격(DB 읽기), 지표 함수. */
-export async function loadHarness(): Promise<Harness> {
+export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파일 마지막 날짜 뒤 거래일의 069500 원주가 행([날짜, 종가, 출처 표지])을 이어 붙인다. 없으면 기존 동작 그대로. */ extendBench?: (cal: string[], auxLast: string) => Promise<[string, number, number][]> }): Promise<Harness> {
   const adjustments = await loadAppliedAdjustments();
   if (SNAP_END) for (const [code, list] of adjustments) { const kept = list.filter((e) => e.eventDate <= SNAP_END); if (kept.length) adjustments.set(code, kept); else adjustments.delete(code); }
   dbRead["stock_price_adjustment_events(applied)"] = [...adjustments.values()].reduce((a, l) => a + l.length, 0);
@@ -149,7 +149,13 @@ export async function loadHarness(): Promise<Harness> {
     if (sha !== BENCH_AUX_SHA256) throw new Error(`069500 보조 파일 SHA-256 불일치: ${sha} (기대 ${BENCH_AUX_SHA256})`);
     const aux = JSON.parse(buf.toString("utf8")) as { rows: [string, number, number][] };
     console.log(`069500 보조 파일 SHA-256 일치(${sha.slice(0, 12)}…), ${aux.rows.length}행 ${aux.rows[0][0]}~${aux.rows[aux.rows.length - 1][0]}, 그중 KRX로 채운 행 ${aux.rows.filter((r) => r[2] === 1).length}개`);
-    bhP = clean(aux.rows.map((r) => ({ date: r[0], px: r[1] })), "원주가(보조 파일)");
+    let auxRows = aux.rows;
+    if (opts?.extendBench) {
+      const extra = await opts.extendBench(CAL, aux.rows[aux.rows.length - 1][0]);
+      auxRows = [...aux.rows, ...extra];
+      console.log(`069500 보조 파일 뒤 이어 붙인 행 ${extra.length}개 ${extra[0]?.[0] ?? "-"}~${extra[extra.length - 1]?.[0] ?? "-"}`);
+    }
+    bhP = clean(auxRows.map((r) => ({ date: r[0], px: r[1] })), "원주가(보조 파일)");
   }
   const bhRet = new Map(bhP.dates.map((d, i) => [d, bhP.ret[i] / 100]));
 

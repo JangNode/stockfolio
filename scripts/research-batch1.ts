@@ -269,23 +269,34 @@ async function main(): Promise<void> {
     for (const q of [Q1, Q2, Q3, Q4]) {
       for (const lag of [1, 2]) {
         const r = runQ(q, q.P0, { lag, detail: true });
-        let badEntry = 0, badHold = 0, badRule = 0;
+        let badEntry = 0, badHold = 0, badRule = 0, nDeferred = 0;
         const holdKey = q.id === "Q2" ? "maxHold" : "hold", hold = q.P0[holdKey];
+        const halted = (s: S, k: number): boolean => { const j = s.idx.get(CAL[k]); return j === undefined || s.vol[j] === 0; };
         for (const t of r.trades) {
-          const sig = q.signals(t.entryC - lag, q.P0, undefined, () => {}).map((s) => s.code);
+          const s = byCode.get(t.code) as S;
+          const sig = q.signals(t.entryC - lag, q.P0, undefined, () => {}).map((x) => x.code);
           if (!sig.includes(t.code)) badEntry++;
-          if (t.reason === "보유 만료" && t.exitC - t.entryC !== hold) badHold++;
-          if (q.id === "Q3" && t.reason === "익절") { const s = byCode.get(t.code) as S, j = s.idx.get(CAL[t.exitC - lag]); if (j === undefined || s.close[j] / t.entryAdj - 1 < q.P0.take - 1e-12) badRule++; }
+          if (t.reason === "보유 만료") {
+            // 규칙: 체결일 + hold 거래일째 종가. 그날 거래정지(행 없음·거래량 0)면 다음 거래일로 순연되므로 [due, exitC) 가 전부 정지일이어야 한다.
+            const due = t.entryC + hold;
+            if (t.exitC < due) badHold++;
+            else if (t.exitC > due) { nDeferred++; for (let k = due; k < t.exitC; k++) if (!halted(s, k)) { badHold++; break; } }
+          }
+          if (q.id === "Q3" && t.reason === "익절") {
+            let ok = false;
+            for (let k = t.entryC + 1; k <= t.exitC - lag && !ok; k++) { const j = s.idx.get(CAL[k]); if (j !== undefined && s.close[j] / t.entryAdj - 1 >= q.P0.take - 1e-12) ok = true; }
+            if (!ok) badRule++;
+          }
           if (q.id === "Q2" && t.reason === "순위 하락") {
-            const er = rankAt(t.entryC - lag).rank.get(t.code) ?? B1_OUT_RANK, rn = rankAt(t.exitC - lag).rank.get(t.code) ?? B1_OUT_RANK;
-            if (rn < er + q.P0.dropExit) badRule++;
+            const er = rankAt(t.entryC - lag).rank.get(t.code) ?? B1_OUT_RANK;
+            let ok = false;
+            for (let k = t.entryC; k <= t.exitC - lag && !ok; k++) if ((rankAt(k).rank.get(t.code) ?? B1_OUT_RANK) >= er + q.P0.dropExit) ok = true;
+            if (!ok) badRule++;
           }
         }
         if (q.id === "Q4") for (const t of r.trades) if (!(bhRetOn(t.entryC - lag) <= q.P0.thr)) badEntry++;
-        const nHalt = r.exitDefer + r.haltSkip;
-        console.log(`  ${q.id} lag ${lag}: 진입 ${r.entryCs.length}건, 청산 ${r.trades.length}건 | 신호일+${lag}이 아닌 진입 ${badEntry}건 | 보유 일수가 규칙과 다른 만료 청산 ${badHold}건 (거래정지 순연 ${r.exitDefer}건·진입 건너뜀 ${r.haltSkip}건) | 규칙 위반 ${badRule}건 ${badEntry === 0 && badHold <= r.exitDefer && badRule <= r.exitDefer ? "통과" : "불일치"}`);
-        if (badEntry > 0 || badHold > r.exitDefer || badRule > r.exitDefer) throw new Error(`${q.id} 체결 타이밍 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)`);
-        void nHalt;
+        console.log(`  ${q.id} lag ${lag}: 진입 ${r.entryCs.length}건, 청산 ${r.trades.length}건 | 신호일+${lag}이 아닌 진입 ${badEntry}건 | 보유 만료가 규칙일(체결일+${hold}거래일)보다 이른 날 또는 정지일이 아닌데 늦은 청산 ${badHold}건 (거래정지로 순연된 정상 청산 ${nDeferred}건) | 규칙 조건이 한 번도 성립하지 않은 규칙 청산 ${badRule}건 ${badEntry === 0 && badHold === 0 && badRule === 0 ? "통과" : "불일치"}`);
+        if (badEntry > 0 || badHold > 0 || badRule > 0) throw new Error(`${q.id} 체결 타이밍 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)`);
       }
     }
     console.log(`\n=== 1c. 구조 통계 (성과 아님) ===`);

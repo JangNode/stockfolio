@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -68,7 +68,7 @@ jobs:
       # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
       - name: Restore 고정 스냅샷 (연구 LE~)
         id: snap_use
-        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pe4sub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'ds6fwd' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pe4sub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'ds6fwd' || inputs.which == 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -343,7 +343,7 @@ jobs:
       # 연구 LC: 069500 보조 파일(원주가를 2026-10-26까지 채움). aux가 만들고 고정 키로 저장하며, lc는 같은 키를 복원해 SHA-256을 대조한 뒤 쓴다.
       - name: Restore 069500 보조 파일 (연구 LC)
         id: aux_use
-        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'ds6fwd' || inputs.which == 'riskdiag' }}
+        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'ds6fwd' || inputs.which == 'riskdiag' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -904,7 +904,7 @@ jobs:
 
       - name: Restore 이전 연구 일별 순수익 캐시 (recycle, 없어도 계속)
         id: alloc_ref
-        if: ${{ inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' }}
+        if: ${{ inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'scan4a' || inputs.which == 'scan4as' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -1177,6 +1177,74 @@ jobs:
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
           BENCH_AUX_069500: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 연구 VKOSPI 스캔(가벼운 버전). vkcol = KRX drvprod_dd_trd 수집(only=pilot: 3개 날짜 키 확인만, only=collect: 이어받기 수집 후 정리본), vkscan = 학습 구간 스캔 1회.
+      - name: Restore VKOSPI 수집 이어받기 파일 (vkcol collect, 없어도 계속)
+        if: ${{ inputs.which == 'vkcol' && inputs.only == 'collect' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .vkospi-resume
+          key: research-vkospi-resume-${{ github.run_id }}
+          restore-keys: research-vkospi-resume-
+
+      - name: VKOSPI 수집 (KRX drvprod_dd_trd, KST 14:00~15:40 실행 거부, 연구 DB 쓰기 0, Storage 쓰기 소량, 읽기 0, DART 호출 0)
+        id: vkcol_run
+        if: ${{ inputs.which == 'vkcol' }}
+        run: npx tsx --conditions=react-server scripts/collect-vkospi.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          VKOSPI_MODE: ${{ inputs.only }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+
+      - name: Save VKOSPI 수집 이어받기 파일 (research-vkospi-resume-<run id>)
+        if: ${{ always() && inputs.which == 'vkcol' && inputs.only == 'collect' && hashFiles('.vkospi-resume/state.json') != '' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .vkospi-resume
+          key: research-vkospi-resume-${{ github.run_id }}
+
+      - name: Save VKOSPI 입력 정리본 (research-vkospi-inputs-20261105, 수집이 끝난 회차만)
+        if: ${{ steps.vkcol_run.conclusion == 'success' && inputs.which == 'vkcol' && inputs.only == 'collect' && hashFiles('.vkospi-inputs/manifest.json') != '' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .vkospi-inputs
+          key: research-vkospi-inputs-20261105
+
+      - name: VKOSPI 입력 정리본 아티팩트 (보관용)
+        if: ${{ steps.vkcol_run.conclusion == 'success' && inputs.which == 'vkcol' && inputs.only == 'collect' && hashFiles('.vkospi-inputs/manifest.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vkospi-inputs-20261105
+          path: .vkospi-inputs
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Restore VKOSPI 입력 정리본 (research-vkospi-inputs-20261105)
+        if: ${{ inputs.which == 'vkscan' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .vkospi-inputs
+          key: research-vkospi-inputs-20261105
+          fail-on-cache-miss: true
+
+      - name: 연구 VKOSPI 신호 스캔 (학습 구간만, 1회, 읽기 전용, 외부 요청 0건, Storage 읽기 0, DART 호출 0)
+        id: vkscan_run
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'vkscan' }}
+        run: npx tsx --conditions=react-server scripts/research-vkospi-scan.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          BENCH_AUX_069500: "1"
+          VKOSPI_MODE: ${{ inputs.only }}
+          ALLOC_REF_DIR: ${{ steps.alloc_ref.outputs.cache-hit == 'true' && '.alloc-returns' || '' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

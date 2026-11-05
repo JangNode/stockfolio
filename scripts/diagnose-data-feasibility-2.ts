@@ -62,6 +62,10 @@ const KIS: KisProbe[] = [
   { id: "P12e", item: "종목별 일별 대차거래추이(종목 단위), 2013년 1년 범위(시작 시점 좁히기)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20130102", END_DATE: "20131230", CTS: "" } },
   { id: "P12f", item: "종목별 일별 대차거래추이(종목 단위), 2014년 1년 범위(시작 시점 좁히기)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20140102", END_DATE: "20141230", CTS: "" } },
   { id: "P16b", item: "주식현재가 회원사 종목매매동향(일별 거래원), 2011년 범위(깊이)", path: `${Q}/inquire-member-daily`, trId: "FHPST04540000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_ISCD_2: "99999", FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20110131", FID_SCTN_CLS_CODE: "" } },
+  { id: "P12g", item: "종목별 일별 대차거래추이(종목 단위), 2015년 1년 범위(호출당 행 수 상한 확정)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20150102", END_DATE: "20151230", CTS: "" } },
+  { id: "P4d", item: "종목별 일별 매수매도 체결량, 2010년 1년 범위(2010 시작 가능 여부)", path: `${Q}/inquire-daily-trade-volume`, trId: "FHKST03010800", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_PERIOD_DIV_CODE: "D", FID_INPUT_DATE_1: "20100104", FID_INPUT_DATE_2: "20101230" } },
+  { id: "P1d", item: "프로그램매매 종합현황(일별) 코스닥(Q), 2011-01", path: `${Q}/comp-program-trade-daily`, trId: "FHPPG04600001", params: { FID_COND_MRKT_DIV_CODE: "J", FID_MRKT_CLS_CODE: "Q", FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20110131" } },
+  { id: "P1e", item: "프로그램매매 종합현황(일별) 코스피(K), 2010년 1년 범위(2010 시작 가능 여부)", path: `${Q}/comp-program-trade-daily`, trId: "FHPPG04600001", params: { FID_COND_MRKT_DIV_CODE: "J", FID_MRKT_CLS_CODE: "K", FID_INPUT_DATE_1: "20100104", FID_INPUT_DATE_2: "20101230" } },
 ];
 const KRX: KrxProbe[] = [
   { id: "K1a", item: "KRX 파생상품지수 일별(VKOSPI 등), 최근", endpoint: "idx/drvprod_dd_trd", basDd: "20261104" },
@@ -100,7 +104,7 @@ async function main(): Promise<void> {
   console.log(`데이터 가용성 점검 2 시작: ${new Date().toISOString()} (KST ${String(kst.getUTCHours()).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")})`);
   if (hm >= 14 * 60 && hm < 15 * 60 + 40) throw new Error("KST 14:00~15:40에는 KIS·KRX를 호출하지 않는다 — 실행 거부");
   const only = (process.env.FEAS_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  const SECOND = new Set(["P1c","P2c","P2d","P4c","P7c","P8c","P10d","P10e","P10f","P11c","P11d","P12c","P12d","P13c","P16","P12e","P12f","P16b","K5b"]);
+  const SECOND = new Set(["P1c","P2c","P2d","P4c","P7c","P8c","P10d","P10e","P10f","P11c","P11d","P12c","P12d","P13c","P16","P12e","P12f","P16b","K5b","P12g","P4d","P1d","P1e"]);
   const want = (id: string): boolean => only.length === 0 || only.includes("all") ? !SECOND.has(id) : only.includes(id);
   let nKis = 0, nKrx = 0;
   for (const p of KIS.filter((x) => want(x.id))) {

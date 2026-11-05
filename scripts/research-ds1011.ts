@@ -479,8 +479,8 @@ async function main(): Promise<void> {
     const t1 = confirmStates([U, U, U, U, U, U, U, U], 2, 5).join("");
     const t2 = confirmStates([U, U, U, U, U, U, D, D, D, D, U, D, D, D, D, D, U, U], 0, 5).join("");
     const t3 = confirmStates([U, D, U, D, U, D, U, D, U, D, U, D], 0, 5).join("");
-    const okS = t1 === "WWWWWWUU" && t2 === "WWWWUUUUUUUUUUUUDD" && t3 === "WWWWWWWWWWWW";
-    console.log(`  (a) 합성: warm 2·U×8 → ${t1} (기대 WWWWWWUU), U×6·D×4·U·D×5·U·U → ${t2} (기대 WWWWUUUUUUUUUUUUDD), 번갈아 U/D → ${t3} (기대 W만) ${okS ? "통과" : "불일치"}`);
+    const okS = t1 === "WWWWWWUU" && t2 === "WWWWUUUUUUUUUUUDDD" && t3 === "WWWWWWWWWWWW";
+    console.log(`  (a) 합성: warm 2·U×8 → ${t1} (기대 WWWWWWUU), U×6·D×4·U·D×5·U·U → ${t2} (기대 WWWWUUUUUUUUUUUDDD), 번갈아 U/D → ${t3} (기대 W만) ${okS ? "통과" : "불일치"}`);
     if (!okS) throw new Error("상태 기계 합성 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)");
     // (b) 미래 정보 미사용: i0 이후 069500 값을 임의로 바꿔도 i0 이전(포함) 원 상태·확정 상태·목표 비중이 같다
     const base = regimePath({ sma: DS10_SMA, upW: DS10_UP_CORE, downW: DS10_DOWN_CORE });

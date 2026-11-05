@@ -1175,7 +1175,7 @@ jobs:
 
       - name: 연구 묶음 2 R1~R4 시험 (읽기 전용, 가설당 1회, only=repro이면 신호 독립 대조·체결 타이밍·구조 통계만, DART 호출 0, 외부 요청 0건, Storage 읽기 월말 목록 약 0.2 MiB)
         id: batch2_run
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'batch2' || inputs.which == 'scan4a' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'batch2' }}
         run: npx tsx --conditions=react-server scripts/research-batch2.ts
         env:
           NODE_OPTIONS: --max-old-space-size=14336

@@ -11,7 +11,7 @@ const SLEEP_MS = 800;
 const STOCK = "005930";
 const DELISTED = "117930";
 
-interface KisProbe { id: string; item: string; path: string; trId: string; params: Record<string, string> }
+interface KisProbe { id: string; item: string; path: string; trId: string; params: Record<string, string>; /** 있으면 응답의 첫 배열 모든 행에서 이 필드들만 한 줄씩 출력한다. */ show?: string[] }
 interface KrxProbe { id: string; item: string; endpoint: string; basDd: string }
 
 const Q = "/uapi/domestic-stock/v1/quotations";
@@ -43,6 +43,22 @@ const KIS: KisProbe[] = [
   { id: "P13b", item: "국내주식 신용잔고 일별추이, 2015", path: `${Q}/daily-credit-balance`, trId: "FHPST04760000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_COND_SCR_DIV_CODE: "20476", FID_INPUT_ISCD: STOCK, FID_INPUT_DATE_1: "20150130" } },
   { id: "P14", item: "종목별 외국계 순매수추이", path: `${Q}/frgnmem-pchs-trend`, trId: "FHKST644400C0", params: { FID_INPUT_ISCD: STOCK, FID_INPUT_ISCD_2: "99999", FID_COND_MRKT_DIV_CODE: "J" } },
   { id: "P15", item: "상장폐지 종목 커버리지: 기간별 시세(한진해운 2017-04 마지막 거래 구간)", path: `${Q}/inquire-daily-itemchartprice`, trId: "FHKST03010100", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: DELISTED, FID_INPUT_DATE_1: "20170101", FID_INPUT_DATE_2: "20170430", FID_PERIOD_DIV_CODE: "D", FID_ORG_ADJ_PRC: "0" } },
+  // ---- 2차 호출(1차 결과로 호출당 행 수·깊이·종목 단위 파라미터를 확인하기 위한 재호출) ----
+  { id: "P1c", item: "프로그램매매 종합현황(일별) 시장 단위, 2011년 1년 범위(호출당 행 수 상한)", path: `${Q}/comp-program-trade-daily`, trId: "FHPPG04600001", params: { FID_COND_MRKT_DIV_CODE: "J", FID_MRKT_CLS_CODE: "K", FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20111230" } },
+  { id: "P2c", item: "종목별 프로그램매매추이(일별), 2011 기준일(깊이)", path: `${Q}/program-trade-by-stock-daily`, trId: "FHPPG04650200", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_DATE_1: "20110131" } },
+  { id: "P2d", item: "종목별 프로그램매매추이(일별), 상장폐지 종목(한진해운) 기준일 2017-03-06", path: `${Q}/program-trade-by-stock-daily`, trId: "FHPPG04650200", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: DELISTED, FID_INPUT_DATE_1: "20170306" } },
+  { id: "P4c", item: "종목별 일별 매수매도 체결량, 2011년 1년 범위(호출당 행 수 상한)", path: `${Q}/inquire-daily-trade-volume`, trId: "FHKST03010800", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_PERIOD_DIV_CODE: "D", FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20111230" } },
+  { id: "P7c", item: "VI 발동 현황(날짜 지정), 2015", path: `${Q}/inquire-vi-status`, trId: "FHPST01390000", params: { FID_DIV_CLS_CODE: "0", FID_COND_SCR_DIV_CODE: "20139", FID_MRKT_CLS_CODE: "0", FID_INPUT_ISCD: "", FID_RANK_SORT_CLS_CODE: "0", FID_INPUT_DATE_1: "20150105", FID_TRGT_CLS_CODE: "", FID_TRGT_EXLS_CLS_CODE: "" } },
+  { id: "P8c", item: "시간외 일자별 주가 전체 행(시간외 거래량·종가 값이 있는지)", path: `${Q}/inquire-daily-overtimeprice`, trId: "FHPST02320000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK }, show: ["stck_bsop_date", "ovtm_untp_prpr", "ovtm_untp_vol", "ovtm_untp_tr_pbmn", "stck_clpr", "acml_vol"] },
+  { id: "P10d", item: "일별 분봉 조회, 약 22개월 전(20250102)", path: `${Q}/inquire-time-dailychartprice`, trId: "FHKST03010230", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_HOUR_1: "153000", FID_INPUT_DATE_1: "20250102", FID_PW_DATA_INCU_YN: "Y", FID_FAKE_TICK_INCU_YN: "" } },
+  { id: "P10e", item: "일별 분봉 조회, 약 34개월 전(20240102)", path: `${Q}/inquire-time-dailychartprice`, trId: "FHKST03010230", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_HOUR_1: "153000", FID_INPUT_DATE_1: "20240102", FID_PW_DATA_INCU_YN: "Y", FID_FAKE_TICK_INCU_YN: "" } },
+  { id: "P10f", item: "일별 분봉 조회, 약 58개월 전(20220103)", path: `${Q}/inquire-time-dailychartprice`, trId: "FHKST03010230", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_HOUR_1: "153000", FID_INPUT_DATE_1: "20220103", FID_PW_DATA_INCU_YN: "Y", FID_FAKE_TICK_INCU_YN: "" } },
+  { id: "P11c", item: "국내주식 공매도 일별추이, 2011년 1년 범위(깊이·호출당 행 수 상한)", path: `${Q}/daily-short-sale`, trId: "FHPST04830000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20111230" } },
+  { id: "P11d", item: "국내주식 공매도 일별추이, 상장폐지 종목(한진해운) 2017-01~03", path: `${Q}/daily-short-sale`, trId: "FHPST04830000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: DELISTED, FID_INPUT_DATE_1: "20170102", FID_INPUT_DATE_2: "20170306" } },
+  { id: "P12c", item: "종목별 일별 대차거래추이(종목 단위 MRKT_DIV_CLS_CODE=3), 2015", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20150105", END_DATE: "20150130", CTS: "" } },
+  { id: "P12d", item: "종목별 일별 대차거래추이(종목 단위), 2011년 1년 범위(깊이·호출당 행 수 상한)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20110103", END_DATE: "20111230", CTS: "" } },
+  { id: "P13c", item: "국내주식 신용잔고 일별추이, 2011 기준일(깊이)", path: `${Q}/daily-credit-balance`, trId: "FHPST04760000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_COND_SCR_DIV_CODE: "20476", FID_INPUT_ISCD: STOCK, FID_INPUT_DATE_1: "20110131" } },
+  { id: "P16", item: "주식현재가 회원사 종목매매동향(일별 거래원)", path: `${Q}/inquire-member-daily`, trId: "FHPST04540000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_ISCD_2: "99999", FID_INPUT_DATE_1: "20261001", FID_INPUT_DATE_2: "20261104", FID_SCTN_CLS_CODE: "" } },
 ];
 const KRX: KrxProbe[] = [
   { id: "K1a", item: "KRX 파생상품지수 일별(VKOSPI 등), 최근", endpoint: "idx/drvprod_dd_trd", basDd: "20261104" },
@@ -80,7 +96,8 @@ async function main(): Promise<void> {
   console.log(`데이터 가용성 점검 2 시작: ${new Date().toISOString()} (KST ${String(kst.getUTCHours()).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")})`);
   if (hm >= 14 * 60 && hm < 15 * 60 + 40) throw new Error("KST 14:00~15:40에는 KIS·KRX를 호출하지 않는다 — 실행 거부");
   const only = (process.env.FEAS_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  const want = (id: string): boolean => only.length === 0 || only.includes("all") || only.includes(id);
+  const SECOND = new Set(["P1c","P2c","P2d","P4c","P7c","P8c","P10d","P10e","P10f","P11c","P11d","P12c","P12d","P13c","P16"]);
+  const want = (id: string): boolean => only.length === 0 || only.includes("all") ? !SECOND.has(id) : only.includes(id);
   let nKis = 0, nKrx = 0;
   for (const p of KIS.filter((x) => want(x.id))) {
     console.log(`\n### ${p.id} — ${p.item}\n  요청: ${p.path.replace("/uapi/domestic-stock/v1/", "")} TR ${p.trId} 파라미터 ${JSON.stringify(p.params)}`);
@@ -89,18 +106,22 @@ async function main(): Promise<void> {
       const body = await kisGetForResearch(p.path, p.trId, p.params, 1);
       console.log(`  결과: 성공 rt_cd=${String(body.rt_cd)} msg=${trunc(String(body.msg1 ?? ""), 100)}`);
       for (const l of summarize(body)) console.log(l);
+      if (p.show) {
+        const arr = (Object.values(body).filter((v) => Array.isArray(v)).pop() ?? []) as Record<string, unknown>[];
+        for (const r of arr) console.log(`    ${p.show.map((k) => String(r[k])).join(" | ")}`);
+      }
     } catch (e) {
       console.log(`  결과: 오류 ${trunc(e instanceof Error ? e.message : String(e), 400)}`);
     }
     await sleep(SLEEP_MS);
   }
   const key = process.env.KRX_API_KEY;
-  if (!key) throw new Error("KRX_API_KEY 없음");
+  if (!key && KRX.some((x) => want(x.id))) throw new Error("KRX_API_KEY 없음");
   for (const p of KRX.filter((x) => want(x.id))) {
     console.log(`\n### ${p.id} — ${p.item}\n  요청: ${p.endpoint}?basDd=${p.basDd}`);
     try {
       nKrx++;
-      const res = await fetch(`${KRX_BASE}/${p.endpoint}?basDd=${p.basDd}`, { headers: { AUTH_KEY: key } });
+      const res = await fetch(`${KRX_BASE}/${p.endpoint}?basDd=${p.basDd}`, { headers: { AUTH_KEY: key as string } });
       const text = await res.text();
       let body: Record<string, unknown> | null = null;
       try { body = JSON.parse(text) as Record<string, unknown>; } catch { /* 비 JSON */ }

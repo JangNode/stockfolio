@@ -70,6 +70,7 @@ const KIS: KisProbe[] = [
 const KRX: KrxProbe[] = [
   { id: "K1a", item: "KRX 파생상품지수 일별(VKOSPI 등), 최근", endpoint: "idx/drvprod_dd_trd", basDd: "20261104" },
   { id: "K1b", item: "KRX 파생상품지수 일별, 2011", endpoint: "idx/drvprod_dd_trd", basDd: "20110103" },
+  { id: "K1c", item: "KRX 파생상품지수 일별, 2015", endpoint: "idx/drvprod_dd_trd", basDd: "20150105" },
   { id: "K2", item: "KRX 선물 일별매매정보", endpoint: "drv/fut_bydd_trd", basDd: "20261104" },
   { id: "K3", item: "KRX 옵션 일별매매정보", endpoint: "drv/opt_bydd_trd", basDd: "20261104" },
   { id: "K4a", item: "KRX 코스닥 일별매매정보(소속부 SECT_TP_NM 분포), 최근", endpoint: "sto/ksq_bydd_trd", basDd: "20261104" },
@@ -124,8 +125,11 @@ async function main(): Promise<void> {
     await sleep(SLEEP_MS);
   }
   const key = process.env.KRX_API_KEY;
-  if (!key && KRX.some((x) => want(x.id))) throw new Error("KRX_API_KEY 없음");
-  for (const p of KRX.filter((x) => want(x.id))) {
+  const chain = only.includes("KIDX");
+  if (!key && (chain || KRX.some((x) => want(x.id)))) throw new Error("KRX_API_KEY 없음");
+  /** KIDX: K1a를 1회 호출해 200이고 행이 있으면 K1b·K1c를 1회씩 더 부르고, 아니면 재시도 없이 멈춘다. */
+  const krxList = chain ? KRX.filter((x) => ["K1a", "K1b", "K1c"].includes(x.id)) : KRX.filter((x) => want(x.id));
+  for (const p of krxList) {
     console.log(`\n### ${p.id} — ${p.item}\n  요청: ${p.endpoint}?basDd=${p.basDd}`);
     try {
       nKrx++;
@@ -134,9 +138,15 @@ async function main(): Promise<void> {
       let body: Record<string, unknown> | null = null;
       try { body = JSON.parse(text) as Record<string, unknown>; } catch { /* 비 JSON */ }
       console.log(`  결과: HTTP ${res.status}, ${(text.length / 1024).toFixed(1)} KiB${body ? "" : `, 본문 ${trunc(text, 200)}`}`);
+      if (chain && p.id === "K1a") { const b0 = body ? (Object.values(body).find((v) => Array.isArray(v)) as unknown[] | undefined) : undefined; if (res.status !== 200 || !b0?.length) { console.log(`  K1a가 200이 아니거나 행이 없어 K1b·K1c는 호출하지 않는다(재시도 없음). 응답 요약: ${trunc(JSON.stringify(body ?? text), 200)}`); break; } }
       if (body) {
         for (const l of summarize(body)) console.log(l);
         const blk = Object.values(body).find((v) => Array.isArray(v)) as Record<string, unknown>[] | undefined;
+        if (blk?.length && "IDX_NM" in blk[0]) {
+          const names = blk.map((r) => String(r.IDX_NM)), dates = [...new Set(blk.map((r) => String(r.BAS_DD)))].sort(), vk = names.filter((n) => /VKOSPI|변동성/i.test(n));
+          console.log(`  지수 행 ${blk.length}개, 기준일 ${dates[0]}~${dates[dates.length - 1]}, 변동성(VKOSPI) 포함 이름 ${vk.length}개: ${vk.join(" | ") || "없음"}`);
+          console.log(`  지수 이름 전체: ${trunc(names.join(" | "), 1800)}`);
+        }
         if (blk?.length && "SECT_TP_NM" in blk[0]) {
           const cnt = new Map<string, number>();
           for (const r of blk) cnt.set(String(r.SECT_TP_NM), (cnt.get(String(r.SECT_TP_NM)) ?? 0) + 1);

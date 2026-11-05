@@ -176,5 +176,5 @@ DS6 V4 급등일(+15%↑) H=21
 - 누적 스캔 행 345(321 + 24). 대차 4-B 16행은 미실행이므로 그 후 361.
 - 읽기·쓰기: Supabase 읽은 행: stock_price_adjustment_events(applied) 313 | beta_price_history(KOSPI) 1733 | etf_daily_prices(069500) 2234 | etf_krx_daily(유니버스 코드와 겹치는 행) 0 | etf_daily_prices(유니버스 코드와 겹치는 행) 0 | dart_corp_codes(유니버스 코드) 2369 | stock_industry_classification(유니버스 코드) 520 | 합계 7169 (069500 기준선·조정 이벤트·KOSPI 달력 읽기용) | 쓴 행 0 | Storage 읽기 0 | 외부 요청 0 | DART 호출 0 | 소요 0.5분
 - [parquet-cache] 연도별 캐시 적중 7건(84.83 MB 절약), 다운로드 0건 0.00 MB
-- Storage 읽기 0(VKOSPI는 Actions 캐시), 연구 DB 쓰기 0, 외부 요청 0, DART 호출 0. 확인(2017~2021)·보류(2022~) 구간은 계산·열람하지 않았다(VKOSPI 연도 파일 6개는 SHA 대조만, 값은 읽지 않음).
+- Storage 읽기 0(VKOSPI는 Actions 캐시), 연구 DB 쓰기 0, 외부 요청 0, DART 호출 0. 확인(2017~2021)·보류(2022~) 구간은 계산·열람하지 않았다(학습 구간 밖 VKOSPI 연도 파일 10개(2017~2026)는 SHA 대조만, 값은 읽지 않음).
 - **후속 조건**: 후보가 있으므로 확인·보류 구간 사용과 전략 시험은 가능하지만, 둘 다 사용자 승인과 별도 사전등록 커밋이 있어야 한다. 이 스캔은 시험 번호를 소진하지 않았다.

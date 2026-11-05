@@ -59,6 +59,9 @@ const KIS: KisProbe[] = [
   { id: "P12d", item: "종목별 일별 대차거래추이(종목 단위), 2011년 1년 범위(깊이·호출당 행 수 상한)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20110103", END_DATE: "20111230", CTS: "" } },
   { id: "P13c", item: "국내주식 신용잔고 일별추이, 2011 기준일(깊이)", path: `${Q}/daily-credit-balance`, trId: "FHPST04760000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_COND_SCR_DIV_CODE: "20476", FID_INPUT_ISCD: STOCK, FID_INPUT_DATE_1: "20110131" } },
   { id: "P16", item: "주식현재가 회원사 종목매매동향(일별 거래원)", path: `${Q}/inquire-member-daily`, trId: "FHPST04540000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_ISCD_2: "99999", FID_INPUT_DATE_1: "20261001", FID_INPUT_DATE_2: "20261104", FID_SCTN_CLS_CODE: "" } },
+  { id: "P12e", item: "종목별 일별 대차거래추이(종목 단위), 2013년 1년 범위(시작 시점 좁히기)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20130102", END_DATE: "20131230", CTS: "" } },
+  { id: "P12f", item: "종목별 일별 대차거래추이(종목 단위), 2014년 1년 범위(시작 시점 좁히기)", path: `${Q}/daily-loan-trans`, trId: "HHPST074500C0", params: { MRKT_DIV_CLS_CODE: "3", MKSC_SHRN_ISCD: STOCK, START_DATE: "20140102", END_DATE: "20141230", CTS: "" } },
+  { id: "P16b", item: "주식현재가 회원사 종목매매동향(일별 거래원), 2011년 범위(깊이)", path: `${Q}/inquire-member-daily`, trId: "FHPST04540000", params: { FID_COND_MRKT_DIV_CODE: "J", FID_INPUT_ISCD: STOCK, FID_INPUT_ISCD_2: "99999", FID_INPUT_DATE_1: "20110103", FID_INPUT_DATE_2: "20110131", FID_SCTN_CLS_CODE: "" } },
 ];
 const KRX: KrxProbe[] = [
   { id: "K1a", item: "KRX 파생상품지수 일별(VKOSPI 등), 최근", endpoint: "idx/drvprod_dd_trd", basDd: "20261104" },
@@ -69,6 +72,7 @@ const KRX: KrxProbe[] = [
   { id: "K4b", item: "KRX 코스닥 일별매매정보(소속부 SECT_TP_NM 분포), 2012", endpoint: "sto/ksq_bydd_trd", basDd: "20120102" },
   { id: "K4c", item: "KRX 코스피 일별매매정보(소속부 SECT_TP_NM 분포), 최근", endpoint: "sto/stk_bydd_trd", basDd: "20261104" },
   { id: "K5", item: "KRX 유가증권 종목기본정보", endpoint: "sto/stk_isu_base_info", basDd: "20261104" },
+  { id: "K5b", item: "KRX 유가증권 종목기본정보, 과거 기준일 2012-01-02(과거 스냅샷·상장폐지 종목 포함 여부)", endpoint: "sto/stk_isu_base_info", basDd: "20120102" },
 ];
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -96,7 +100,7 @@ async function main(): Promise<void> {
   console.log(`데이터 가용성 점검 2 시작: ${new Date().toISOString()} (KST ${String(kst.getUTCHours()).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")})`);
   if (hm >= 14 * 60 && hm < 15 * 60 + 40) throw new Error("KST 14:00~15:40에는 KIS·KRX를 호출하지 않는다 — 실행 거부");
   const only = (process.env.FEAS_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  const SECOND = new Set(["P1c","P2c","P2d","P4c","P7c","P8c","P10d","P10e","P10f","P11c","P11d","P12c","P12d","P13c","P16"]);
+  const SECOND = new Set(["P1c","P2c","P2d","P4c","P7c","P8c","P10d","P10e","P10f","P11c","P11d","P12c","P12d","P13c","P16","P12e","P12f","P16b","K5b"]);
   const want = (id: string): boolean => only.length === 0 || only.includes("all") ? !SECOND.has(id) : only.includes(id);
   let nKis = 0, nKrx = 0;
   for (const p of KIS.filter((x) => want(x.id))) {

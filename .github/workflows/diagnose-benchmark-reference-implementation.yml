@@ -1241,7 +1241,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"
-          RESEARCH_DATA_END: "2026-10-26"
+          RESEARCH_DATA_END: "2016-12-29"
           BENCH_AUX_069500: "1"
           VKOSPI_MODE: ${{ inputs.only }}
           ALLOC_REF_DIR: ${{ steps.alloc_ref.outputs.cache-hit == 'true' && '.alloc-returns' || '' }}

@@ -19,7 +19,6 @@ const MODE = (process.env.VKOSPI_MODE ?? "pilot").trim();
 const RESUME_DIR = ".vkospi-resume";
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const num = (s: unknown): number | null => { const t = String(s ?? "").replace(/,/g, "").trim(); const n = Number(t); return t !== "" && Number.isFinite(n) ? n : null; };
-const iso = (yyyymmdd: string): string => `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 type Status = "ok" | "empty" | "noname" | "dup";
 interface Rec { d: string; cls: string; nm: string; close: number | null; chg: number | null; rt: number | null; open: number | null; high: number | null; low: number | null }
 interface State { status: Record<string, Status>; rows: Record<string, Rec>; requests: number; runs: { startedAt: string; requests: number; stop: string }[] }

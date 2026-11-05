@@ -20,6 +20,7 @@ import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST, CS_ACCOUNTING_TOL_PP
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, SNAP_END, f2, type S, type Win } from "./researchHarness";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { parquetReadObjects } from "hyparquet";
+import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
 import { FEE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { SCAN_CANDIDATE_ABS_T } from "@/lib/signalScanConfig";
 import { VK_CACHE_DIR, VK_IDX_NAME, VK_FROM, VK_LEARN_END, VK_CHG_DAYS, VK_PCT_WINDOW, VK_SPIKE_RET, VK_HORIZONS, VK_HI, VK_LO, vkNwLag, VK_MAX_MISSING_RATIO, VK_DS6_REPRO, VK_DS6_CAGR_TOL, VK_SPIKE_MIN_EVENTS_NOTE } from "@/lib/vkospiScanConfig";
@@ -377,6 +378,11 @@ async function main(): Promise<void> {
     const okOld = f2(sA.cagr) === VK_DS6_REPRO.cagr && f2(sA.mdd) === VK_DS6_REPRO.mdd;
     const ok = dC <= VK_DS6_CAGR_TOL + 1e-9 && f2(sA.mdd) === VK_DS6_REPRO.mdd;
     console.log(`\n선행 조건 DS6 재현: 구간 A(${WA.from}~${h.dataEnd}) DS6 CAGR ${sA.cagr.toFixed(6)} / MDD ${sA.mdd.toFixed(6)} (소수 6자리) | 시도 272 기록 ${VK_DS6_REPRO.cagr} / ${VK_DS6_REPRO.mdd}, 묶음 2 기록 4.11 / 24.51 | CAGR 차이 ${dC.toFixed(6)}%p | 소수 둘째 자리 반올림 ${f2(sA.cagr)} / ${f2(sA.mdd)} | 옛 판정(둘째 자리 일치) ${okOld ? "통과" : "불일치"}, 승인된 판정(CAGR 차이 ${VK_DS6_CAGR_TOL}%p 이내 + MDD 둘째 자리 일치) ${ok ? "통과" : "불일치"}`);
+    {
+      const rIn = base.run.ret.filter((_, i) => base.run.dates[i] >= WA.from && base.run.dates[i] <= WA.to);
+      const tot = computeCumulativeAndMdd(rIn).totalReturnPct;
+      console.log(`  진단: 구간 A 일수익률 ${rIn.length}개 누적수익 ${tot.toFixed(6)}% | 같은 누적수익의 CAGR: 환산 종료일 ${h.dataEnd} → ${computeCagrPct(tot, WA.from, h.dataEnd).toFixed(6)}, 환산 종료일 ${P17_END}(시도 272·DS6 후속 진단이 쓴 구간 끝, 휴장일) → ${computeCagrPct(tot, WA.from, P17_END).toFixed(6)}`);
+    }
     if (!ok) throw new Error("DS6 재현이 승인된 판정 기준을 만족하지 않는다 — 스캔하지 않고 보고한다");
     if (process.env.VKOSPI_MODE === "repro") { console.log("VKOSPI_MODE=repro: 재현 점검만 하고 종료한다(VKOSPI 데이터 읽기 0, 신호 계산 0)"); return; }
   }

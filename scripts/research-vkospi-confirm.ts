@@ -492,9 +492,10 @@ async function main(): Promise<void> {
     for (let k = 0; k < nCal; k++) if (CAL[k] >= from && CAL[k] <= to) ks.push(k);
     const miss = ks.filter((k) => !Number.isFinite(Cv[k])).length, bad = ks.filter((k) => Number.isFinite(Cv[k]) && !(Cv[k] > 0)).length;
     const jumps: string[] = [];
-    for (let q = 1; q < ks.length; q++) { const a = Cv[ks[q - 1]], b = Cv[ks[q]]; if (Number.isFinite(a) && Number.isFinite(b) && (b / a - 1 <= -0.5 || b / a - 1 >= 1)) jumps.push(CAL[ks[q]]); }
-    const ok = miss / ks.length <= VK_MAX_MISSING_RATIO && bad === 0 && jumps.length === 0 && dupDates === 0;
-    console.log(`선행 조건(${label} ${from}~${to}): 거래일 ${ks.length}일 중 VKOSPI 값 없는 날 ${miss}일(${(miss / ks.length * 100).toFixed(2)}%, 상한 ${VK_MAX_MISSING_RATIO * 100}%) | 종가 0 이하 ${bad}건 | 전일 대비 −50% 이하·+100% 이상 ${jumps.length}건 | 달력에 없는 날짜 ${notInCal}개 | 중복 날짜 ${dupDates} → ${ok ? "통과" : "미충족"}`);
+    for (let q = 1; q < ks.length; q++) { const a = Cv[ks[q - 1]], b = Cv[ks[q]]; if (Number.isFinite(a) && Number.isFinite(b) && (b / a - 1 <= -0.5 || b / a - 1 >= 1)) jumps.push(`${CAL[ks[q]]} ${a.toFixed(2)}→${b.toFixed(2)}`); }
+    // 전일 대비 −50% 이하·+100% 이상은 스캔 사전등록 7절의 학습 구간 점검이다. 1단계 사전등록에는 정지 조건으로 없으므로 정보로만 출력한다(5절 기록).
+    const ok = miss / ks.length <= VK_MAX_MISSING_RATIO && bad === 0 && dupDates === 0;
+    console.log(`선행 조건(${label} ${from}~${to}): 거래일 ${ks.length}일 중 VKOSPI 값 없는 날 ${miss}일(${(miss / ks.length * 100).toFixed(2)}%, 상한 ${VK_MAX_MISSING_RATIO * 100}%) | 종가 0 이하 ${bad}건 | 달력에 없는 날짜 ${notInCal}개 | 중복 날짜 ${dupDates} → ${ok ? "통과" : "미충족"} | 정보(정지 조건 아님): 전일 대비 −50% 이하·+100% 이상 ${jumps.length}건${jumps.length ? `: ${jumps.join(", ")}` : ""}`);
     return ok;
   };
 

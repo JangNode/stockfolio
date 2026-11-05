@@ -5,5 +5,5 @@
 실행 방법: GitHub Actions → 워크플로 "벤치마크 참조 구현 재실행 (검증, 영구 보존)"을 연구 브랜치 `claude/ma-v3-portfolio-cap-run`에서 `which=batch2`, `only=repro|r1|r2|r3|r4`로 실행(외부 요청 0). 로그에서 `##### Rn` 이하를 기록한다. 시험마다 결과를 `batch2-prereg.md` 7절에 추가하고 이 파일을 갱신한 뒤 커밋·푸시한다. 4개를 마치면 `batch2-summary.md`를 쓰고 PushNotification으로 알린 뒤 요약을 한 번 보고한다.
 
 ## 상태
-- 정의 문서·설정(`lib/batch2Config.ts`) 작성·커밋 완료. 스크립트(`scripts/research-batch2.ts`)·워크플로 옵션 `batch2` 구현 전.
-- 다음에 할 일: 스크립트·워크플로 구현 → 사전 점검(repro) → R1 → R2 → R3 → R4
+- 사전 점검(repro) 완료·통과: 실행 41964983040(코드 `29c9c72`, 수정 없음). 기록은 prereg 6절.
+- 다음에 할 시험: R1 (282) → R2 (283) → R3 (284) → R4 (285)

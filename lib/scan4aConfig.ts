@@ -39,3 +39,19 @@ export const S4_MKT_PATH = "/uapi/domestic-stock/v1/quotations/comp-program-trad
 export const S4_MKT_TR = "FHPPG04600001";
 /** 프로그램매매 저장 열: 코스피 K·코스닥 Q별 전체·차익·비차익 합계(위탁+자기) 매수·매도 대금. */
 export const S4_MKT_VALUE_COLS = ["whol_smtn_shnu_tr_pbmn", "whol_smtn_seln_tr_pbmn", "arbt_smtn_shnu_tr_pbmn", "arbt_smtn_seln_tr_pbmn", "nabt_smtn_shnu_tr_pbmn", "nabt_smtn_seln_tr_pbmn"] as const;
+
+// ---- 스캔 4-A 스캔 단계(scripts/research-signal-scan-4a.ts) 기준값. 사전등록 docs/research/signal-scan-3-prereg.md (확정 b7edd74) ----
+export const S4_PREREG_COMMIT = "b7edd74";
+/** 스캔 구간(학습만). 이 날짜를 넘는 가격·체결량·프로그램매매 행은 읽은 직후 버린다. 첫 표본일은 SCAN_START 이후 첫 월말·주말. */
+export const S4_SCAN_START = "2011-04-01";
+export const S4_SCAN_END = "2016-12-31";
+/** MID = PIT 적격 중 시총 101~150위(슬라이스 끝, POOL은 SCAN_POOL_SIZE=100). */
+export const S4_MID_TO = 150;
+/** 체결강도 평균 창(거래일). 최소 유효 일수는 ceil(2w/3) (SCAN_FLOW_MIN_PRICE_DAY_RATIO). */
+export const S4_T_WINDOWS = [5, 20] as const;
+/** 프로그램매매 창(거래일)과 시장 단위 통계: 확장 백분위에 필요한 앞선 유효 표본 수, 상위·하위 경계, 예측 기간(거래일). */
+export const S4_PG_WINDOW = 5;
+export const S4_PG_MIN_PRIOR = 36;
+export const S4_PG_HI = 2 / 3;
+export const S4_PG_LO = 1 / 3;
+export const S4_MKT_HORIZONS = [5, 21] as const;

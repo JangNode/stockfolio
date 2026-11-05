@@ -1,7 +1,7 @@
 /**
  * [임시 연구 — 병합 금지] VKOSPI(코스피 200 변동성지수) 일별 종가 수집. 사전등록: docs/research/vkospi-scan-prereg.md.
  * KRX Open API idx/drvprod_dd_trd를 거래일별 1건씩 호출해 지수명이 정확히 VK_IDX_NAME인 행 한 개만 남긴다. 키: KRX_API_KEY(값 출력 금지).
- * 모드(VKOSPI_MODE): pilot = 3개 날짜(2011-01-03, 2016-12-30, 2026-11-04)만 부르고 키 이름·행 수만 출력(저장 없음), collect = 이어받기 수집(Actions 캐시 .vkospi-resume) 후 정리본 저장.
+ * 모드(VKOSPI_MODE): pilot = 연도별 대표 날짜 17개만 부르고 키 이름·행 수만 출력(저장 없음), collect = 이어받기 수집(Actions 캐시 .vkospi-resume) 후 정리본 저장.
  * KST 14:00~15:40에는 실행하지 않는다. 연구 DB 쓰기 0(KOSPI 거래일 읽기만), Storage 쓰기만(소량), Storage 읽기 0. 학습 구간(~2016-12-31) 밖 값은 출력하지 않는다.
  */
 import { createHash } from "node:crypto";
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   const key = process.env.KRX_API_KEY;
   if (!key) throw new Error("KRX_API_KEY 없음");
   if (MODE === "pilot") {
-    for (const d of ["2011-01-03", "2016-12-30", "2026-11-04"]) { if (!(await fetchDay(d, key, true))) { console.log(`중단: ${run.stop}`); break; } }
+    for (const d of ["2011-01-03", "2011-08-09", "2012-06-29", "2013-06-28", "2014-06-30", "2015-06-30", "2016-06-30", "2016-12-27", "2016-12-28", "2016-12-29", "2016-12-30", "2017-01-02", "2017-06-30", "2019-06-28", "2021-06-30", "2023-06-30", "2026-11-04"]) { if (!(await fetchDay(d, key, true))) { console.log(`중단: ${run.stop}`); break; } }
     console.log(`\n파일럿 종료: KRX 호출 ${run.req}회, 오류 ${run.errors}회 | 저장 0 | DB 쓰기 0 | DART 호출 0`);
     return;
   }

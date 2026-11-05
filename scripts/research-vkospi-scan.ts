@@ -22,7 +22,7 @@ import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { parquetReadObjects } from "hyparquet";
 import { FEE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { SCAN_CANDIDATE_ABS_T } from "@/lib/signalScanConfig";
-import { VK_CACHE_DIR, VK_IDX_NAME, VK_FROM, VK_LEARN_END, VK_CHG_DAYS, VK_PCT_WINDOW, VK_SPIKE_RET, VK_HORIZONS, VK_HI, VK_LO, vkNwLag, VK_MAX_MISSING_RATIO, VK_DS6_REPRO, VK_SPIKE_MIN_EVENTS_NOTE } from "@/lib/vkospiScanConfig";
+import { VK_CACHE_DIR, VK_IDX_NAME, VK_FROM, VK_LEARN_END, VK_CHG_DAYS, VK_PCT_WINDOW, VK_SPIKE_RET, VK_HORIZONS, VK_HI, VK_LO, vkNwLag, VK_MAX_MISSING_RATIO, VK_DS6_REPRO, VK_DS6_CAGR_TOL, VK_SPIKE_MIN_EVENTS_NOTE } from "@/lib/vkospiScanConfig";
 
 const T0 = Date.now();
 const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").update(b).digest("hex");
@@ -373,9 +373,12 @@ async function main(): Promise<void> {
   const base = build({ coreLag: 1, satLag: 1, delay: 0 });
   {
     const sA = h.st(base.run, WA);
-    const ok = f2(sA.cagr) === VK_DS6_REPRO.cagr && f2(sA.mdd) === VK_DS6_REPRO.mdd;
-    console.log(`\n선행 조건 DS6 재현: 구간 A(${WA.from}~${h.dataEnd}) DS6 ${f2(sA.cagr)} / ${f2(sA.mdd)} (시도 272 기록 ${VK_DS6_REPRO.cagr} / ${VK_DS6_REPRO.mdd}) → ${ok ? "일치" : "불일치"}`);
-    if (!ok) throw new Error("DS6 재현이 시도 272 기록과 다르다 — 스캔하지 않고 보고한다");
+    const dC = Math.abs(sA.cagr - Number(VK_DS6_REPRO.cagr));
+    const okOld = f2(sA.cagr) === VK_DS6_REPRO.cagr && f2(sA.mdd) === VK_DS6_REPRO.mdd;
+    const ok = dC <= VK_DS6_CAGR_TOL + 1e-9 && f2(sA.mdd) === VK_DS6_REPRO.mdd;
+    console.log(`\n선행 조건 DS6 재현: 구간 A(${WA.from}~${h.dataEnd}) DS6 CAGR ${sA.cagr.toFixed(6)} / MDD ${sA.mdd.toFixed(6)} (소수 6자리) | 시도 272 기록 ${VK_DS6_REPRO.cagr} / ${VK_DS6_REPRO.mdd}, 묶음 2 기록 4.11 / 24.51 | CAGR 차이 ${dC.toFixed(6)}%p | 소수 둘째 자리 반올림 ${f2(sA.cagr)} / ${f2(sA.mdd)} | 옛 판정(둘째 자리 일치) ${okOld ? "통과" : "불일치"}, 승인된 판정(CAGR 차이 ${VK_DS6_CAGR_TOL}%p 이내 + MDD 둘째 자리 일치) ${ok ? "통과" : "불일치"}`);
+    if (!ok) throw new Error("DS6 재현이 승인된 판정 기준을 만족하지 않는다 — 스캔하지 않고 보고한다");
+    if (process.env.VKOSPI_MODE === "repro") { console.log("VKOSPI_MODE=repro: 재현 점검만 하고 종료한다(VKOSPI 데이터 읽기 0, 신호 계산 0)"); return; }
   }
   const lastU = nCal - 2; // 마지막 거래일은 시뮬레이터가 기간 끝 강제 청산을 하므로 청산일로 쓰지 않는다
   console.log(`학습 구간 달력 ${CAL[0]}~${CAL[nCal - 1]}(${nCal}일), 청산일 상한 ${CAL[lastU]}`);

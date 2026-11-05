@@ -51,5 +51,7 @@ export const vkNwLag = (h: number): number => h;
 export const VK_MAX_MISSING_RATIO = 0.02;
 /** 선행 조건: DS6 재현(시도 272 기록 구간 A 2011-01-04~2016-12-29, CAGR % / MDD %). */
 export const VK_DS6_REPRO = { cagr: "4.10", mdd: "24.51" } as const;
+/** 사용자 승인 2026-11-05(사전등록 10.3절): DS6 재현 판정 = CAGR 차이 이 값(%p) 이내 + MDD 소수 둘째 자리 일치. 신호·후보 기준에는 적용하지 않는다. */
+export const VK_DS6_CAGR_TOL = 0.01;
 /** 급등일 독립 사건 수(앞 사건 뒤 H일 안의 급등일은 같은 사건)가 이보다 적으면 보고서에 "표본 부족" 표시(행 수·판정은 그대로). */
 export const VK_SPIKE_MIN_EVENTS_NOTE = 10;

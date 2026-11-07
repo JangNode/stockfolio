@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'bkpack' && inputs.which != 'bkrestore' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'bkpack' && inputs.which != 'bkrestore' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -1395,6 +1395,251 @@ jobs:
           SCAN5_MODE: ${{ inputs.only }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # ===== 연구 캐시 백업·복원 (사용자 승인 2026-11-07). bkpack = 캐시 적중 경로로 읽어 아티팩트(보관 90일)로 백업(Supabase 읽기 0, 외부 요청 0). bkrestore = 캐시가 없을 때 백업 아티팩트에서 같은 바이트로 복원해 원래 키로 다시 저장(코드·문서만 준비, 사용자 지시 전 실행 금지). =====
+      - name: Restore 백업 대상 — 고정 스냅샷 (bkpack, 없으면 중단)
+        if: ${{ inputs.which == 'bkpack' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .parquet-cache
+          key: parquet-snapshot-20261026
+          fail-on-cache-miss: true
+
+      - name: Restore 백업 대상 — 069500 보조 파일 (bkpack, 없으면 중단)
+        if: ${{ inputs.which == 'bkpack' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .research-aux
+          key: research-aux-069500-20261026
+          fail-on-cache-miss: true
+
+      - name: Restore 백업 대상 — 일별 순수익 캐시 (bkpack)
+        id: bk_alloc
+        if: ${{ inputs.which == 'bkpack' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .alloc-returns
+          key: research-alloc-returns-40627267099
+
+      - name: Restore 백업 대상 — VKOSPI 정리본 (bkpack)
+        id: bk_vk
+        if: ${{ inputs.which == 'bkpack' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .vkospi-inputs
+          key: research-vkospi-inputs-20261105
+
+      - name: Restore 백업 대상 — 외국인 순매수 부분집합 (bkpack, 5-A FMD용 추가 항목)
+        id: bk_flow
+        if: ${{ inputs.which == 'bkpack' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .research-flow
+          key: research-flow-subset-20261028
+
+      - name: 백업 대상 점검·SHA256SUMS 생성 (bkpack, 캐시에 없는 보조 항목은 같은 이름의 기존 아티팩트에서 보충)
+        id: bk_sums
+        if: ${{ inputs.which == 'bkpack' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          fetch() { # fetch <artifact-name> <dest-dir>
+            id=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=$1&per_page=1" --jq '.artifacts[0].id // empty')
+            if [ -z "$id" ]; then echo "::warning::캐시도 아티팩트도 없음: $1"; return 0; fi
+            mkdir -p "$2" && gh api "repos/${{ github.repository }}/actions/artifacts/${id}/zip" > "/tmp/$1.zip" && unzip -o "/tmp/$1.zip" -d "$2" > /dev/null && echo "아티팩트 $1 에서 보충 → $2"
+          }
+          [ "${{ steps.bk_alloc.outputs.cache-hit }}" = "true" ] || fetch research-alloc-files-40627267099 .
+          [ "${{ steps.bk_vk.outputs.cache-hit }}" = "true" ] || fetch research-vkospi-inputs-20261105 .vkospi-inputs
+          [ "${{ steps.bk_flow.outputs.cache-hit }}" = "true" ] || fetch research-flow-subset-20261028 .research-flow
+          rm -f .parquet-cache/.dirty
+          total=0
+          for d in .parquet-cache .research-aux .alloc-returns .vkospi-inputs .research-flow; do
+            if [ ! -d "$d" ]; then echo "::warning::$d 없음 — 이 항목은 백업하지 않음"; continue; fi
+            rm -f "$d/SHA256SUMS"
+            (cd "$d" && find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/SHA256SUMS.tmp && mv /tmp/SHA256SUMS.tmp SHA256SUMS)
+            bytes=$(find "$d" -type f ! -name SHA256SUMS -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+            n=$(find "$d" -type f ! -name SHA256SUMS | wc -l)
+            total=$((total + bytes))
+            echo "=== $d — 파일 ${n}개, ${bytes} B ($(awk -v b=$bytes 'BEGIN {printf "%.2f", b/1048576}') MiB), SHA256SUMS 자체 sha256 $(sha256sum "$d/SHA256SUMS" | cut -d' ' -f1)"
+            cat "$d/SHA256SUMS"
+          done
+          echo "백업 대상 원본 합계 ${total} B ($(awk -v b=$total 'BEGIN {printf "%.2f", b/1048576}') MiB)"
+          if [ "$total" -gt 419430400 ]; then echo "::error::백업 대상이 400 MiB를 넘어 중단(저장소 아티팩트 사용량 확인 필요)"; exit 1; fi
+
+      - name: Backup 아티팩트 — 고정 스냅샷 (보관 90일)
+        id: bk_up_snap
+        if: ${{ inputs.which == 'bkpack' && steps.bk_sums.conclusion == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-backup-parquet-snapshot-20261026
+          path: .parquet-cache
+          include-hidden-files: true
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Backup 아티팩트 — 069500 보조 파일 (보관 90일)
+        id: bk_up_aux
+        if: ${{ inputs.which == 'bkpack' && steps.bk_sums.conclusion == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-backup-aux-069500-20261026
+          path: .research-aux
+          include-hidden-files: true
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Backup 아티팩트 — 일별 순수익 (보관 90일)
+        id: bk_up_alloc
+        if: ${{ inputs.which == 'bkpack' && steps.bk_sums.conclusion == 'success' && hashFiles('.alloc-returns/SHA256SUMS') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-backup-alloc-returns-40627267099
+          path: .alloc-returns
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Backup 아티팩트 — VKOSPI 정리본 (보관 90일)
+        id: bk_up_vk
+        if: ${{ inputs.which == 'bkpack' && steps.bk_sums.conclusion == 'success' && hashFiles('.vkospi-inputs/SHA256SUMS') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-backup-vkospi-inputs-20261105
+          path: .vkospi-inputs
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Backup 아티팩트 — 외국인 순매수 부분집합 (보관 90일, 추가 항목)
+        id: bk_up_flow
+        if: ${{ inputs.which == 'bkpack' && steps.bk_sums.conclusion == 'success' && hashFiles('.research-flow/SHA256SUMS') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-backup-flow-subset-20261028
+          path: .research-flow
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Backup 결과 요약 (bkpack, 아티팩트 이름·압축 후 다이제스트)
+        if: ${{ inputs.which == 'bkpack' && always() }}
+        run: |
+          echo "snapshot: ${{ steps.bk_up_snap.outputs.artifact-id }} ${{ steps.bk_up_snap.outputs.artifact-digest }}"
+          echo "aux: ${{ steps.bk_up_aux.outputs.artifact-id }} ${{ steps.bk_up_aux.outputs.artifact-digest }}"
+          echo "alloc-returns: ${{ steps.bk_up_alloc.outputs.artifact-id }} ${{ steps.bk_up_alloc.outputs.artifact-digest }}"
+          echo "vkospi-inputs: ${{ steps.bk_up_vk.outputs.artifact-id }} ${{ steps.bk_up_vk.outputs.artifact-digest }}"
+          echo "flow-subset: ${{ steps.bk_up_flow.outputs.artifact-id }} ${{ steps.bk_up_flow.outputs.artifact-digest }}"
+
+      # --- 복원 (bkrestore): 캐시가 없는 항목만 백업 아티팩트에서 복원하고 SHA256SUMS 검증 뒤 원래 키로 다시 저장한다. 사용자 지시 전에는 실행하지 않는다. ---
+      - name: 복원 대상 확인 — 고정 스냅샷 (캐시 조회만, 다운로드 없음)
+        id: bkr_chk_snap
+        if: ${{ inputs.which == 'bkrestore' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .bkr-lookup-snap
+          key: parquet-snapshot-20261026
+          lookup-only: true
+
+      - name: 복원 대상 확인 — 보조 파일 (캐시 조회만)
+        id: bkr_chk_aux
+        if: ${{ inputs.which == 'bkrestore' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .bkr-lookup-aux
+          key: research-aux-069500-20261026
+          lookup-only: true
+
+      - name: 복원 대상 확인 — 일별 순수익 (캐시 조회만)
+        id: bkr_chk_alloc
+        if: ${{ inputs.which == 'bkrestore' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .bkr-lookup-alloc
+          key: research-alloc-returns-40627267099
+          lookup-only: true
+
+      - name: 복원 대상 확인 — VKOSPI 정리본 (캐시 조회만)
+        id: bkr_chk_vk
+        if: ${{ inputs.which == 'bkrestore' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .bkr-lookup-vk
+          key: research-vkospi-inputs-20261105
+          lookup-only: true
+
+      - name: 복원 대상 확인 — 외국인 순매수 부분집합 (캐시 조회만)
+        id: bkr_chk_flow
+        if: ${{ inputs.which == 'bkrestore' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .bkr-lookup-flow
+          key: research-flow-subset-20261028
+          lookup-only: true
+
+      - name: 백업 아티팩트에서 복원 + SHA256SUMS 검증 (bkrestore, 캐시에 없는 항목만)
+        id: bkr_run
+        if: ${{ inputs.which == 'bkrestore' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          restore() { # restore <flag-output> <cache-hit> <artifact-name> <dest-dir>
+            if [ "$2" = "true" ]; then echo "$1: 캐시가 이미 있어 건너뜀"; return 0; fi
+            id=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=$3&per_page=1" --jq '.artifacts[0].id // empty')
+            if [ -z "$id" ]; then echo "::error::백업 아티팩트 $3 없음(만료?) — 이 항목 복원 불가"; return 1; fi
+            rm -rf "$4" && mkdir -p "$4"
+            gh api "repos/${{ github.repository }}/actions/artifacts/${id}/zip" > "/tmp/$3.zip"
+            unzip -o "/tmp/$3.zip" -d "$4" > /dev/null
+            (cd "$4" && sha256sum -c SHA256SUMS --quiet) && echo "$1: SHA256SUMS 검증 통과 → $4"
+            rm -f "$4/SHA256SUMS"
+            echo "$1=1" >> "$GITHUB_OUTPUT"
+          }
+          restore snap "${{ steps.bkr_chk_snap.outputs.cache-hit }}" research-backup-parquet-snapshot-20261026 .parquet-cache
+          restore aux "${{ steps.bkr_chk_aux.outputs.cache-hit }}" research-backup-aux-069500-20261026 .research-aux
+          restore alloc "${{ steps.bkr_chk_alloc.outputs.cache-hit }}" research-backup-alloc-returns-40627267099 .alloc-returns
+          restore vk "${{ steps.bkr_chk_vk.outputs.cache-hit }}" research-backup-vkospi-inputs-20261105 .vkospi-inputs
+          restore flow "${{ steps.bkr_chk_flow.outputs.cache-hit }}" research-backup-flow-subset-20261028 .research-flow
+
+      - name: 복원한 캐시 다시 저장 — 고정 스냅샷 (원래 키)
+        if: ${{ inputs.which == 'bkrestore' && steps.bkr_run.outputs.snap == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .parquet-cache
+          key: parquet-snapshot-20261026
+
+      - name: 복원한 캐시 다시 저장 — 보조 파일 (원래 키)
+        if: ${{ inputs.which == 'bkrestore' && steps.bkr_run.outputs.aux == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .research-aux
+          key: research-aux-069500-20261026
+
+      - name: 복원한 캐시 다시 저장 — 일별 순수익 (원래 키)
+        if: ${{ inputs.which == 'bkrestore' && steps.bkr_run.outputs.alloc == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .alloc-returns
+          key: research-alloc-returns-40627267099
+
+      - name: 복원한 캐시 다시 저장 — VKOSPI 정리본 (원래 키)
+        if: ${{ inputs.which == 'bkrestore' && steps.bkr_run.outputs.vk == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .vkospi-inputs
+          key: research-vkospi-inputs-20261105
+
+      - name: 복원한 캐시 다시 저장 — 외국인 순매수 부분집합 (원래 키)
+        if: ${{ inputs.which == 'bkrestore' && steps.bkr_run.outputs.flow == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .research-flow
+          key: research-flow-subset-20261028
 
       - name: 데이터 가용성 점검 2 (시험 아님, KIS·KRX 시험 호출만, 항목당 1~2회, 응답 요약 출력만, 쓰기 0, DART 호출 0)
         id: feas2_run

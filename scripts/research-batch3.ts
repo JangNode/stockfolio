@@ -115,6 +115,14 @@ async function main(): Promise<void> {
   }
 
   // ---- 지표(정렬 수정 종가 기준, 판단일 c까지의 정보만): 볼린저·RSI·ADX·수축일 ----
+  /** 단순이동평균(직접 합산: c−n+1부터 앞에서 더해 n으로 나눔). 브루트포스와 같은 산술이라 정확히 같은 값이 나온다(prefix 합은 합이 클 때 1e-11 수준 잡음이 생겨 같은 값과의 비교가 갈릴 수 있다). */
+  const smaD = (s: S, c: number, n: number): number => {
+    const a = alignedOf(s.code);
+    if (c - n + 1 < 0) return Number.NaN;
+    let sum = 0;
+    for (let k = c - n + 1; k <= c; k++) { if (!(a[k] > 0)) return Number.NaN; sum += a[k]; }
+    return sum / n;
+  };
   const bbCache = new Map<string, { mid: Float64Array; sd: Float64Array }>();
   /** 볼린저 중심선·모집단 표준편차(분모 n, 당일 포함). 창 안에 결측이 있으면 NaN. 직접 합산(앞에서부터)이라 브루트포스와 같은 산술이다. */
   const bbOf = (code: string, n: number): { mid: Float64Array; sd: Float64Array } => {
@@ -214,7 +222,7 @@ async function main(): Promise<void> {
     if (!(a[c - 1] < lo1) || !(a[c] > lo0)) return Number.NaN;
     const r = rsiOf(s.code)[c];
     if (!(r <= P.rsiMax)) return Number.NaN;
-    if (!(a[c] > smaAt(s, c, P.trend))) return Number.NaN;
+    if (!(a[c] > smaD(s, c, P.trend))) return Number.NaN;
     return r;
   };
   const sigBb = (c: number, P: B3P, ex: Ex, useVk: boolean): S[] => {
@@ -256,7 +264,7 @@ async function main(): Promise<void> {
         if (i === undefined || c < 1) continue;
         const a = alignedOf(s.code), bb = bbOf(s.code, P.bbN);
         if (!(a[c] > bb.mid[c] + P.bbK * bb.sd[c])) continue;
-        const m1 = smaAt(s, c, P.ma1), m2 = smaAt(s, c, P.ma2);
+        const m1 = smaD(s, c, P.ma1), m2 = smaD(s, c, P.ma2);
         if (!(a[c] > m1) || !(a[c] > m2) || !(m1 > m2)) continue;
         const sq = squeezeOf(s.code, P);
         let any = false;
@@ -268,7 +276,7 @@ async function main(): Promise<void> {
       return out.map((x) => x.s);
     },
     pool,
-    exit: (p, c, i, P) => (i !== undefined && p.s.close[i] < smaAt(byCode.get(p.code) as S, c, P.exitMa) ? "이평 이탈" : null),
+    exit: (p, c, i, P) => (i !== undefined && p.s.close[i] < smaD(byCode.get(p.code) as S, c, P.exitMa) ? "이평 이탈" : null),
   };
 
   // ---- S4: ADX 추세 필터 + 돌파 ----
@@ -287,7 +295,7 @@ async function main(): Promise<void> {
         let mx = Number.NEGATIVE_INFINITY, ok = true;
         for (let k = c - P.hi; k <= c - 1; k++) { if (!(a[k] > 0)) { ok = false; break; } if (a[k] > mx) mx = a[k]; }
         if (!ok || !(a[c] > mx)) continue;
-        const m1 = smaAt(s, c, P.ma1), m2 = smaAt(s, c, P.ma2);
+        const m1 = smaD(s, c, P.ma1), m2 = smaD(s, c, P.ma2);
         if (!(a[c] > m1) || !(a[c] > m2) || !(m1 > m2)) continue;
         out.push({ s, adx: x.adx[i] });
       }
@@ -297,7 +305,7 @@ async function main(): Promise<void> {
     pool,
     exit: (p, c, i, P) => {
       if (i === undefined) return null;
-      if (p.s.close[i] < smaAt(byCode.get(p.code) as S, c, P.exitMa)) return "이평 이탈";
+      if (p.s.close[i] < smaD(byCode.get(p.code) as S, c, P.exitMa)) return "이평 이탈";
       return adxOf(byCode.get(p.code) as S, P.adxN).adx[i] < P.adxExit ? "ADX 약화" : null;
     },
   };
@@ -468,7 +476,7 @@ async function main(): Promise<void> {
               firstBad = `${CAL[c]} 모듈 ${a.length}개 / 브루트 ${b.length}개, 모듈에만 ${onlyA.join(",") || "-"} / 브루트에만 ${onlyB.join(",") || "-"}${onlyA.length + onlyB.length === 0 ? " (같은 종목 집합, 순서만 다름)" : ""}`;
               for (const code of [...onlyA, ...onlyB].slice(0, 3)) {
                 const s0 = byCode.get(code) as S, bc = bseriesOf(code), ac = alignedOf(code), bbm = bbOf(code, P.bbN), bb0 = bBand(bc, c, P.bbN, P.bbK);
-                console.log(`  [진단] ${q.id} ${nm} ${CAL[c]} ${code} ${nameOf.get(code) ?? ""}: a[c] 모듈 ${ac[c]} 브루트 ${bc[c]} | 중심선 모듈 ${bbm.mid[c]} 브루트 ${bb0.mid} | 표준편차 모듈 ${bbm.sd[c]} 브루트 ${(bb0.up - bb0.mid) / P.bbK} | 상단 모듈 ${bbm.mid[c] + P.bbK * bbm.sd[c]} 브루트 ${bb0.up} | SMA60 모듈 ${s0 ? smaAt(s0, c, 60) : ""} 브루트 ${bSma(bc, c, 60)} | SMA120 모듈 ${smaAt(s0, c, 120)} 브루트 ${bSma(bc, c, 120)} | 행 거래량 ${s0.vol[s0.idx.get(CAL[c]) as number]}`);
+                console.log(`  [진단] ${q.id} ${nm} ${CAL[c]} ${code} ${nameOf.get(code) ?? ""}: a[c] 모듈 ${ac[c]} 브루트 ${bc[c]} | 중심선 모듈 ${bbm.mid[c]} 브루트 ${bb0.mid} | 표준편차 모듈 ${bbm.sd[c]} 브루트 ${(bb0.up - bb0.mid) / P.bbK} | 상단 모듈 ${bbm.mid[c] + P.bbK * bbm.sd[c]} 브루트 ${bb0.up} | SMA60 모듈 ${s0 ? smaD(s0, c, 60) : ""} 브루트 ${bSma(bc, c, 60)} | SMA120 모듈 ${smaD(s0, c, 120)} 브루트 ${bSma(bc, c, 120)} | 행 거래량 ${s0.vol[s0.idx.get(CAL[c]) as number]}`);
                 if (q.id === "S2") { const sq = squeezeOf(code, P); const arr: string[] = []; for (let k = Math.max(0, c - P.back); k <= c - 1; k++) arr.push(`${k - c}:${sq[k]}/${bSqueeze(bc, k, P) ? 1 : 0}`); console.log(`  [진단] 수축일 플래그(상대일:모듈/브루트) ${arr.join(" ")}`); }
               }
             }
@@ -528,6 +536,10 @@ async function main(): Promise<void> {
       let nd = 0, ns = 0, mx = 0;
       for (let c = cPE; c < nCal - 1; c++) { const n = q.signals(c, q.P0, undefined).length; if (n) nd++; ns += n; mx = Math.max(mx, n); }
       console.log(`  ${q.id} 신호가 있는 날 ${nd}일 / ${nCal - 1 - cPE}일, 신호 합 ${ns}, 하루 최대 ${mx}개`);
+    }
+    {
+      const code = "001230", c = h.calIdx.get("2015-12-11");
+      if (c !== undefined && byCode.has(code)) { const a = alignedOf(code), v: string[] = []; for (let k = c - 59; k <= c; k++) v.push(a[k].toFixed(4)); console.log(`  [참고] ${code} 2015-12-11 직전 60개 정렬 수정 종가(앞에서부터): ${v.join(" ")}`); }
     }
     const rs = rsiOf("005930"), bsr = bRsi("005930");
     let mxd = 0;
@@ -636,7 +648,7 @@ async function main(): Promise<void> {
   console.log(`사전 고지: 누적 ${B3_CUM_TRIALS}회 기준 우연 통과 기대 ${B3_CUM_TRIALS} × 0.05 = ${(B3_CUM_TRIALS * 0.05).toFixed(2)}건(근사). 통과 후보가 있어도 독립 확인 전에는 후보일 뿐이다. 2011~2026 구간은 반복해서 본 데이터라 오염돼 있다. 가설 4개의 정의는 첫 시험 전에 고정했고 결과를 보고 바꾸지 않았다. 묶음 3 시험 번호 ${B3_TRIALS.s1}~${B3_TRIALS.s4}, 이 실행 ${trial}.`);
   console.log(`\n=== 실행 지표 ===\nSupabase 읽은 행: ${Object.entries(dbRead).map(([kk, v]) => `${kk} ${v}`).join(" | ") || "없음"} | 합계 ${Object.values(dbRead).reduce((a, b) => a + b, 0)}`);
   console.log(`${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분 | 시험한 번호 ${trial}`);
-  void B3_PRIOR_TESTS; void mulberry32;
+  void B3_PRIOR_TESTS; void mulberry32; void smaAt;
 }
 
 main().catch((e) => { console.error(e instanceof Error ? e.stack : e); process.exit(1); });

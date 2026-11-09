@@ -461,7 +461,18 @@ async function main(): Promise<void> {
         let nBad = 0, nSig = 0, nDays = 0, firstBad = "";
         for (let c = cPE; c < nCal - 1; c++) {
           const a = modSignals(q, c, P), b = brSignals(q.id, c, P);
-          if (a.join() !== b.join()) { nBad++; if (!firstBad) firstBad = `${CAL[c]} 모듈 ${a.slice(0, 5).join(",")} / 브루트 ${b.slice(0, 5).join(",")}`; }
+          if (a.join() !== b.join()) {
+            nBad++;
+            if (!firstBad) {
+              const sa = new Set(a), sb = new Set(b), onlyA = a.filter((x) => !sb.has(x)), onlyB = b.filter((x) => !sa.has(x));
+              firstBad = `${CAL[c]} 모듈 ${a.length}개 / 브루트 ${b.length}개, 모듈에만 ${onlyA.join(",") || "-"} / 브루트에만 ${onlyB.join(",") || "-"}${onlyA.length + onlyB.length === 0 ? " (같은 종목 집합, 순서만 다름)" : ""}`;
+              for (const code of [...onlyA, ...onlyB].slice(0, 3)) {
+                const s0 = byCode.get(code) as S, bc = bseriesOf(code), ac = alignedOf(code), bbm = bbOf(code, P.bbN), bb0 = bBand(bc, c, P.bbN, P.bbK);
+                console.log(`  [진단] ${q.id} ${nm} ${CAL[c]} ${code} ${nameOf.get(code) ?? ""}: a[c] 모듈 ${ac[c]} 브루트 ${bc[c]} | 중심선 모듈 ${bbm.mid[c]} 브루트 ${bb0.mid} | 표준편차 모듈 ${bbm.sd[c]} 브루트 ${(bb0.up - bb0.mid) / P.bbK} | 상단 모듈 ${bbm.mid[c] + P.bbK * bbm.sd[c]} 브루트 ${bb0.up} | SMA60 모듈 ${s0 ? smaAt(s0, c, 60) : ""} 브루트 ${bSma(bc, c, 60)} | SMA120 모듈 ${smaAt(s0, c, 120)} 브루트 ${bSma(bc, c, 120)} | 행 거래량 ${s0.vol[s0.idx.get(CAL[c]) as number]}`);
+                if (q.id === "S2") { const sq = squeezeOf(code, P); const arr: string[] = []; for (let k = Math.max(0, c - P.back); k <= c - 1; k++) arr.push(`${k - c}:${sq[k]}/${bSqueeze(bc, k, P) ? 1 : 0}`); console.log(`  [진단] 수축일 플래그(상대일:모듈/브루트) ${arr.join(" ")}`); }
+              }
+            }
+          }
           if (a.length) { nDays++; nSig += a.length; }
         }
         console.log(`  ${q.id} ${nm}: 신호가 있는 날 ${nDays}일, 신호 합 ${nSig}개 | 브루트포스와 불일치 ${nBad}일 ${nBad === 0 ? "통과" : `불일치 (${firstBad})`}`);

@@ -64,3 +64,16 @@ export const REGIME_BACKFILL_MEMBERSHIP_PATH = "research/market_membership/month
 export const REGIME_INDEX_FROM = "2009-01-01";
 /** 종목 시세 Parquet 시작 연도(연구 자료와 같은 2010년부터). */
 export const REGIME_PRICE_FROM_YEAR = 2010;
+
+// ---- 화면(카드) ----
+/** 마지막 계산일이 가장 최근 완료 거래일보다 이 거래일 수 이상 오래되면 카드 상단에 갱신 지연 경고를 띄운다. 일일 계산이 아직 안 돈 날 하루는 정상적으로 뒤처질 수 있어 2로 둔다. */
+export const REGIME_STALE_WARN_TRADING_DAYS = 2;
+
+/** 차트 기간 선택. 기간은 달력이 아니라 거래일 수로 자른다(1년 = REGIME_TIMELINE_DAYS와 같은 252거래일, 3년 = 756거래일). days가 null이면 전체. */
+export const REGIME_CHART_PERIODS = [
+  { key: "1y", label: "1년", days: 252 },
+  { key: "3y", label: "3년", days: 756 },
+  { key: "all", label: "전체", days: null },
+] as const;
+/** 화면에 나열하는 최근 국면 전환 건수. */
+export const REGIME_RECENT_TRANSITIONS = 5;

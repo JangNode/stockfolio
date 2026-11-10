@@ -7,6 +7,7 @@ import {
   REGIME_FORWARD_DAYS, REGIME_TIMELINE_DAYS,
 } from "@/lib/marketRegimeConfig";
 import type { MarketRegimeResponse } from "@/lib/marketRegimeApiTypes";
+import { REGIME_SERIES_CODES } from "@/lib/marketRegimeChart";
 
 const MS_PER_YEAR = 365.25 * 86_400_000;
 const median = (a: number[]): number | null => {
@@ -16,7 +17,7 @@ const median = (a: number[]): number | null => {
 };
 
 /**
- * 시장 국면(레짐) 카드용: 최신 국면과 지표, 최근 1년 타임라인, 국면별 과거 일수·이후 20거래일 KOSPI 지수 수익률 통계.
+ * 시장 국면(레짐) 카드용: 최신 국면과 지표, 최근 1년 타임라인, 차트용 전체 이력(series), 국면별 과거 일수·이후 20거래일 KOSPI 지수 수익률 통계.
  * 데이터는 scripts/market-regime.ts(일일)와 scripts/backfill-market-regime.ts(이력)가 market_regime_daily에 저장한 것을 읽기만 한다.
  */
 export async function GET(request: Request) {
@@ -40,6 +41,7 @@ export async function GET(request: Request) {
     const body: MarketRegimeResponse = {
       latest,
       timeline,
+      series: { dates: days.map((d) => d.date), closes: days.map((d) => d.kospiClose), regimes: days.map((d) => REGIME_SERIES_CODES[d.regime]).join("") },
       timelineTransitions: countTransitions(timeline.map((d) => d.regime)),
       stats: {
         from: defined[0]?.date ?? null,

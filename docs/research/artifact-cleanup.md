@@ -9,10 +9,10 @@
 | `research-flow-subset-20261028` | 3.58 MiB | **KIS** 종목별 외국인 순매수금액 3열(종목코드, 일자, 금액) | `scan5s`(5-A) 캐시 `research-flow-subset-20261028`이 없을 때 대체 복원, `bkpack`의 캐시 밖 보충. 정상 경로는 같은 이름의 Actions 캐시(`vgt`·`scan5s`) | **삭제함** |
 | `research-scan4a-inputs-20261105` | 3.50 MiB | **KIS** 종목별 체결강도(420종목, 2011~2016)·프로그램매매 시장 단위 정리본 | 아티팩트로 복원하는 워크플로 단계 없음(`scan4as`는 캐시만 사용). 원천은 Supabase Storage 정리본 | **삭제함** |
 | `research-vkospi-inputs-20261105` | 0.11 MiB | **KRX** 코스피200 변동성지수 일별 정리본 Parquet | `bkpack`의 캐시 밖 보충만. `vkscan`·`vkconf`·`ds12`·`batch3`는 Actions 캐시 `research-vkospi-inputs-20261105`를 쓴다. 원천은 Storage `research/vkospi` | **삭제함** |
-| `research-alloc-files-40627267099` | 4.59 MiB | 일별 순수익 JSON(파생 결과) + `.research-subset`(**DART** 영업이익 열·공시 목록 + **KRX** 월말 시장 구분 목록) | `bkpack`의 캐시 밖 보충만(캐시 `research-alloc-returns-40627267099`가 정상 경로) | **보류(DART 포함, 사용자 확인 대기)** |
-| `research-alloc-files-40627558143` | 4.59 MiB | 위와 같음 | 복원 경로 없음 | **보류(DART 포함)** |
-| `research-capr-files-41359098160` | 4.62 MiB | PE4 분해·일별 순수익 JSON(파생) + `.research-subset`(DART·KRX 월말 목록) | 복원 경로 없음 | **보류(DART 포함)** |
-| `research-capr-files-41359433744` | 4.62 MiB | 위와 같음 | 복원 경로 없음 | **보류(DART 포함)** |
+| `research-alloc-files-40627267099` | 4.59 MiB | 일별 순수익 JSON(파생 결과) + `.research-subset`(**DART** 영업이익 열·공시 목록 + **KRX** 월말 시장 구분 목록) | `bkpack`의 캐시 밖 보충만(캐시 `research-alloc-returns-40627267099`가 정상 경로) | **삭제함(DART 포함, 2026-11-10 사용자 승인)** |
+| `research-alloc-files-40627558143` | 4.59 MiB | 위와 같음 | 복원 경로 없음 | **삭제함(DART 포함, 2026-11-10 사용자 승인)** |
+| `research-capr-files-41359098160` | 4.62 MiB | PE4 분해·일별 순수익 JSON(파생) + `.research-subset`(DART·KRX 월말 목록) | 복원 경로 없음 | **삭제함(DART 포함, 2026-11-10 사용자 승인)** |
+| `research-capr-files-41359433744` | 4.62 MiB | 위와 같음 | 복원 경로 없음 | **삭제함(DART 포함, 2026-11-10 사용자 승인)** |
 | `strategy-daily-returns` | 0.08 MiB | 앱 전략 백테스트 요약용 일별 수익 계열(2026-09-24 진단 산출물, 파생 결과로 판단) | 복원 경로 없음 | 유지(데이터 아님으로 판단, 내용은 blob 도메인이 막혀 직접 확인 못 함) |
 | `correction-backup` | 약 1.3 KB | 가격 정정 백업 소량(2026-10-04 산출물, 내용 직접 확인 못 함) | 복원 경로 없음 | 유지 |
 | `ds6-forward-log` | 약 0.5 KB | DS6 포워드 일별 결과 로그(`ds6-forward-log.csv`, 069500 종가 원주가 열 포함) | `ds6fwd`의 커밋 작업이 받는다(DS6 포워드 도구, 건드리지 않음) | 유지(결과 로그) |
@@ -28,7 +28,28 @@
 | `research-scan4a-inputs-20261105` | 13405021478 | 3.50 MiB |
 | 합계 | | 약 7.19 MiB |
 
-삭제 후 살아 있는 아티팩트는 7개, 합계 18.49 MiB(전부 위 표의 보류·유지 항목). 삭제는 KRX·KIS 데이터 3개만 했다. Actions 캐시와 Supabase Storage 정리본은 건드리지 않았다.
+삭제 후 살아 있던 아티팩트는 7개, 합계 18.49 MiB였고(KRX·KIS 데이터 3개만 삭제한 시점), 이어서 사용자 승인(2026-11-10)으로 DART 포함 4개를 삭제했다(아래). Actions 캐시와 Supabase Storage 정리본은 건드리지 않았다.
+
+### 2.1 DART 포함 아티팩트 4개 삭제 (2026-11-10 사용자 승인, 응답 204)
+
+| 아티팩트 | ID | 용량 |
+|---|---|---|
+| `research-alloc-files-40627267099` | 12789514175 | 4.59 MiB |
+| `research-alloc-files-40627558143` | 12790286614 | 4.59 MiB |
+| `research-capr-files-41359098160` | 13104162907 | 4.62 MiB |
+| `research-capr-files-41359433744` | 13104891452 | 4.62 MiB |
+| 합계 | | 약 18.41 MiB |
+
+### 2.2 삭제 후 남은 아티팩트 (2026-11-10 조회)
+
+| 이름 | 용량 | 내용 |
+|---|---|---|
+| `strategy-daily-returns` | 0.085 MiB (88,866 B) | 앱 전략 백테스트 요약용 일별 수익 계열(파생 결과, 유지) |
+| `correction-backup` | 0.001 MiB (1,280 B) | 가격 정정 백업 소량(유지) |
+| `ds6-forward-log` | 0.0005 MiB (490 B) | DS6 포워드 결과 로그(유지, `ds6-forward-log.csv`도 그대로) |
+| **합계 3개** | **0.086 MiB (90,636 B)** | |
+
+정리 전 25.68 MiB → 정리 후 0.086 MiB. 누적 삭제 7개, 합계 약 25.60 MiB.
 
 ## 3. 워크플로 수정 (`.github/workflows/diagnose-benchmark-reference-implementation.yml`)
 

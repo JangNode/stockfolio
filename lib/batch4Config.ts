@@ -29,3 +29,4 @@ export const B4_FWD_DAYS = [5, 10, 20] as const;
 export const B4_F_DENOMINATOR = 3;
 /** 사전 고지용 누적 시험 수(이번 묶음 마지막 번호). */
 export const B4_CUM_TRIALS = 293;
+export { B3_DS6_REC as B4_DS6_REC, B3_DS6_YEARLY as B4_DS6_YEARLY } from "./batch3Config";

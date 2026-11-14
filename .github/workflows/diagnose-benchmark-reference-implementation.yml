@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore Parquet cache
         id: parquet_restore
-        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'batch3' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'macro' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
+        if: ${{ inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'batch3' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5x' && inputs.which != 'scan5c' && inputs.which != 'macro' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -68,7 +68,7 @@ jobs:
       # 연구 LE~: 고정 스냅샷(데이터 종료일 2026-10-26)만 읽는다. 일일 갱신으로 parquet-v1-* 키가 바뀌어도 영향이 없고, 스냅샷이 없으면 복원 실패 -> gate 차단.
       - name: Restore 고정 스냅샷 (연구 LE~)
         id: snap_use
-        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pe4sub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'vkconf' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'ds12' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'batch3' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'scan5' || inputs.which == 'scan5s' || inputs.which == 'ds6fwd' || inputs.which == 'vgt' }}
+        if: ${{ inputs.which == 'le' || inputs.which == 'lv' || inputs.which == 'am' || inputs.which == 'lw' || inputs.which == 'mdd' || inputs.which == 'lc' || inputs.which == 'pead1' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'prelim' || inputs.which == 'prelim2' || inputs.which == 'psub' || inputs.which == 'pe4sub' || inputs.which == 'pcol' || inputs.which == 'pead7' || inputs.which == 'pflow' || inputs.which == 'vohlc' || inputs.which == 'vtv' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'vkconf' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'ds12' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'batch3' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'scan5' || inputs.which == 'scan5s' || inputs.which == 'scan5x' || inputs.which == 'ds6fwd' || inputs.which == 'vgt' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: N 단계 1 DART 수집 (Storage Parquet만 쓰기)
-        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'feas3' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'batch3' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5c' && inputs.which != 'macro' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which != 'kis' && inputs.which != 'feas2' && inputs.which != 'feas3' && inputs.which != 'verify' && inputs.which != 'test' && inputs.which != 'q' && inputs.which != 'q2fill' && inputs.which != 'q2' && inputs.which != 'rprobe' && inputs.which != 'rfin' && inputs.which != 'rverify' && inputs.which != 'mm' && inputs.which != 'apre' && inputs.which != 'pname' && inputs.which != 'a' && inputs.which != 'b' && inputs.which != 'c' && inputs.which != 'l' && inputs.which != 'ls' && inputs.which != 'lm' && inputs.which != 'rg' && inputs.which != 'snap' && inputs.which != 'le' && inputs.which != 'lv' && inputs.which != 'am' && inputs.which != 'lw' && inputs.which != 'mdd' && inputs.which != 'aux' && inputs.which != 'lc' && inputs.which != 'pead1' && inputs.which != 'pead2' && inputs.which != 'pead3' && inputs.which != 'prelim' && inputs.which != 'prelim2' && inputs.which != 'psub' && inputs.which != 'pe4sub' && inputs.which != 'pcol' && inputs.which != 'pead7' && inputs.which != 'pclean' && inputs.which != 'pinv' && inputs.which != 'pflow' && inputs.which != 'pdoc' && inputs.which != 'vohlc' && inputs.which != 'vtv' && inputs.which != 'wfrprep' && inputs.which != 'wfr' && inputs.which != 'wfrsim' && inputs.which != 'kssverify' && inputs.which != 'ksspre' && inputs.which != 'kssreg' && inputs.which != 'lowprep' && inputs.which != 'lowturn' && inputs.which != 'alloc' && inputs.which != 'recycle' && inputs.which != 'riskdiag' && inputs.which != 'ivalloc' && inputs.which != 'semidiag' && inputs.which != 'csat' && inputs.which != 'csdelay' && inputs.which != 'dsat' && inputs.which != 'ds4' && inputs.which != 'ds4fwd' && inputs.which != 'ds56' && inputs.which != 'pre17' && inputs.which != 'ds6fu' && inputs.which != 'vkscan' && inputs.which != 'vkconf' && inputs.which != 'ds7' && inputs.which != 'ds6fwd' && inputs.which != 'ds89' && inputs.which != 'ds6reg' && inputs.which != 'ds1011' && inputs.which != 'ds12' && inputs.which != 'batch1' && inputs.which != 'batch2' && inputs.which != 'batch3' && inputs.which != 'scan4a' && inputs.which != 'scan4as' && inputs.which != 'scan5' && inputs.which != 'scan5s' && inputs.which != 'scan5x' && inputs.which != 'scan5c' && inputs.which != 'macro' && inputs.which != 'vkcol' && inputs.which != 'kssstatus' && inputs.which != 'vflow' && inputs.which != 'vgt' && inputs.which != 'r' }}
         run: npx tsx --conditions=react-server scripts/collect-n-dart.ts
         env:
           NODE_OPTIONS: --max-old-space-size=12288
@@ -343,7 +343,7 @@ jobs:
       # 연구 LC: 069500 보조 파일(원주가를 2026-10-26까지 채움). aux가 만들고 고정 키로 저장하며, lc는 같은 키를 복원해 SHA-256을 대조한 뒤 쓴다.
       - name: Restore 069500 보조 파일 (연구 LC)
         id: aux_use
-        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'vkconf' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'ds12' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'batch3' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'scan5' || inputs.which == 'scan5s' || inputs.which == 'ds6fwd' || inputs.which == 'riskdiag' }}
+        if: ${{ inputs.which == 'lc' || inputs.which == 'pead2' || inputs.which == 'pead3' || inputs.which == 'pead7' || inputs.which == 'vgt' || inputs.which == 'wfrprep' || inputs.which == 'wfr' || inputs.which == 'wfrsim' || inputs.which == 'lowturn' || inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' || inputs.which == 'pre17' || inputs.which == 'ds6fu' || inputs.which == 'vkscan' || inputs.which == 'vkconf' || inputs.which == 'ds7' || inputs.which == 'ds89' || inputs.which == 'ds6reg' || inputs.which == 'ds1011' || inputs.which == 'ds12' || inputs.which == 'batch1' || inputs.which == 'batch2' || inputs.which == 'batch3' || inputs.which == 'scan4a' || inputs.which == 'scan4as' || inputs.which == 'scan5' || inputs.which == 'scan5s' || inputs.which == 'scan5x' || inputs.which == 'ds6fwd' || inputs.which == 'riskdiag' }}
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
@@ -1244,6 +1244,22 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
 
+      - name: Save 확인 점검 외국계 창구 정리본 (research-scan5-fmc-inputs-v1, 수집이 끝난 회차만)
+        if: ${{ steps.scan5_run.conclusion == 'success' && inputs.which == 'scan5' && inputs.only == 'fmc' && hashFiles('.scan5-fmc-inputs/manifest.json') != '' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .scan5-fmc-inputs
+          key: research-scan5-fmc-inputs-v1
+
+      - name: Save 보류 구간 외국계 창구 정리본 (research-scan5-fmh-inputs-v1, 수집이 끝난 회차만)
+        if: ${{ steps.scan5_run.conclusion == 'success' && inputs.which == 'scan5' && inputs.only == 'fmh' && hashFiles('.scan5-fmh-inputs/manifest.json') != '' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .scan5-fmh-inputs
+          key: research-scan5-fmh-inputs-v1
+
       - name: 신용잔고 정리본 한 번 읽기 (스캔 5 후보 중복 점검용, Storage 읽기 약 20.6 MiB, 쓰기 0, 신호·통계 계산 없음)
         id: scan5c_run
         if: ${{ inputs.which == 'scan5c' }}
@@ -1295,6 +1311,61 @@ jobs:
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: ${{ inputs.only == 'b' && '2019-12-30' || '2016-12-29' }}
           SCAN5_MODE: ${{ inputs.only }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # 5-A 후보 확인 점검(시험 아님, 사용자 지정 2026-11-14): which=scan5x, only=confirm 또는 holdout:<재현 행 번호 목록, 예 holdout:0,2>. 입력은 Actions 캐시만(학습·확인·(보류) 정리본, 외국인 순매수 부분집합), 없으면 중단하고 보고한다.
+      - name: Restore 확인 점검 입력 — 학습 구간 외국계 창구 정리본
+        id: scan5x_fm
+        if: ${{ inputs.which == 'scan5x' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .scan5-fm-inputs
+          key: research-scan5-fm-inputs-v1
+
+      - name: Restore 확인 점검 입력 — 확인 구간 외국계 창구 정리본
+        id: scan5x_fmc
+        if: ${{ inputs.which == 'scan5x' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .scan5-fmc-inputs
+          key: research-scan5-fmc-inputs-v1
+
+      - name: Restore 확인 점검 입력 — 보류 구간 외국계 창구 정리본 (only=holdout)
+        id: scan5x_fmh
+        if: ${{ inputs.which == 'scan5x' && startsWith(inputs.only, 'holdout') }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .scan5-fmh-inputs
+          key: research-scan5-fmh-inputs-v1
+
+      - name: Restore 확인 점검 입력 — 외국인 투자자 순매수 부분집합
+        id: scan5x_flow
+        if: ${{ inputs.which == 'scan5x' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .research-flow
+          key: research-flow-subset-20261028
+
+      - name: 확인 점검 입력 캐시 확인 (캐시가 없으면 중단하고 보고, 아티팩트 복원 없음)
+        if: ${{ inputs.which == 'scan5x' && (steps.scan5x_fm.outputs.cache-hit != 'true' || steps.scan5x_fmc.outputs.cache-hit != 'true' || steps.scan5x_flow.outputs.cache-hit != 'true' || (startsWith(inputs.only, 'holdout') && steps.scan5x_fmh.outputs.cache-hit != 'true')) }}
+        run: |
+          echo "::error::확인 점검 입력 캐시가 없습니다(학습 ${{ steps.scan5x_fm.outputs.cache-hit }}, 확인 ${{ steps.scan5x_fmc.outputs.cache-hit }}, 부분집합 ${{ steps.scan5x_flow.outputs.cache-hit }}, 보류 ${{ steps.scan5x_fmh.outputs.cache-hit }}). 아티팩트 복원을 쓰지 않으므로 스캔하지 않고 중단합니다 — 결과를 보고하고 지시를 받으세요."
+          exit 1
+
+      - name: 5-A 후보 확인 점검 (시험 아님, 대상 3행, only=confirm|holdout, 읽기 전용, 외부 요청 0건, Storage 읽기 0, DART 호출 0)
+        id: scan5x_run
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'scan5x' }}
+        run: npx tsx --conditions=react-server scripts/research-signal-scan-5-confirm.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: ${{ startsWith(inputs.only, 'holdout') && '2026-10-26' || '2021-12-30' }}
+          SCAN5_ONLY: ${{ inputs.only }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 

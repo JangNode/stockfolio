@@ -89,3 +89,24 @@ export const S5_CREDIT_YEAR_FROM = 2011;
 export const S5_CREDIT_YEAR_TO = 2019;
 export const S5_CACHE_DIR_CREDIT = ".scan5-credit-inputs";
 export const S5_CACHE_KEY_CREDIT = "research-scan5-credit-inputs-v1";
+
+// ---- 5-A 후보 확인 점검(시험 아님, 사용자 지정 2026-11-15): 확인 구간·보류 구간 외국계 창구 99999 수집 ----
+// docs/research/signal-scan-5-confirm-prereg.md. 학습 구간(S5_FM_FROM~S5_FM_TO)과 따로 저장해 덮어쓰지 않는다.
+export const S5_FMC_FROM = "2017-01-01";
+export const S5_FMC_TO = "2021-12-31";
+export const S5_FMC_PREFIX = "research/foreign_member_confirm";
+export const S5_FMC_CLEAN_PREFIX = "research/foreign_member_confirm_clean";
+export const S5_CACHE_DIR_FMC = ".scan5-fmc-inputs";
+export const S5_CACHE_KEY_FMC = "research-scan5-fmc-inputs-v1";
+export const S5_FMC_WRITE_BUDGET_BYTES = 25 * 1048576;
+export const S5_FMH_FROM = "2022-01-01";
+export const S5_FMH_TO = "2026-10-26";
+export const S5_FMH_PREFIX = "research/foreign_member_holdout";
+export const S5_FMH_CLEAN_PREFIX = "research/foreign_member_holdout_clean";
+export const S5_CACHE_DIR_FMH = ".scan5-fmh-inputs";
+export const S5_CACHE_KEY_FMH = "research-scan5-fmh-inputs-v1";
+export const S5_FMH_WRITE_BUDGET_BYTES = 25 * 1048576;
+/** 확인 점검 재현 기준(사용자 지정): NW |t| 하한. 부호는 학습 구간과 같음(음), 비용 차감 순차이 > 0. */
+export const S5_CONFIRM_MIN_ABS_T = 2.0;
+/** 확인 점검 대상 3행: [유니버스, 신호 번호(0 = FM5, 1 = FM20), 표본 종류(M 월간, W 주간), 예측 기간 H]. */
+export const S5_CONFIRM_ROWS: readonly (readonly ["POOL" | "MID", 0 | 1, "M" | "W", number])[] = [["POOL", 0, "M", 21], ["POOL", 1, "W", 5], ["MID", 1, "W", 5]];

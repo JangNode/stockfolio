@@ -18,7 +18,7 @@ import { INVESTOR_FLOW_STOCK_STORE_BUCKET, INVESTOR_FLOW_TOP_N, INVESTOR_FLOW_EN
 import { SC_COLLECT_BLOCK_UTC_FROM_MIN, SC_COLLECT_BLOCK_UTC_TO_MIN, SC_COLLECT_RL_WAITS_MS, SC_COLLECT_RL_WINDOW_MS, SC_COLLECT_RL_WINDOW_MAX, SC_COLLECT_LOG_EVERY_REQ } from "@/lib/shortCreditCollectConfig";
 import {
   S5_FM_FROM, S5_FM_TO, S5_LOAN_FROM, S5_LOAN_TO, S5_FM_PATH, S5_FM_TR, S5_FM_MEMBER, S5_FM_PAGE_ROWS, S5_LOAN_PATH, S5_LOAN_TR, S5_LOAN_MKT_DIV, S5_LOAN_PAGE_ROWS,
-  S5_REQUEST_CAP_FACTOR, S5_RUN_MAX_MS, S5_CHECKPOINT_STOCKS, S5_CHECKPOINT_MS, S5_STORAGE_CAP_BYTES, S5_FM_WRITE_BUDGET_BYTES, S5_LOAN_WRITE_BUDGET_BYTES,
+  S5_REQUEST_CAP_FACTOR, S5_RUN_MAX_MS, S5_CHECKPOINT_STOCKS, S5_CHECKPOINT_MS, S5_STORAGE_CAP_BYTES, S5_FM_WRITE_BUDGET_BYTES, S5_LOAN_WRITE_BUDGET_BYTES, S5_FMC_FROM, S5_FMC_TO, S5_FMC_PREFIX, S5_FMC_CLEAN_PREFIX, S5_CACHE_DIR_FMC, S5_FMC_WRITE_BUDGET_BYTES, S5_FMH_FROM, S5_FMH_TO, S5_FMH_PREFIX, S5_FMH_CLEAN_PREFIX, S5_CACHE_DIR_FMH, S5_FMH_WRITE_BUDGET_BYTES,
   S5_FM_PREFIX, S5_FM_CLEAN_PREFIX, S5_LOAN_PREFIX, S5_LOAN_CLEAN_PREFIX, S5_PROGRESS_FILE, S5_FLOW_STOCK_PROGRESS_PATH, S5_CACHE_DIR_FM, S5_CACHE_DIR_LOAN,
   S5_NTBY_IDENTITY_MAX_RATIO, S5_CLOSE_TOL, S5_CLOSE_MIN_SHARE, S5_MAX_ALL_ZERO_STOCK_RATIO, S5_MAX_MISSING_DAY_RATIO,
 } from "@/lib/scan5Config";
@@ -26,7 +26,7 @@ import {
 const T0 = Date.now();
 const MS_DAY = 86_400_000;
 const MODE = (process.env.SCAN5_MODE ?? "").trim().toLowerCase();
-if (!["pilot", "fm", "loan"].includes(MODE)) throw new Error("SCAN5_MODE=pilot|fm|loan 필요");
+if (!["pilot", "fm", "loan", "fmc", "fmh"].includes(MODE)) throw new Error("SCAN5_MODE=pilot|fm|loan|fmc|fmh 필요");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const kst = (d = new Date()): string => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(11, 19);
 const iso = (d: string): string => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
@@ -118,8 +118,11 @@ const run = { req: 0, newRows: 0, errors: 0, consec: 0, rlEvents: 0, rlTimes: []
 let stopReason: string | null = null;
 let requestCap = Number.POSITIVE_INFINITY;
 let lastLog = 0, lastCheckpoint = Date.now(), doneSinceCheckpoint = 0;
-const persist = MODE === "fm" || MODE === "loan";
-const spec: Spec = MODE === "loan" ? LOAN : FM;
+const persist = MODE === "fm" || MODE === "loan" || MODE === "fmc" || MODE === "fmh";
+// 확인 점검(fmc)·보류(fmh): 외국계 창구 같은 TR·같은 정리 규칙, 구간·저장 경로만 다르다(학습 구간 저장본은 덮어쓰지 않는다).
+const FMC: Spec = { ...FM, from: S5_FMC_FROM, to: S5_FMC_TO, prefix: S5_FMC_PREFIX, cleanPrefix: S5_FMC_CLEAN_PREFIX, cacheDir: S5_CACHE_DIR_FMC, writeBudget: S5_FMC_WRITE_BUDGET_BYTES };
+const FMH: Spec = { ...FM, from: S5_FMH_FROM, to: S5_FMH_TO, prefix: S5_FMH_PREFIX, cleanPrefix: S5_FMH_CLEAN_PREFIX, cacheDir: S5_CACHE_DIR_FMH, writeBudget: S5_FMH_WRITE_BUDGET_BYTES };
+const spec: Spec = MODE === "loan" ? LOAN : MODE === "fmc" ? FMC : MODE === "fmh" ? FMH : FM;
 
 async function loadStored(): Promise<void> {
   const p = await download(`${spec.prefix}/${S5_PROGRESS_FILE}`);

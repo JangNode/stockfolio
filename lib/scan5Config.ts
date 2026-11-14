@@ -18,7 +18,8 @@ export const S5_FM_PATH = "/uapi/domestic-stock/v1/quotations/inquire-member-dai
 export const S5_FM_TR = "FHPST04540000";
 export const S5_FM_MEMBER = "99999";
 /** 호출당 응답 행 수(상한): 2026-11-05 점검에서 21~23행까지만 확인되어 **미확인(null)**. 파일럿(SCAN5_MODE=pilot) 결과로 정해 커밋한 뒤에만 본 수집(fm)이 실행된다. 연 범위·6년 범위가 상한 없이 다 나오면 6년 범위 응답 행 수 이상의 값을 둔다. */
-export const S5_FM_PAGE_ROWS: number | null = null;
+/** 2026-11-14 파일럿 확정(run 43603337136): 005930 6년 범위(2011-01-03~2016-12-29) 한 번에 1482행(= 가격 거래일 수 1482일)이 와 6년 범위까지 호출당 행 수 상한이 없다 → 1482 이상의 값 1500으로 둔다(응답이 이 값보다 적으면 그 종목은 한 호출로 완료). 종목당 1호출, 중심값 = 겹치는 종목 수. */
+export const S5_FM_PAGE_ROWS: number | null = 1500;
 /** 대차 TR(HHPST074500C0, 종목 단위 MRKT_DIV_CLS_CODE=3): 호출당 100행 확정, 구간의 최근 쪽 행부터 준다(2026-11-05 3차 호출). */
 export const S5_LOAN_PATH = "/uapi/domestic-stock/v1/quotations/daily-loan-trans";
 export const S5_LOAN_TR = "HHPST074500C0";

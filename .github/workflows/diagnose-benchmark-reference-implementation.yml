@@ -1257,6 +1257,20 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      - name: 묶음 5 시험 (only=repro|a|b1|b2|b3|b4|c, before=첫 시험 번호(0이면 294), 가격 데이터만, DART·KIS·KRX 호출 0, 연구 DB 쓰기 0, Storage 읽기 월말 목록 약 0.21 MiB)
+        id: batch5_run
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'batch5' }}
+        run: npx tsx --conditions=react-server scripts/research-batch5.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=14336
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          BENCH_AUX_069500: "1"
+          ALLOC_MODE: ${{ inputs.only }}
+          B5_TRIAL: ${{ inputs.before != '0' && inputs.before || '294' }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       # 앞으로 쌓이는 데이터(소진율 일별·분봉) 수집(사용자 승인 2026-11-17, docs/research/forward-data-plan.md). 수집만 하고 분석·신호 확인 없음. 저장은 Supabase Storage research/forward/ 한 사본만, 아티팩트·캐시로 데이터 올리지 않음.
       - name: 앞으로 쌓이는 데이터 가정 검증 프로브 (only=main|final, 소량 KIS 호출, 저장 없음, DART 호출 0, KST 14:00~15:40·03:50~06:20 실행 거부)
         id: fwdprobe_run

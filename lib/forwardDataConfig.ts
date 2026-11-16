@@ -8,6 +8,7 @@ export const FWD_MIN_PREFIX = `${FWD_PREFIX}/minute`;
 export const FWD_PROGRESS_FILE = "_progress.json";
 export const FWD_MANIFEST_FILE = "manifest.json";
 export const FWD_TARGETS_FILE = "targets.json";
+export const FWD_DAYS_FILE = "days.json";
 
 // ---- KIS TR (경로는 lib/kis.ts·data-feasibility-2와 같다) ----
 export const FWD_Q_BASE = "/uapi/domestic-stock/v1/quotations";

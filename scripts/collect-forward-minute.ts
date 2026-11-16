@@ -10,7 +10,7 @@ import { parquetReadObjects } from "hyparquet";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { MM_PARQUET_PATH } from "@/lib/marketMembershipConfig";
-import { FWD_MIN_PREFIX, FWD_PROGRESS_FILE, FWD_MANIFEST_FILE, FWD_TARGETS_FILE, FWD_MIN_PATH, FWD_MIN_TR, FWD_MIN_PAGE_ROWS, FWD_MIN_END_HHMMSS, FWD_MIN_START_HHMM, FWD_MIN_TOP_N, FWD_MIN_FROM, FWD_RUN_MAX_MS, FWD_MIN_CHECKPOINT_MS, FWD_STORAGE_CAP_BYTES, FWD_STORAGE_HEADROOM_BYTES, FWD_MIN_WRITE_BUDGET_BYTES, FWD_WRITE_GUARD_FACTOR, FWD_LOG_EVERY_REQ } from "@/lib/forwardDataConfig";
+import { FWD_FRGN_PREFIX, FWD_DAYS_FILE, FWD_MIN_PREFIX, FWD_PROGRESS_FILE, FWD_MANIFEST_FILE, FWD_TARGETS_FILE, FWD_MIN_PATH, FWD_MIN_TR, FWD_MIN_PAGE_ROWS, FWD_MIN_END_HHMMSS, FWD_MIN_START_HHMM, FWD_MIN_TOP_N, FWD_MIN_FROM, FWD_RUN_MAX_MS, FWD_MIN_CHECKPOINT_MS, FWD_STORAGE_CAP_BYTES, FWD_STORAGE_HEADROOM_BYTES, FWD_MIN_WRITE_BUDGET_BYTES, FWD_WRITE_GUARD_FACTOR, FWD_LOG_EVERY_REQ } from "@/lib/forwardDataConfig";
 import { callKis, newKisRun, rowsOf, io, download, upload, storageTotal, kst, kstDate, mib, num, type Rec } from "@/lib/forwardCollectKit";
 
 const T0 = Date.now();
@@ -64,7 +64,8 @@ async function buildTargets(): Promise<{ codes: string[]; basis: string; mcapEok
   return { codes: top.map((x) => x.code).sort(), basis: `고정 스냅샷 마지막 날 ${lastDate} 시총 순(코스피 보통주: 종목코드 끝자리 0, 월말 시장 목록 ${mmLast} 코스피), 후보 ${cand.length}종목 중 상위 ${FWD_MIN_TOP_N}`, mcapEok: Object.fromEntries(top.map((x) => [x.code, x.mc])) };
 }
 
-async function openDays(from: string, to: string): Promise<string[]> {
+/** krx_trading_calendar에서 열린 거래일(표가 일부 기간만 채워져 있어 다른 출처와 합쳐 쓴다). */
+async function calendarOpenDays(from: string, to: string): Promise<string[]> {
   const out: string[] = [];
   for (let off = 0; ; off += 1000) {
     const { data, error } = await supabaseAdmin.from("krx_trading_calendar").select("trade_date, is_open").gte("trade_date", from).lte("trade_date", to).order("trade_date").range(off, off + 999);
@@ -73,6 +74,40 @@ async function openDays(from: string, to: string): Promise<string[]> {
     if (!data || data.length < 1000) break;
   }
   return out;
+}
+/** 소진율 수집 파일(실행별 Parquet)에 나온 거래일(KIS 응답의 날짜 = 열린 거래일). */
+async function frgnDays(from: string, to: string): Promise<string[]> {
+  const mb = await download(`${FWD_FRGN_PREFIX}/${FWD_MANIFEST_FILE}`);
+  if (!mb) return [];
+  const man = JSON.parse(text(mb)) as { runs: { file: string }[] };
+  const set = new Set<string>();
+  for (const r of man.runs) {
+    const b = await download(`${FWD_FRGN_PREFIX}/${r.file}`);
+    if (!b) continue;
+    for (const row of (await parquetReadObjects({ file: b })) as Record<string, unknown>[]) { const d = String(row.trade_date); if (d >= from && d <= to) set.add(d); }
+  }
+  return [...set];
+}
+/**
+ * 거래일 목록: 처음에 고정 스냅샷 가격 Parquet의 거래일 ∪ krx_trading_calendar 열린 날 ∪ 소진율 수집 파일의 날짜로 만들어 `days.json`에 저장하고,
+ * 이후 실행은 저장본을 읽어 마지막 날짜 뒤만 (캘린더 표 ∪ 소진율 수집 날짜)로 늘린다.
+ */
+async function tradingDays(from: string, to: string): Promise<string[]> {
+  const path = `${FWD_MIN_PREFIX}/${FWD_DAYS_FILE}`, sb = await download(path);
+  const set = new Set<string>();
+  let builtTo = "";
+  if (sb) { const j = JSON.parse(text(sb)) as { to: string; days: string[] }; for (const d of j.days) set.add(d); builtTo = j.to; }
+  else {
+    const series = await loadAllStockSeriesFromParquet(Number(from.slice(0, 4)), Number(to.slice(0, 4)));
+    for (const rows of series.values()) for (const r of rows) if (r.tradeDate >= from && r.tradeDate <= to) set.add(r.tradeDate);
+    series.clear();
+  }
+  const extFrom = builtTo && builtTo > from ? builtTo : from;
+  for (const d of await calendarOpenDays(extFrom, to)) set.add(d);
+  for (const d of await frgnDays(extFrom, to)) set.add(d);
+  const days = [...set].filter((d) => d >= from && d <= to).sort();
+  await upload(path, new TextEncoder().encode(JSON.stringify({ from, to: days[days.length - 1] ?? to, days, builtAt: new Date().toISOString() })));
+  return days;
 }
 
 /** 종목 하루: 종료 15:30부터 거꾸로 호출(9:00 행을 받을 때까지, 최대 6회). 응답이 다른 날짜 행으로 채워지는 마지막 호출이 있어 날짜가 맞는 행만 쓴다. 실패(중단)하면 null. */
@@ -115,10 +150,10 @@ async function main(): Promise<void> {
   // ---- 날짜: 백필 시작일 ~ 마지막 완료 거래일(KST 16시 전이면 어제까지) ----
   const now = new Date(), todayKst = kstDate(now), hourKst = Number(kst(now).slice(0, 2));
   const lastDay = hourKst >= 16 ? todayKst : new Date(Date.parse(todayKst) - 86_400_000).toISOString().slice(0, 10);
-  const days = await openDays(FWD_MIN_FROM, lastDay);
+  const days = await tradingDays(FWD_MIN_FROM, lastDay);
   const calSpan = (Date.parse(lastDay) - Date.parse(FWD_MIN_FROM)) / 86_400_000;
-  console.log(`수집 날짜: ${FWD_MIN_FROM}~${lastDay} 열린 거래일 ${days.length}일(krx_trading_calendar), 달력 ${calSpan.toFixed(0)}일`);
-  if (days.length < calSpan * 0.55) throw new Error(`krx_trading_calendar 열린 거래일 ${days.length}일이 달력 ${calSpan.toFixed(0)}일에 비해 너무 적다 — 중단하고 보고한다`);
+  console.log(`수집 날짜: ${FWD_MIN_FROM}~${lastDay} 거래일 ${days.length}일(가격 스냅샷 ∪ 거래일 캘린더 ∪ 소진율 수집 날짜), 달력 ${calSpan.toFixed(0)}일`);
+  if (days.length < calSpan * 0.55) throw new Error(`거래일 목록 ${days.length}일이 달력 ${calSpan.toFixed(0)}일에 비해 너무 적다 — 중단하고 보고한다`);
 
   // ---- 진행·매니페스트 ----
   const pb = await download(`${FWD_MIN_PREFIX}/${FWD_PROGRESS_FILE}`), mbf = await download(`${FWD_MIN_PREFIX}/${FWD_MANIFEST_FILE}`);

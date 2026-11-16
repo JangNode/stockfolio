@@ -520,11 +520,10 @@ async function main(): Promise<void> {
   const pairs = prefCodes.map((p) => ({ p, c: h.byCode.get(p.code.slice(0, 5) + "0") as S }));
   const tvAvg = (s: S, c: number, days: number): number => { let sum = 0; for (let k = Math.max(c - days + 1, 0); k <= c; k++) { const i = s.idx.get(CAL[k]); if (i !== undefined) sum += s.raw[i] * s.vol[i]; } return sum / days; };
   const pfZ = (c: number, pr: { p: S; c: S }, P: PfP): number => {
-    if (c - P.zWin < 1) return Number.NaN;
     const ap = al(pr.p), ac = al(pr.c);
     if (!(ap[c] > 0 && ac[c] > 0)) return Number.NaN;
     const ss: number[] = [];
-    for (let k = c - P.zWin; k <= c - 1; k++) {
+    for (let k = Math.max(c - P.zWin, 0); k <= c - 1; k++) {
       if (rowAt(pr.p, k) === undefined || rowAt(pr.c, k) === undefined || !(ap[k] > 0 && ac[k] > 0)) continue;
       ss.push(Math.log(ap[k] / ac[k]));
     }
@@ -1195,8 +1194,8 @@ async function main(): Promise<void> {
       const cS = startOf(def, false), sd = new Set(sigDays(def, F).filter((c) => c >= cS));
       for (const lag of [1, 2]) {
         const r = runS(def, def.P0, cS, F ? { ma: B5_MA_DAYS } : null, { lag, detail: true });
-        const badEntry = r.entryCs.filter((c) => !sd.has(c - lag)).length, over = Math.max(...r.nPos) > nMax(def.P0), negCost = r.costFrac.filter((x) => x < -1e-12).length, nanRet = r.ret.filter((x) => !Number.isFinite(x)).length;
-        console.log(`  ${tag}${F ? "(필터)" : ""} lag ${lag}: 진입 ${r.entryCs.length}건, 보유 구간 닫힘 ${r.trades.length}건·열림 ${r.open.length}건 | 신호일 + ${lag}이 아닌 진입 ${badEntry}건 | 최대 보유 종목 ${Math.max(...r.nPos)}(목표 ${nMax(def.P0)}) | 음수 비용 ${negCost}일, 비정상 수익률 ${nanRet}일 | 폐지 청산 ${r.trades.filter((t) => t.reason.startsWith("폐지")).length}건, 거래정지 매수 건너뜀 ${r.haltSkip}건, 청산 순연 ${r.exitDefer}건`);
+        const badEntry = r.entryCs.filter((c) => !sd.has(c - lag)).length, over = r.nPos.some((n, i) => n - r.nDefer[i] > nMax(def.P0)), negCost = r.costFrac.filter((x) => x < -1e-12).length, nanRet = r.ret.filter((x) => !Number.isFinite(x)).length;
+        console.log(`  ${tag}${F ? "(필터)" : ""} lag ${lag}: 진입 ${r.entryCs.length}건, 보유 구간 닫힘 ${r.trades.length}건·열림 ${r.open.length}건 | 신호일 + ${lag}이 아닌 진입 ${badEntry}건 | 최대 보유 종목 ${Math.max(...r.nPos)}(순연 청산 제외 ${Math.max(...r.nPos.map((n, i) => n - r.nDefer[i]))}, 목표 ${nMax(def.P0)}) | 음수 비용 ${negCost}일, 비정상 수익률 ${nanRet}일 | 폐지 청산 ${r.trades.filter((t) => t.reason.startsWith("폐지")).length}건, 거래정지 매수 건너뜀 ${r.haltSkip}건, 청산 순연 ${r.exitDefer}건`);
         if (badEntry > 0 || over || negCost > 0 || nanRet > 0) note(`${tag} lag ${lag}`, "체결 타이밍");
       }
     };

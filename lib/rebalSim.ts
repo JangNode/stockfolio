@@ -24,6 +24,8 @@ export interface RebalHooks {
 export interface RebalOpts { lag: number; replace?: Set<string>; detail?: boolean }
 export interface RebalRun extends SimRun {
   open: SimTrade[];
+  /** 날짜별로 거래정지 때문에 청산이 다음 거래일로 순연돼 아직 들고 있는 종목 수(보유 종목 수 상한 점검용). */
+  nDefer: number[];
   /** 종목별 일 수익 기여(%p, 계좌 전일 평가액 대비, 가격 변동분만 — 비용·재조정 제외)의 합과 보유 일수. */
   contrib: Map<string, { pct: number; days: number }>;
   /** 마지막 날 보유 종목 수·현금 비중. */
@@ -38,7 +40,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
   const pend = new Map<number, Map<string, number>>();
   const deferExit = new Map<number, Set<string>>();
   let cash = 1, prevV = 1;
-  const out: RebalRun = { dates: [], ret: [], costFrac: [], nPos: [], inv: [], turn: [], trades: [], entryCs: [], wMax: [], haltSkip: 0, exitDefer: 0, open: [], contrib: new Map(), endCash: 0 };
+  const out: RebalRun = { dates: [], ret: [], costFrac: [], nPos: [], inv: [], turn: [], trades: [], entryCs: [], wMax: [], haltSkip: 0, exitDefer: 0, nDefer: [], open: [], contrib: new Map(), endCash: 0 };
   const buyMultOf = (slip: number): number => (env.stockBuyMult * (1 + slip)) / (1 + env.baseSlip);
   const sellRateOf = (d: string, slip: number): number => 1 - ((1 - env.sellRate(d)) * (1 - slip)) / (1 - env.baseSlip);
   const val = (p: Pos): number => (p.rep ? p.repVal : p.shares * p.lastPx);
@@ -111,7 +113,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
     let V = cash, mx = 0;
     for (const p of pos.values()) { const v = val(p); V += v; if (v > mx) mx = v; }
     if (c > cS) {
-      out.dates.push(d); out.ret.push((V / prevV - 1) * 100); out.costFrac.push(costF); out.nPos.push(pos.size); out.inv.push(V > 0 ? (V - cash) / V : 0);
+      out.dates.push(d); out.ret.push((V / prevV - 1) * 100); out.costFrac.push(costF); out.nPos.push(pos.size); out.nDefer.push(deferExit.get(c + 1)?.size ?? 0); out.inv.push(V > 0 ? (V - cash) / V : 0);
       if (buyN + sellN > 1e-12) out.turn.push({ d, v: prevV > 0 ? (buyN + sellN) / 2 / prevV : 0 });
       if (o.detail) out.wMax.push(pos.size && V > 0 ? mx / V : Number.NaN);
     }

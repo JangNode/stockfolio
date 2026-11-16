@@ -1257,6 +1257,34 @@ jobs:
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
 
+      - name: 외국인 소진율 일별 앞으로 쌓기 (only=실행 번호(비우면 KST 오늘), 대상 372종목 inquire-daily-price 1회씩, Storage research/forward/frgn_ehrt 한 사본만, 이어받기, DART 호출 0, 호출 금지 시간대 회피)
+        id: fwdfrgn_run
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'fwdfrgn' }}
+        run: npx tsx --conditions=react-server scripts/collect-forward-frgn.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          FWD_RUN_ID: ${{ inputs.only }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+
+      - name: 분봉 앞으로 쌓기·12개월 백필 (시총 상위 30종목, 날짜 오름차순, Storage research/forward/minute 종목·월 한 사본만, 이어받기, DART 호출 0, 호출 금지 시간대 회피)
+        id: fwdmin_run
+        if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'fwdmin' }}
+        run: npx tsx --conditions=react-server scripts/collect-forward-minute.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          PARQUET_CACHE_FROZEN: "1"
+          RESEARCH_DATA_END: "2026-10-26"
+          FWD_RUN_ID: ${{ inputs.only }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+
       - name: Save 확인 점검 외국계 창구 정리본 (research-scan5-fmc-inputs-v1, 수집이 끝난 회차만)
         if: ${{ steps.scan5_run.conclusion == 'success' && inputs.which == 'scan5' && inputs.only == 'fmc' && hashFiles('.scan5-fmc-inputs/manifest.json') != '' }}
         uses: actions/cache/save@v4

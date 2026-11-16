@@ -41,14 +41,16 @@ export const FWD_MIN_FROM = "2025-11-17";
 export const FWD_BLOCK_WINDOWS_UTC_MIN: readonly (readonly [number, number])[] = [[5 * 60, 6 * 60 + 40], [18 * 60 + 50, 21 * 60 + 20]];
 export const FWD_RUN_MAX_MS = 4.75 * 3600e3;
 export const FWD_CHECKPOINT_MS = 20 * 60e3;
+/** 분봉은 체크포인트마다 30종목 월 파일을 다시 올리므로 간격을 길게 한다. */
+export const FWD_MIN_CHECKPOINT_MS = 60 * 60e3;
 export const FWD_RL_WAITS_MS = [5_000, 15_000, 60_000] as const;
 export const FWD_RL_WINDOW_MS = 10 * 60e3;
 export const FWD_RL_WINDOW_MAX = 5;
 export const FWD_CONSEC_ERROR_STOP = 20;
 export const FWD_ERROR_RETRY_MS = 2_000;
 export const FWD_LOG_EVERY_REQ = 200;
-/** 호출 간 최소 간격(ms): 초당 2건 이하로 시작(승인 전 계획값, 첫 실행 실측 뒤 조정). */
-export const FWD_MIN_GAP_MS = 500;
+/** 호출 간 최소 간격(ms): 지연(중앙값 약 0.5초)을 더해 초당 1.3건 안팎 — 가정 검증 실측(순차 1.11초/호출, rate limit 0회) 뒤 정함. 앱키 공용 한도(초당 15)에 크게 못 미친다. */
+export const FWD_MIN_GAP_MS = 250;
 
 // ---- Storage 가드 ----
 export const FWD_STORAGE_CAP_BYTES = 800 * 1048576;

@@ -20,6 +20,12 @@ export function blockedNow(now = new Date()): boolean {
   const m = now.getUTCHours() * 60 + now.getUTCMinutes();
   return FWD_BLOCK_WINDOWS_UTC_MIN.some(([a, b]) => m >= a && m < b);
 }
+/** 지금이 금지 시간대면 끝날 때까지 남은 분(아니면 0). */
+export function blockedMinutesLeft(now = new Date()): number {
+  const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  for (const [a, b] of FWD_BLOCK_WINDOWS_UTC_MIN) if (m >= a && m < b) return b - m;
+  return 0;
+}
 
 // ---------------- Storage ----------------
 export const io = { readBytes: 0, writeBytes: 0, reads: 0, writes: 0 };
@@ -63,11 +69,13 @@ export interface KisRun { req: number; errors: number; consec: number; rlEvents:
 export const newKisRun = (): KisRun => ({ req: 0, errors: 0, consec: 0, rlEvents: 0, rlTimes: [], rlRetries: 0, rlWaitMs: 0, stop: null, lastCallAt: 0, latenciesMs: [] });
 const isRateLimitMsg = (msg: string): boolean => /EGW00201|rate\s*limit|too\s*many|초당|429/i.test(msg);
 
-/** 금지 시간대면 끝날 때까지 30초마다 재확인(회차 상한을 넘으면 그냥 반환). */
-export async function waitIfBlocked(t0: number, maxMs: number): Promise<void> {
+/** 금지 시간대 처리: 남은 금지 시간이 30분을 넘으면 기다리지 않고 멈춘다(run.stop, 다시 실행하면 이어받는다). 30분 이하면 30초마다 재확인하며 기다린다(회차 상한을 넘으면 그냥 반환). */
+export async function waitIfBlocked(t0: number, maxMs: number, run?: KisRun): Promise<void> {
   for (;;) {
-    if (!blockedNow()) return;
+    const m = blockedMinutesLeft();
+    if (m <= 0) return;
     if (Date.now() - t0 >= maxMs) return;
+    if (m > 30 && run) { run.stop = `호출 금지 시간대(남은 ${m}분) — 끝난 뒤 다시 실행`; return; }
     console.log(`  [대기] KST ${kst()} — 호출 금지 시간대, 30초 후 재확인`);
     await sleep(30_000);
   }
@@ -79,7 +87,8 @@ export async function waitIfBlocked(t0: number, maxMs: number): Promise<void> {
  */
 export async function callKis(run: KisRun, t0: number, maxMs: number, label: string, path: string, tr: string, params: Record<string, string>): Promise<Rec | null> {
   for (let rl = 0; ; rl++) {
-    await waitIfBlocked(t0, maxMs);
+    await waitIfBlocked(t0, maxMs, run);
+    if (run.stop) return null;
     if (Date.now() - t0 >= maxMs) { run.stop = "회차 시간 상한"; return null; }
     const gap = FWD_MIN_GAP_MS - (Date.now() - run.lastCallAt);
     if (gap > 0) await sleep(gap);

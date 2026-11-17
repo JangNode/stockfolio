@@ -1316,7 +1316,7 @@ async function main(): Promise<void> {
     console.log(`\n=== V3. BS1 보유 중 일간 수정 수익률 ≤ −25% 또는 ≥ +25%인 날 전부 분류 ===`);
     const evByCodeDate = new Map<string, { factor: number }>();
     for (const [code, list] of h.adjustments) for (const e of list) evByCodeDate.set(`${code}|${e.eventDate}`, { factor: e.factor });
-    interface Flag { code: string; d: string; adjR: number; rawR: number; vol: number; gap: number; cls: string }
+    interface Flag { code: string; d: string; adjR: number; rawR: number; vol: number; gap: number; cls: string; mcR: number; shR: number }
     const flags: Flag[] = [];
     let heldDays = 0;
     for (const t of [...bs.trades, ...bs.open]) {
@@ -1335,16 +1335,17 @@ async function main(): Promise<void> {
         let hasEv = false;
         for (let q = prevK + 1; q <= k; q++) if (evByCodeDate.has(`${t.code}|${CAL[q]}`)) hasEv = true;
         const vol = i !== undefined ? s2.vol[i] : 0;
-        const cls = i === undefined ? "당일 행 없음(전일 값 유지 중 → 이 날 수익률은 다음 행에 반영)" : hasEv ? "조정 이벤트 구간(수정 수익률 별도 검토)" : gap > 5 ? `긴 공백 뒤 재개(${gap}거래일 만에 행)` : Math.abs(rawR) > 0.3 + 1e-9 ? "가격제한폭 초과 변동인데 이벤트 없음(의심)" : vol === 0 ? "거래량 0" : "실제 가격 변동으로 보임(원 종가 변동 = 수정 종가 변동, 이벤트 없음, 거래량 > 0, 제한폭 이내)";
-        flags.push({ code: t.code, d: CAL[k], adjR: r, rawR, vol, gap, cls });
+        const mcR = i !== undefined && pi >= 0 && s2.mcapRow[pi] > 0 ? s2.mcapRow[i] / s2.mcapRow[pi] : Number.NaN, shR = Number.isFinite(mcR) && Number.isFinite(rawR) ? mcR / (1 + rawR) : Number.NaN;
+        const cls = i === undefined ? "당일 행 없음(전일 값 유지 중 → 이 날 수익률은 다음 행에 반영)" : hasEv ? "조정 이벤트 구간(수정 수익률 별도 검토)" : gap > 5 ? `긴 공백 뒤 재개(${gap}거래일 만에 행)` : Number.isFinite(shR) && Math.abs(shR - 1) > 0.2 ? "시가총액 ÷ 가격(주식 수)이 크게 변함 — 미조정 분할·증자·감자 의심" : Math.abs(rawR) > 0.3 + 1e-9 ? "가격제한폭 초과 변동인데 이벤트 없음(의심)" : vol === 0 ? "거래량 0" : "실제 가격 변동으로 보임(원 종가 변동 = 수정 종가 변동, 이벤트 없음, 거래량 > 0, 제한폭 이내)";
+        flags.push({ code: t.code, d: CAL[k], adjR: r, rawR, vol, gap, cls, mcR, shR });
       }
     }
     flags.sort((x, y) => (x.d < y.d ? -1 : 1));
     const byCls = new Map<string, number>();
     for (const f of flags) byCls.set(f.cls.split("(")[0], (byCls.get(f.cls.split("(")[0]) ?? 0) + 1);
     console.log(`보유 종목-일 ${heldDays}개 중 |수정 수익률| ≥ 25%인 날 ${flags.length}개: ${[...byCls].map(([k2, v]) => `${k2} ${v}건`).join(", ") || "없음"}`);
-    console.log("| 종목 | 날짜 | 수정 수익률 % | 원 종가 수익률 % | 거래량 | 직전 행과 간격(거래일) | 분류 |\n|---|---|---|---|---|---|---|");
-    for (const f of flags.slice(0, 80)) console.log(`| ${label(f.code)} | ${f.d} | ${f2(f.adjR * 100)} | ${f2(f.rawR * 100)} | ${f.vol} | ${f.gap} | ${f.cls} |`);
+    console.log("| 종목 | 날짜 | 수정 수익률 % | 원 종가 수익률 % | 시가총액 변동 % | 시총÷가격 비(주식 수 변화) | 거래량 | 직전 행과 간격(거래일) | 분류 |\n|---|---|---|---|---|---|---|---|---|");
+    for (const f of flags.slice(0, 80)) console.log(`| ${label(f.code)} | ${f.d} | ${f2(f.adjR * 100)} | ${f2(f.rawR * 100)} | ${f2((f.mcR - 1) * 100)} | ${f2(f.shR)} | ${f.vol} | ${f.gap} | ${f.cls} |`);
     if (flags.length > 80) console.log(`… 나머지 ${flags.length - 80}건 생략(위는 날짜순 앞 80건)`);
 
     console.log(`\n=== V4. 소멸(폐지) 처리 ${bs.trades.filter((t) => t.reason.startsWith("폐지")).length}건 ===`);

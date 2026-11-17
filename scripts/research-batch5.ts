@@ -19,6 +19,7 @@ import { KSS_R3_DRAWS, KSS_R3_SEED, F_E_TOP_TRADES, F_C_MAX_CAGR_DROP, F_C_MAX_M
 import { SAT_MDD_EPS } from "@/lib/satelliteV1Config";
 import { rebalSim, type RebalRun } from "@/lib/rebalSim";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
+import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL, DQ_LISTING_MAX_ROW, DQ_RESUME_MIN_GAP, DQ_LIQUIDATION_ROWS, DQ_MCAP_DIFF_FRAC, DQ_VANISH_WINDOW_DAYS, DQ_VANISH_HALT_DAYS, DQ_VANISH_MIN_CLOSE, DQ_ALT_LAST_ROWS, DQ_ALT_LAST_RETURN, DQ_RECENT_VANISH_DAYS, DQ_LIST_MAX } from "@/lib/dataQualityConfig";
 import { solveMinVar, projectCappedSimplex } from "@/lib/minVar";
 import { B5_F_DENOMINATOR, B5_CORE_W, B5_MA_DAYS, B5_MA_NB, B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_LR_P0, B5_LR_NB, B5_PF_P0, B5_PF_NB, B5_PF_SLIP, B5_PF_TV_DAYS, B5_TS_P0, B5_TS_NB, B5_TS_CAP, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, B5_MV_CHECK_SAMPLES, B5_BS_P0, B5_BS_NB, B5_BS_SLIP_K200, B5_BS_SLIP_OTHER, type RmP, type LrP, type PfP, type TsP, type MvP, type BsP } from "@/lib/batch5Config";
 import { ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConfig";
@@ -37,7 +38,7 @@ type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq 필요");
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -1275,6 +1276,99 @@ async function main(): Promise<void> {
   };
   const ttl = (nm: string, extra: string): string => `${nm}: ${extra}`;
   const BSA_FOR_V: Strat<BsP> = { ...BS1, targets: (c, _held, P, m) => { const el = bsElig(c, P); return equalW(el, 1 / Math.max(el.length, 1), m); } };
+  if (MODE === "dq") {
+    // 전 종목 가격 데이터 품질 점검(시험 아님, 시험 번호·게이트 없음, 읽기 전용, 가격 데이터만 사용).
+    const dataEnd = CAL[nCal - 1];
+    const evBy = new Map<string, string[]>();
+    for (const [code, list] of h.adjustments) evBy.set(code, list.map((e) => e.eventDate).sort());
+    const hasEv = (code: string, a: string, b: string): boolean => (evBy.get(code) ?? []).some((d) => d > a && d <= b);
+    const meIdx = monthEndIdx;
+    const lastMeBefore = (k: number): number => { let lo = 0, hi = meIdx.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (meIdx[m] <= k - 1) { r = meIdx[m]; lo = m + 1; } else hi = m - 1; } return r; };
+    interface Ex { code: string; d: string; adjR: number; rawR: number; mcR: number; shR: number; vol: number; gap: number; ev: boolean; listing: boolean; resume: boolean; liq: boolean; cls: "가" | "나" | "다"; ex: boolean; k200: number }
+    const exs: Ex[] = [];
+    let rowsAll = 0, daysAll = 0;
+    for (const s2 of h.stocks) {
+      const n = s2.dates.length, vanished = s2.last < dataEnd;
+      for (let i = 1; i < n; i++) {
+        rowsAll++;
+        const d = s2.dates[i], pi = i - 1;
+        if (!(s2.close[pi] > 0 && s2.close[i] > 0)) continue;
+        daysAll++;
+        const adjR = s2.close[i] / s2.close[pi] - 1, lim = d <= DQ_LIMIT_CHANGE_DATE ? DQ_LIMIT_BEFORE : DQ_LIMIT_AFTER;
+        if (Math.abs(adjR) <= lim + DQ_LIMIT_TOL) continue;
+        const rawR = s2.raw[i] / s2.raw[pi] - 1, gap = (h.calIdx.get(d) as number) - (h.calIdx.get(s2.dates[pi]) as number);
+        const mcOk = s2.mcapRow[i] > 0 && s2.mcapRow[pi] > 0 && s2.raw[i] > 0 && s2.raw[pi] > 0;
+        const mcR = mcOk ? s2.mcapRow[i] / s2.mcapRow[pi] - 1 : Number.NaN, shR = mcOk ? s2.mcapRow[i] / s2.raw[i] / (s2.mcapRow[pi] / s2.raw[pi]) : Number.NaN;
+        const cls: "가" | "나" | "다" = !mcOk ? "다" : Math.abs(mcR - adjR) > DQ_MCAP_DIFF_FRAC * Math.abs(adjR) ? "가" : "나";
+        const c = lastMeBefore(h.calIdx.get(d) as number), rk = c >= 0 ? rank200(c).rank.get(s2.code) : undefined;
+        exs.push({ code: s2.code, d, adjR, rawR, mcR, shR, vol: s2.vol[i], gap, ev: hasEv(s2.code, s2.dates[pi], d), listing: i <= DQ_LISTING_MAX_ROW, resume: gap >= DQ_RESUME_MIN_GAP, liq: vanished && i >= n - DQ_LIQUIDATION_ROWS, cls, ex: excluded.has(s2.code), k200: rk === undefined ? -1 : rk });
+      }
+    }
+    console.log(`\n=== Q1. 제한폭 초과 종목-일 (전 종목 ${h.stocks.length}개, 수익률 계산 가능한 종목-일 ${daysAll.toLocaleString()}개, ${CAL[0]}~${dataEnd}) ===`);
+    console.log(`기준: 수정주가 일간 수익률 절댓값 > 제한폭(${DQ_LIMIT_CHANGE_DATE}까지 ±${DQ_LIMIT_BEFORE * 100}%, 이후 ±${DQ_LIMIT_AFTER * 100}%) + 허용 ${DQ_LIMIT_TOL * 100}%p. 직전 행 대비(행 없는 날 = 거래정지·미상장).`);
+    const special = (e: Ex): boolean => e.listing || e.resume || e.liq;
+    const tot = exs.length, spc = exs.filter(special).length;
+    console.log(`초과 ${tot}건(ETF 등 제외 대상 ${exs.filter((e) => e.ex).length}건 포함): 신규상장 직후 표시 ${exs.filter((e) => e.listing).length} | 거래 재개(직전 행과 ${DQ_RESUME_MIN_GAP}거래일 이상 간격) 표시 ${exs.filter((e) => e.resume).length} | 정리매매 기간(소멸 종목 마지막 ${DQ_LIQUIDATION_ROWS}행) 표시 ${exs.filter((e) => e.liq).length} | 위 셋 중 하나 이상 ${spc}건, 아무 표시 없음 ${tot - spc}건 | 조정 이벤트 있는 날 ${exs.filter((e) => e.ev).length}건`);
+    console.log("| 분류 | 전체 | 표시(상장·재개·정리매매) 아님 | 표시 아님 + 조정 이벤트 없음 | 그중 K200P 월말 순위 안(코스피 시총 상위 200) |\n|---|---|---|---|---|");
+    for (const cl of ["가", "나", "다"] as const) {
+      const a = exs.filter((e) => e.cls === cl), b = a.filter((e) => !special(e)), c2 = b.filter((e) => !e.ev);
+      console.log(`| (${cl}) ${cl === "가" ? "주가는 제한폭을 넘게 변했는데 시총 변동이 가격 변동과 크게 어긋남 → 미조정 분할·무상증자·감자 의심" : cl === "나" ? "시총도 같이 변함 → 실제 변동·거래 재개(또는 시총이 가격 × 이전 주식 수로 계산된 경우)" : "시총 값 없음 → 판단 불가"} | ${a.length} | ${b.length} | ${c2.length} | ${c2.filter((e) => e.k200 >= 0).length} |`);
+    }
+    const A = exs.filter((e) => e.cls === "가");
+    console.log(`\n=== Q2. 분류 (가) ${A.length}건 — 연도별 분포 ===`);
+    console.log("| 연도 | (가) 전체 | (가) 표시 아님 | (가) 표시 아님 + 이벤트 없음 | (나) 전체 |\n|---|---|---|---|---|");
+    for (let y = 2010; y <= 2026; y++) {
+      const ys = `${y}-`, a = A.filter((e) => e.d.startsWith(ys)), b = a.filter((e) => !special(e)), c2 = b.filter((e) => !e.ev), nn = exs.filter((e) => e.cls === "나" && e.d.startsWith(ys)).length;
+      console.log(`| ${y} | ${a.length} | ${b.length} | ${c2.length} | ${nn} |`);
+    }
+    const fmt = (e: Ex): string => `| ${label(e.code)}${e.ex ? "(제외 대상)" : ""} | ${e.d} | ${f2(e.adjR * 100)} | ${f2(e.rawR * 100)} | ${f2(e.mcR * 100)} | ${f2(e.shR)} | ${e.vol} | ${e.gap} | ${[e.ev ? "이벤트 있음" : "", e.listing ? "상장직후" : "", e.resume ? "재개" : "", e.liq ? "정리매매" : ""].filter(Boolean).join("·") || "-"} | ${e.k200 >= 0 ? `K200P ${e.k200}위` : "-"} |`;
+    const head = "| 종목 | 날짜 | 수정 수익률 % | 원 종가 수익률 % | 시총 변동 % | 시총÷가격 비 | 거래량 | 직전 행 간격 | 표시 | K200P |\n|---|---|---|---|---|---|---|---|---|---|";
+    const k2 = A.filter((e) => e.k200 >= 0);
+    console.log(`\n=== Q3. (가) 중 K200P(월말 코스피 시총 상위 200) 해당 ${k2.length}건 ===`);
+    console.log(head); for (const e of k2.sort((x, y) => (x.d < y.d ? -1 : 1))) console.log(fmt(e));
+    const main = A.filter((e) => !special(e) && !e.ev && !e.ex).sort((x, y) => Math.abs(y.adjR) - Math.abs(x.adjR));
+    console.log(`\n=== Q4. (가) 중 표시 아님·이벤트 없음·제외 대상 아님 ${main.length}건 (|수정 수익률| 큰 순, 상위 ${Math.min(main.length, DQ_LIST_MAX)}건) ===`);
+    console.log(head); for (const e of main.slice(0, DQ_LIST_MAX)) console.log(fmt(e));
+    const rest = A.filter((e) => special(e) || e.ev || e.ex);
+    console.log(`\n(가) 중 표시 있음·이벤트 있음·제외 대상 ${rest.length}건 — 표시별: 상장직후 ${rest.filter((e) => e.listing).length}, 재개 ${rest.filter((e) => e.resume).length}, 정리매매 ${rest.filter((e) => e.liq).length}, 이벤트 있음 ${rest.filter((e) => e.ev).length}, 제외 대상 ${rest.filter((e) => e.ex).length}`);
+    console.log(`BS1 의심 3일(동서 2012-11-28·2013-11-27, 싸이토젠 2022-09-28)의 분류: ${exs.filter((e) => (e.code === "026960" && (e.d === "2012-11-28" || e.d === "2013-11-27")) || (e.code === "217330" && e.d === "2022-09-28")).map((e) => `${label(e.code)} ${e.d} → (${e.cls}) 시총 ${f2(e.mcR * 100)}% 시총÷가격 ${f2(e.shR)}`).join(" | ")}`);
+
+    // ---- Q5. 소멸 종목 처리 관례 제안 집계 ----
+    console.log(`\n=== Q5. 소멸 종목 집계 (마지막 행이 데이터 끝 ${dataEnd}보다 앞인 종목) ===`);
+    interface Va { code: string; last: string; lastIdx: number; close: number; halts: number; r7: number; r20: number; volRatio: number; ex: boolean; recent: boolean }
+    const vas: Va[] = [];
+    for (const s2 of h.stocks) {
+      if (!(s2.last < dataEnd)) continue;
+      const n = s2.dates.length, li = h.calIdx.get(s2.last) as number, fi = h.calIdx.get(s2.dates[0]) as number;
+      let halts = 0;
+      for (let k = Math.max(li - DQ_VANISH_WINDOW_DAYS + 1, fi); k <= li; k++) if (!s2.idx.has(CAL[k])) halts++;
+      const back = (m: number): number => (n - 1 - m >= 0 && s2.close[n - 1 - m] > 0 ? s2.close[n - 1] / s2.close[n - 1 - m] - 1 : Number.NaN);
+      let vs = 0, vc = 0;
+      for (let q = Math.max(n - 61, 0); q < n - 1; q++) { vs += s2.vol[q]; vc++; }
+      vas.push({ code: s2.code, last: s2.last, lastIdx: li, close: s2.raw[n - 1], halts, r7: back(DQ_ALT_LAST_ROWS), r20: back(DQ_VANISH_WINDOW_DAYS), volRatio: vc && vs > 0 ? s2.vol[n - 1] / (vs / vc) : Number.NaN, ex: excluded.has(s2.code), recent: nCal - 1 - li < DQ_RECENT_VANISH_DAYS });
+    }
+    const lossP = (v: Va): { halt: boolean; px: boolean } => ({ halt: v.halts >= DQ_VANISH_HALT_DAYS, px: v.close < DQ_VANISH_MIN_CLOSE });
+    const cnt = (list: Va[]): { clear: number; haltOnly: number; pxOnly: number; both: number } => ({ clear: list.filter((v) => !lossP(v).halt && !lossP(v).px).length, haltOnly: list.filter((v) => lossP(v).halt && !lossP(v).px).length, pxOnly: list.filter((v) => !lossP(v).halt && lossP(v).px).length, both: list.filter((v) => lossP(v).halt && lossP(v).px).length });
+    const row = (nm: string, list: Va[]): string => { const c2 = cnt(list); return `| ${nm} | ${list.length} | ${c2.clear} | ${c2.haltOnly} | ${c2.pxOnly} | ${c2.both} | ${list.length - c2.clear} |`; };
+    console.log(`전체 ${vas.length}개(ETF 등 제외 대상 ${vas.filter((v) => v.ex).length}개, 최근 ${DQ_RECENT_VANISH_DAYS}거래일 안 소멸·미확정 ${vas.filter((v) => v.recent).length}개 포함). 제안 규칙: 마지막 종가로 청산하되, 소멸 직전 ${DQ_VANISH_WINDOW_DAYS}거래일 안 거래정지(행 없는 날) ${DQ_VANISH_HALT_DAYS}일 이상이거나 마지막 종가 ${DQ_VANISH_MIN_CLOSE}원 미만이면 전액 손실.`);
+    console.log("| 구분 | 종목 수 | 마지막 종가 청산 | 전액 손실(정지만) | 전액 손실(종가만) | 전액 손실(둘 다) | 전액 손실 합 |\n|---|---|---|---|---|---|---|");
+    console.log(row("전체", vas)); console.log(row("제외 대상(ETF 등) 뺀 나머지", vas.filter((v) => !v.ex)));
+    console.log(row("그중 최근 소멸(미확정) 뺀 나머지", vas.filter((v) => !v.ex && !v.recent)));
+    for (let y = 2010; y <= 2026; y++) { const l = vas.filter((v) => !v.ex && v.last.startsWith(`${y}-`)); if (l.length) console.log(row(`${y}년 소멸`, l)); }
+    const med = (arr: number[]): number => { const b = arr.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : Number.NaN; };
+    const grp = (nm: string, l: Va[]): string => `| ${nm} | ${l.length} | ${f2(med(l.map((v) => v.r7)) * 100)} | ${f2(med(l.map((v) => v.r20)) * 100)} | ${f2(med(l.map((v) => v.close)))} | ${f2(med(l.map((v) => v.halts)))} | ${f2(med(l.map((v) => v.volRatio)))} |`;
+    const nonEx = vas.filter((v) => !v.ex && !v.recent), clearL = nonEx.filter((v) => !lossP(v).halt && !lossP(v).px), lossL = nonEx.filter((v) => lossP(v).halt || lossP(v).px);
+    const bs7 = ["004010", "004940", "192530", "000030", "005190", "002270", "003410"];
+    console.log("\n가격 기반 구분 신호(중앙값): 마지막 7행 수익률 % / 마지막 20행 수익률 % / 마지막 원 종가 / 직전 20거래일 정지일수 / 마지막 날 거래량 ÷ 직전 60행 평균");
+    console.log("| 집단 | 종목 수 | r7 % | r20 % | 마지막 종가 | 정지일수 | 거래량 배수 |\n|---|---|---|---|---|---|---|");
+    console.log(grp("제안 규칙: 마지막 종가 청산 집단", clearL)); console.log(grp("제안 규칙: 전액 손실 집단", lossL)); console.log(grp("BS1 소멸 7건(합병·교환·이전 추정)", vas.filter((v) => bs7.includes(v.code))));
+    const alt = (v: Va): boolean => (Number.isFinite(v.r7) && v.r7 <= DQ_ALT_LAST_RETURN) || (Number.isFinite(v.r20) && v.r20 <= DQ_ALT_LAST_RETURN);
+    const altLoss = nonEx.filter((v) => lossP(v).halt || lossP(v).px || alt(v));
+    console.log(`\n대안 신호(제안만): 제안 규칙 OR 마지막 ${DQ_ALT_LAST_ROWS}행 또는 ${DQ_VANISH_WINDOW_DAYS}행 수익률 ≤ ${DQ_ALT_LAST_RETURN * 100}% → 전액 손실 ${altLoss.length}개 / 청산 ${nonEx.length - altLoss.length}개(제안 규칙 단독은 손실 ${lossL.length} / 청산 ${clearL.length}). 제안 규칙에는 안 걸리고 대안에만 걸린 종목 ${altLoss.length - lossL.length}개.`);
+    console.log("BS1 소멸 7건의 제안 규칙 적용: " + vas.filter((v) => bs7.includes(v.code)).map((v) => `${label(v.code)} 마지막 종가 ${v.close} 정지일수 ${v.halts} r7 ${f2(v.r7 * 100)}% r20 ${f2(v.r20 * 100)}% → ${lossP(v).halt || lossP(v).px ? "전액 손실" : "마지막 종가 청산"}`).join(" | "));
+    console.log(`\n전 종목 점검 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    return;
+  }
   if (MODE === "bsv") {
     // BS1 데이터·구현 검증(시험 아님, 시험 번호·게이트 없음, 읽기 전용).
     const cB = startOf(BS1, false), WB = windowsFor(cB), bs = runS(BS1, BS1.P0, cB, null, { lag: 1, detail: true });

@@ -1458,6 +1458,24 @@ async function main(): Promise<void> {
       for (const e of B.filter(flagged).sort((a, b) => Math.abs(b.adjR) - Math.abs(a.adjR)).slice(0, DQ_LIST_MAX)) console.log(fm(e));
       console.log("\nBS1 의심 3일: " + exs.filter((e) => (e.code === "026960" && (e.d === "2012-11-28" || e.d === "2013-11-27")) || (e.code === "217330" && e.d === "2022-09-28")).map((e) => fm(e)).join(" ||"));
     }
+    // ---- Q7. K200P 해당 미조정 의심일이 과거 K200P 시험의 보유와 겹쳤는가(가늠) ----
+    {
+      const K = exs.filter((e) => e.cls === "나" && !special(e) && !e.ev && !e.ex && e.k200 >= 0).sort((x, y) => (x.d < y.d ? -1 : 1));
+      const cRm = startOf(RM1, false), cLr = startOf(LR1, false), cMv = startOf(MV1, false);
+      const runsK: { nm: string; w: number; spells: { code: string; a: number; b: number }[] }[] = [];
+      const addR = (nm: string, w: number, r: { trades: { code: string; entryC: number; exitC: number }[]; open?: { code: string; entryC: number }[] }): void => { runsK.push({ nm, w, spells: [...r.trades.map((t) => ({ code: t.code, a: t.entryC, b: t.exitC })), ...(r.open ?? []).map((t) => ({ code: t.code, a: t.entryC, b: nCal }))] }); };
+      addR("RM1(5%)", 0.05, runS(RM1, RM1.P0, cRm, null, { lag: 1 })); addR("LR1(5%)", 0.05, runS(LR1, LR1.P0, cLr, null, { lag: 1 })); addR("MV1(상한 5%)", 0.05, runS(MV1, MV1.P0, cMv, null, { lag: 1 }));
+      addR("TS1(5%)", 0.05, runTS(B5_TS_P0, { lag: 1 })); addR("DS6 위성 LV1(10% × 위성 60% = 6%)", 0.06, b6.satX.run);
+      console.log(`\n=== Q7. 미조정 의심 K200P 해당 ${K.length}건(위 (나) 표시 아님·이벤트 없음)이 묶음 5·DS6 위성 보유와 겹쳤는가 ===`);
+      console.log("| 종목 | 날짜 | 수정 수익률 % | 겹친 시험(비중 가정) | 계좌 영향 추정 %p (= 비중 × 수익률) |\n|---|---|---|---|---|");
+      let any = 0;
+      for (const e of K) {
+        const k = h.calIdx.get(e.d) as number, hit = runsK.filter((r) => r.spells.some((sp) => sp.code === e.code && sp.a < k && k <= sp.b));
+        if (hit.length) any++;
+        console.log(`| ${label(e.code)} | ${e.d} | ${f2(e.adjR * 100)} | ${hit.length ? hit.map((r) => r.nm).join(", ") : "겹침 없음"} | ${hit.length ? hit.map((r) => f2(r.w * e.adjR * 100)).join(" / ") : "-"} |`);
+      }
+      console.log(`겹친 의심일 ${any}건 / ${K.length}건. DS6 코어(K200P 시총 상위 2종목)는 의심 종목의 당시 순위가 모두 3위 밖이라 영향 없음(가장 높은 순위 ${K.map((e) => e.k200).sort((a, b) => a - b)[0]}위).`);
+    }
     // ---- Q5. 소멸 종목 처리 관례 제안 집계 ----
     console.log(`\n=== Q5. 소멸 종목 집계 (마지막 행이 데이터 끝 ${dataEnd}보다 앞인 종목) ===`);
     interface Va { code: string; last: string; lastIdx: number; close: number; halts: number; r7: number; r20: number; volRatio: number; ex: boolean; recent: boolean }

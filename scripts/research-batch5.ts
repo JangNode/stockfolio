@@ -1507,6 +1507,11 @@ async function main(): Promise<void> {
     console.log(grp("제안 규칙: 마지막 종가 청산 집단", clearL)); console.log(grp("제안 규칙: 전액 손실 집단", lossL)); console.log(grp("BS1 소멸 7건(합병·교환·이전 추정)", vas.filter((v) => bs7.includes(v.code))));
     const alt = (v: Va): boolean => (Number.isFinite(v.r7) && v.r7 <= DQ_ALT_LAST_RETURN) || (Number.isFinite(v.r20) && v.r20 <= DQ_ALT_LAST_RETURN);
     const altLoss = nonEx.filter((v) => lossP(v).halt || lossP(v).px || alt(v));
+    {
+      const stable = (v: Va): boolean => Number.isFinite(v.r7) && Number.isFinite(v.r20) && v.r7 >= -0.1 && v.r20 >= -0.2;
+      const sub = (nm: string, l: Va[]): string => `${nm} ${l.length}개 중 가격 안정형(마지막 7행 수익률 ≥ −10% ∧ 20행 ≥ −20%) ${l.filter(stable).length}개, 마지막 종가 중앙값 ${f2(med(l.map((v) => v.close)))}, 정지일수 중앙값 ${f2(med(l.map((v) => v.halts)))}`;
+      console.log("\n전액 손실 집단 세부(제외 대상·최근 소멸 뺀 나머지): " + [sub("정지만 걸림", nonEx.filter((v) => lossP(v).halt && !lossP(v).px)), sub("종가 1,000원 미만만 걸림", nonEx.filter((v) => !lossP(v).halt && lossP(v).px)), sub("둘 다 걸림", nonEx.filter((v) => lossP(v).halt && lossP(v).px))].join(" | "));
+    }
     console.log(`\n대안 신호(제안만): 제안 규칙 OR 마지막 ${DQ_ALT_LAST_ROWS}행 또는 ${DQ_VANISH_WINDOW_DAYS}행 수익률 ≤ ${DQ_ALT_LAST_RETURN * 100}% → 전액 손실 ${altLoss.length}개 / 청산 ${nonEx.length - altLoss.length}개(제안 규칙 단독은 손실 ${lossL.length} / 청산 ${clearL.length}). 제안 규칙에는 안 걸리고 대안에만 걸린 종목 ${altLoss.length - lossL.length}개.`);
     console.log("BS1 소멸 7건의 제안 규칙 적용: " + vas.filter((v) => bs7.includes(v.code)).map((v) => `${label(v.code)} 마지막 종가 ${v.close} 정지일수 ${v.halts} r7 ${f2(v.r7 * 100)}% r20 ${f2(v.r20 * 100)}% → ${lossP(v).halt || lossP(v).px ? "전액 손실" : "마지막 종가 청산"}`).join(" | "));
     console.log(`\n전 종목 점검 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);

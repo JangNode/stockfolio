@@ -1309,6 +1309,83 @@ async function main(): Promise<void> {
   };
   const ttl = (nm: string, extra: string): string => `${nm}: ${extra}`;
   const BSA_FOR_V: Strat<BsP> = { ...BS1, targets: (c, _held, P, m) => { const el = bsElig(c, P); return equalW(el, 1 / Math.max(el.length, 1), m); } };
+  if (MODE === "rtpre") {
+    // RT 사전 점검(성과 미계산): 기준선 RT0 vs 069500(±RT_BASELINE_MAX_GAP_PP %p 넘으면 중단), 목표 비중표 독립 대조(모든 신호일), 체결 타이밍.
+    const fails: string[] = [];
+    const cT = startOf(RT1, false), WT = windowsFor(cT);
+    console.log(`\n=== RT-0. 기준선 RT0: K200P 전 종목 시총 비중(상한 ${RT1_P0.cap * 100}%), 월말 신호·다음 거래일 종가 체결, 항상 100%, 정보용(시험 아님) — 첫 신호일 ${CAL[cT]}, 수익 집계 ${WT.FULL.from}~${h.dataEnd} ===`);
+    const r0 = runS(RT0, RT1.P0, cT, null, { lag: 1, detail: true });
+    console.log("| 구간 | 069500 | RT0 | RT0 − 069500 CAGR %p | RT0 − 069500 MDD %p |\n|---|---|---|---|---|");
+    let fullGap = Number.NaN;
+    for (const [nm, w] of WT.ALL) { const a = h.st(h.bhP, w), b = h.st(r0, w); if (nm.startsWith("연속")) fullGap = b.cagr - a.cagr; console.log(`| ${nm} | ${f2(a.cagr)} / ${f2(a.mdd)} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${b.cagr - a.cagr >= 0 ? "+" : ""}${f2(b.cagr - a.cagr)} | ${b.mdd - a.mdd >= 0 ? "+" : ""}${f2(b.mdd - a.mdd)} |`); }
+    const sF = h.st(r0, WT.FULL);
+    console.log(`RT0 연속 전체: 평균 보유 종목 ${f2(sF.avgN)}, 평균 투자 비중 ${f2(sF.avgInv)}%, 연 회전율 ${f2(sF.turnover)}%, 비용 합계 ${f2(sF.cost)}%`);
+    if (!(Math.abs(fullGap) <= RT_BASELINE_MAX_GAP_PP)) { console.log(`기준선 연속 CAGR 차이 ${f2(fullGap)}%p — 허용 ${RT_BASELINE_MAX_GAP_PP}%p 초과: 원인 조사 정보 출력`); fails.push(`기준선 RT0 연속 CAGR 차이 ${f2(fullGap)}%p`); }
+    else console.log(`기준선 연속 CAGR 차이 ${f2(fullGap)}%p — 허용 ${RT_BASELINE_MAX_GAP_PP}%p 이내`);
+    // 원인 조사용(차이가 클 때만 의미): 비용 없는 순수 가격 지수형, 삼성전자·SK하이닉스 평균 비중
+    {
+      const sigs = sigDays(RT0, false).filter((c) => c >= cT);
+      let sam = 0, sk = 0, nn = 0, top1 = 0;
+      for (const c of sigs) { const t = RT0.targets(c, new Set(), RT1.P0, 1, true); sam += t.get("005930") ?? 0; sk += t.get("000660") ?? 0; top1 += Math.max(...t.values()); nn++; }
+      console.log(`RT0 신호일 평균: 삼성전자 비중 ${f2((sam / nn) * 100)}%, SK하이닉스 ${f2((sk / nn) * 100)}%, 최대 단일 비중 평균 ${f2((top1 / nn) * 100)}%, K200P 종목 수 평균 ${f2(sigs.reduce((a, c) => a + RT0.targets(c, new Set(), RT1.P0, 1, true).size, 0) / sigs.length)}`);
+    }
+
+    // 목표 비중표 독립 대조: 브루트포스 점수(bruteRm) + 선정(bruteSelect) + 정렬 기반 상한 비중(bruteCapW), 실제 보유 경로 위에서
+    const bruteCapW = (mcs: number[], cap: number): number[] => {
+      const n = mcs.length;
+      if (cap * n < 1 - 1e-12) return mcs.map(() => 1 / n);
+      const order = mcs.map((_, i) => i).sort((a, b) => mcs[b] - mcs[a]);
+      for (let k = 0; k <= n; k++) {
+        if (k === n) return mcs.map(() => cap);
+        const restSum = order.slice(k).reduce((a, i) => a + mcs[i], 0), rest = 1 - cap * k;
+        if (rest * mcs[order[k]] / restSum <= cap + 1e-15) { const w = new Array<number>(n).fill(cap); for (let q = k; q < n; q++) w[order[q]] = (rest * mcs[order[q]]) / restSum; return w; }
+      }
+      throw new Error("상한 비중 계산 실패");
+    };
+    const checkRt = (tag: string, def: Strat<RtP>, F: boolean, step: number): void => {
+      const variants: [string, RtP, number][] = [["기본", def.P0, 1], ...def.nbs.map(([lb, ch]) => [lb, { ...def.P0, ...ch }, step] as [string, RtP, number])];
+      for (const [lb, Pv, st2] of variants) {
+        let nBad = 0, nDays = 0, nChk = 0, first = "";
+        const wrap: Strat<RtP> = { ...def, targets: (c, held, Pp, m, swap) => {
+          const t = def.targets(c, held, Pp, m, swap);
+          if (nDays++ % st2 !== 0) return t;
+          const rp = { ...B5_RM_P0, start: Pp.start, skip: Pp.skip, minValid: Pp.minValid };
+          const a = rtSorted(c, Pp).map((x) => ({ code: x.code, v: x.sc })), b = bruteRm(c, rp), msg = cmpLists("순위", a, b, 1e-9);
+          if (msg) { nBad++; first ||= `${CAL[c]} ${msg}`; return t; }
+          const nS = b.length, sel = bruteSelect(b.map((x) => x.code), held, Math.ceil(Pp.share * nS), Math.ceil((Pp.share + Pp.keepOff) * nS));
+          const rk = new Map(bruteRank(c).map((s2) => [s2.code, s2])), mcs = sel.map((code) => { const s2 = rk.get(code) as S, j = bsExact(s2, c); return s2.mcapRow[j]; });
+          const w = bruteCapW(mcs, Pp.cap);
+          nChk++;
+          let ok = sel.length === t.size, sum = 0, mx = 0;
+          for (let k = 0; k < sel.length && ok; k++) { const mv = t.get(sel[k]); if (mv === undefined || Math.abs(mv - w[k] * m) > 1e-12) ok = false; }
+          for (const v of t.values()) { sum += v; mx = Math.max(mx, v); }
+          if (!ok) { nBad++; first ||= `${CAL[c]} 선정 ${sel.length}개 ≠ 모듈 ${t.size}개 또는 비중 불일치`; }
+          else if (Math.abs(sum - m) > 1e-9 || mx > Pp.cap * m + 1e-12) { nBad++; first ||= `${CAL[c]} 비중 합 ${sum} 또는 최대 ${mx} 위반`; }
+          return t;
+        } };
+        runS(wrap, Pv, cT, F ? { ma: B5_MA_DAYS } : null, { lag: 1 });
+        console.log(`  ${tag} ${lb}${F ? "(필터 형태)" : ""}: 신호일 ${nDays}일 중 대조 ${nChk}일, 불일치 ${nBad}건 ${nBad === 0 ? "통과" : `불일치 (${first})`}`);
+        if (nBad > 0) fails.push(`${tag} ${lb}: ${first}`);
+      }
+    };
+    console.log(`\n=== RT-1. 목표 비중표 독립 대조 (모듈 vs 브루트포스, 실제 보유 경로 위에서; 기본은 모든 신호일, 이웃은 6일마다) ===`);
+    checkRt("RT1", RT1, false, 6); checkRt("RT1", RT1, true, 1000000); checkRt("RT2", RT2, false, 6);
+    console.log(`\n=== RT-2. 체결 타이밍·구조 (lag 1·2) ===`);
+    for (const [tag, def, F] of [["RT1", RT1, false], ["RT1", RT1, true], ["RT2", RT2, false]] as [string, Strat<RtP>, boolean][]) {
+      const sd = new Set(sigDays(def, F).filter((c) => c >= cT));
+      for (const lag of [1, 2]) {
+        const r = runS(def, def.P0, cT, F ? { ma: B5_MA_DAYS } : null, { lag, detail: true });
+        const badEntry = r.entryCs.filter((c) => !sd.has(c - lag)).length, negCost = r.costFrac.filter((x) => x < -1e-12).length, nanRet = r.ret.filter((x) => !Number.isFinite(x)).length;
+        const wMaxAll = Math.max(...r.wMax.filter(Number.isFinite)), over = r.nPos.some((n, i) => n - r.nDefer[i] > Math.ceil(0.6 * 200));
+        console.log(`  ${tag}${F ? "(필터)" : ""} lag ${lag}: 진입 ${r.entryCs.length}건, 보유 구간 닫힘 ${r.trades.length}건·열림 ${r.open.length}건 | 신호일 + ${lag}이 아닌 진입 ${badEntry}건 | 보유 종목 평균 ${f2(avg(r.nPos))} 최대 ${Math.max(...r.nPos)} | 단일 종목 최대 비중 ${f2(wMaxAll * 100)}% | 음수 비용 ${negCost}일, 비정상 수익률 ${nanRet}일 | 폐지 청산 ${r.trades.filter((t) => t.reason.startsWith("폐지")).length}건, 거래정지 매수 건너뜀 ${r.haltSkip}건, 청산 순연 ${r.exitDefer}건`);
+        if (badEntry > 0 || negCost > 0 || nanRet > 0 || over) fails.push(`${tag} lag ${lag} 체결 타이밍`);
+      }
+    }
+    console.log(`\nRT 사전 점검 종료: DS6 재현(위), 기준선, 목표 비중표 독립 대조, 체결 타이밍 ${fails.length === 0 ? "통과" : `— 실패 ${fails.length}건`}. RT1·RT1F·RT2 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    for (const f of fails) console.log(`  실패: ${f}`);
+    if (fails.length) throw new Error("RT 사전 점검 실패 — 시험을 시작하지 않고 중단해 보고한다");
+    return;
+  }
   if (MODE === "dq") {
     // 전 종목 가격 데이터 품질 점검(시험 아님, 시험 번호·게이트 없음, 읽기 전용, 가격 데이터만 사용).
     const dataEnd = CAL[nCal - 1];
@@ -1613,6 +1690,67 @@ async function main(): Promise<void> {
   } else if (MODE === "c") {
     doS(BS1, "BS1", false, ttl("BS1", "코스피+코스닥 전 종목 지루한 주식 점수(변동성·상위 3일 평균·회전율 백분위) 최저 30종목 동일 비중, 월말 신호, 소멸 종목 전액 손실"));
     doC(BS1, "BS1C", ttl("BS1C", "DS6 코어 40% + 위성 60% = BS1"));
+  } else if (MODE === "rt") {
+    doS(RT1, "RT1", false, ttl("RT1", "K200P(PIT) 월말 신호, 069500 회귀 잔차 모멘텀 점수 상위 50% 종목을 시총 비중(상한 30%)으로 보유, 기존 보유는 상위 60% 안이면 유지, 매월 목표 비중으로 재조정, 항상 100%"));
+    doS(RT1, "RT1F", true, ttl("RT1F", "RT1 + 월말 069500 종가 < 200일선이면 주식 비중 50%"));
+    doS(RT2, "RT2", false, ttl("RT2", "RT1에서 점수 상위 25%, 유지 35%"));
+    // ---- RT 정보용 보고(사전등록 2절 항목 2~6) ----
+    const cR = startOf(RT1, false), WR = windowsFor(cR);
+    const base = (def: Strat<RtP>, F: boolean): RebalRun => runS(def, def.P0, cR, F ? { ma: B5_MA_DAYS } : null, { lag: 1, detail: true });
+    const rt1 = base(RT1, false), rt1f = base(RT1, true), rt2 = base(RT2, false), rt0 = base(RT0, false), rm1 = runS(RM1, RM1.P0, startOf(RM1, false), null, { lag: 1 });
+    console.log(`\n=== RT 정보 1. 기준선 RT0(K200P 전 종목 시총 비중, 상한 30%) 대 RT1·RT1F·RT2 (CAGR % / MDD %; 시험 아님, 같은 구간 ${WR.FULL.from}~) ===`);
+    console.log("| 구간 | 069500 | RT0 | RT1 | RT1F | RT2 | RT1 − RT0 CAGR %p / MDD %p | RT1F − RT0 | RT2 − RT0 |\n|---|---|---|---|---|---|---|---|---|");
+    for (const [nm, w] of WR.ALL) {
+      const b = h.st(h.bhP, w), z = h.st(rt0, w), a1 = h.st(rt1, w), a2 = h.st(rt1f, w), a3 = h.st(rt2, w);
+      const d = (x: { cagr: number; mdd: number }): string => `${x.cagr - z.cagr >= 0 ? "+" : ""}${f2(x.cagr - z.cagr)} / ${x.mdd - z.mdd >= 0 ? "+" : ""}${f2(x.mdd - z.mdd)}`;
+      console.log(`| ${nm} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${f2(z.cagr)} / ${f2(z.mdd)} | ${f2(a1.cagr)} / ${f2(a1.mdd)} | ${f2(a2.cagr)} / ${f2(a2.mdd)} | ${f2(a3.cagr)} / ${f2(a3.mdd)} | ${d(a1)} | ${d(a2)} | ${d(a3)} |`);
+    }
+    const pathTg = (def: Strat<RtP>, F: boolean): { c: number; t: Map<string, number> }[] => {
+      const out: { c: number; t: Map<string, number> }[] = [];
+      let held: ReadonlySet<string> = new Set();
+      for (const c of sigDays(def, F).filter((x) => x >= cR)) { const t = def.targets(c, held, def.P0, F ? filterMult(c, B5_MA_DAYS) : 1, true); out.push({ c, t }); held = new Set(t.keys()); }
+      return out;
+    };
+    const A = al;
+    console.log(`\n=== RT 정보 2. 삼성전자·SK하이닉스: 보유에서 빠진 달(K200P에 있으나 목표에서 빠진 신호월), 그 달 구간(체결일 → 다음 체결일)의 종목 수익률 − 069500, 평균 목표 비중(신호일, 빠진 달 0 포함), 가격 손익 기여 ===`);
+    console.log("| 시험 | 종목 | K200P 신호월 | 빠진 달 | 빠진 달 평균 초과(%p/월) | 빠진 달 초과 합(%p) | 빠진 달 종목 복리 % / 069500 복리 % | 평균 목표 비중 % | 보유 달 평균 비중 % | 가격 손익 기여(%p) |\n|---|---|---|---|---|---|---|---|---|---|");
+    for (const [nm, def, F, run] of [["RT1", RT1, false, rt1], ["RT1F", RT1, true, rt1f], ["RT2", RT2, false, rt2]] as [string, Strat<RtP>, boolean, RebalRun][]) {
+      const pt = pathTg(def, F);
+      for (const code of RT_WATCH) {
+        const s2 = byCode.get(code) as S, a = A(s2);
+        let inK = 0, out = 0, exSum = 0, cS2 = 1, cB = 1, wSum = 0, held = 0, wHeld = 0;
+        for (let j = 0; j < pt.length; j++) {
+          const { c, t } = pt[j], c2 = j + 1 < pt.length ? pt[j + 1].c : nCal - 2;
+          const w = t.get(code) ?? 0;
+          wSum += w;
+          if (w > 0) { held++; wHeld += w; }
+          if (rank200(c).rank.has(code)) {
+            inK++;
+            if (w === 0) { out++; const e0 = c + 1, e1 = Math.min(c2 + 1, nCal - 1), st = a[e1] / a[e0] - 1, bm = bL[e1] / bL[e0] - 1; exSum += st - bm; cS2 *= 1 + st; cB *= 1 + bm; }
+          }
+        }
+        console.log(`| ${nm} | ${label(code)} | ${inK} | ${out} | ${out ? f2((exSum / out) * 100) : "-"} | ${f2(exSum * 100)} | ${f2((cS2 - 1) * 100)} / ${f2((cB - 1) * 100)} | ${f2((wSum / pt.length) * 100)} | ${held ? f2((wHeld / held) * 100) : "-"} | ${f2(run.contrib.get(code)?.pct ?? 0)} |`);
+      }
+    }
+    console.log(`\n=== RT 정보 3. 평균 보유 종목 수, 신호일 상위 ${RT_TOP_N_WEIGHT}종목 비중 합의 평균(목표 비중 합 대비 %) ===`);
+    console.log("| 시험 | 평균 보유 종목 수(일별, 연속 전체) | 신호일 목표 종목 수 평균 | 상위 5종목 비중 합 평균 % | 신호일 최대 단일 비중 평균 % | 가격 손익 기여 상위 5종목 |\n|---|---|---|---|---|---|");
+    for (const [nm, def, F, run] of [["RT0", RT0, false, rt0], ["RT1", RT1, false, rt1], ["RT1F", RT1, true, rt1f], ["RT2", RT2, false, rt2]] as [string, Strat<RtP>, boolean, RebalRun][]) {
+      const pt = pathTg(def, F);
+      let n = 0, top5 = 0, top1 = 0;
+      for (const { t } of pt) { const v = [...t.values()].sort((x, y) => y - x), tot = v.reduce((x, y) => x + y, 0); n += v.length; top5 += v.slice(0, RT_TOP_N_WEIGHT).reduce((x, y) => x + y, 0) / tot; top1 += v[0] / tot; }
+      const topC = [...run.contrib].sort((x, y) => y[1].pct - x[1].pct).slice(0, 5).map(([code, v]) => `${label(code)} ${f2(v.pct)}`).join(", ");
+      console.log(`| ${nm} | ${f2(h.st(run, WR.FULL).avgN)} | ${f2(n / pt.length)} | ${f2((top5 / pt.length) * 100)} | ${f2((top1 / pt.length) * 100)} | ${topC} |`);
+    }
+    console.log(`\n=== RT 정보 4. 일간 수익률 상관계수(공통 구간 ${WR.FULL.from}~${h.dataEnd}, 정보용) ===`);
+    {
+      const mkSer = (name: string, dates: string[], ret: number[]): { name: string; m: Map<string, number> } => ({ name, m: new Map(dates.map((d, i2) => [d, ret[i2]])) });
+      const ser = [mkSer("069500", h.bhP.dates, h.bhP.ret), mkSer("DS6", b6.res.run.dates, b6.res.run.ret), mkSer("RM1", rm1.dates, rm1.ret), mkSer("RT0", rt0.dates, rt0.ret), mkSer("RT1", rt1.dates, rt1.ret), mkSer("RT1F", rt1f.dates, rt1f.ret), mkSer("RT2", rt2.dates, rt2.ret)];
+      const days = rt1.dates.filter((d) => d >= WR.FULL.from && ser.every((x) => x.m.has(d)));
+      const corr = (x: Map<string, number>, y: Map<string, number>): number => { const xs = days.map((d) => x.get(d) as number), ys = days.map((d) => y.get(d) as number), n = xs.length, mx = avg(xs), my = avg(ys); let sxy = 0, sxx = 0, syy = 0; for (let i2 = 0; i2 < n; i2++) { sxy += (xs[i2] - mx) * (ys[i2] - my); sxx += (xs[i2] - mx) ** 2; syy += (ys[i2] - my) ** 2; } return sxy / Math.sqrt(sxx * syy); };
+      console.log(`공통 ${days.length}일`);
+      console.log(`| | ${ser.map((x) => x.name).join(" | ")} |\n|---|${ser.map(() => "---").join("|")}|`);
+      for (const x of ser) console.log(`| ${x.name} | ${ser.map((y) => f2(corr(x.m, y.m))).join(" | ")} |`);
+    }
   }
   summaryReport(verdicts, trialNums, { prior: Number(process.env.B5_TRIAL ?? "294") - 1, contamNote: "경고(오염): 2011~2026은 선행 연구에서 반복해 본 데이터다. 변형(F·C 형태)은 DS6·DS7·DS10 결과를 본 뒤 만든 것(선택 편향)이라 순수 검증이 아니다." });
   console.log(`사전 고지: 이 묶음 누적 시험 ${Number(process.env.B5_TRIAL ?? "294") - 1 + trialNums.length}회 기준 우연 통과 기대 ${((Number(process.env.B5_TRIAL ?? "294") - 1 + trialNums.length) * 0.05).toFixed(2)}건(근사). 통과 후보가 있어도 독립 확인 전에는 후보일 뿐이다. 정의는 첫 시험 전에 고정했고 결과를 보고 바꾸지 않았다.`);

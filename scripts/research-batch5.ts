@@ -18,6 +18,7 @@ import { PEAD_H_CAGR_GAIN_PP, PEAD_H_MDD_GAIN_PP, PEAD_H_MDD_GAIN_STRONG_PP, PEA
 import { KSS_R3_DRAWS, KSS_R3_SEED, F_E_TOP_TRADES, F_C_MAX_CAGR_DROP, F_C_MAX_MDD_WORSEN, F_F_MIN_PCTILE } from "@/lib/kodexSectorSatConfig";
 import { SAT_MDD_EPS } from "@/lib/satelliteV1Config";
 import { rebalSim, type RebalRun } from "@/lib/rebalSim";
+import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
 import { solveMinVar, projectCappedSimplex } from "@/lib/minVar";
 import { B5_F_DENOMINATOR, B5_CORE_W, B5_MA_DAYS, B5_MA_NB, B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_LR_P0, B5_LR_NB, B5_PF_P0, B5_PF_NB, B5_PF_SLIP, B5_PF_TV_DAYS, B5_TS_P0, B5_TS_NB, B5_TS_CAP, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, B5_MV_CHECK_SAMPLES, B5_BS_P0, B5_BS_NB, B5_BS_SLIP_K200, B5_BS_SLIP_OTHER, type RmP, type LrP, type PfP, type TsP, type MvP, type BsP } from "@/lib/batch5Config";
 import { ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConfig";
@@ -36,7 +37,7 @@ type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv 필요");
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -1273,6 +1274,104 @@ async function main(): Promise<void> {
     verdicts.push(evaluate(h, Wx, mkC(def, id, trial, cS, Wx, title)));
   };
   const ttl = (nm: string, extra: string): string => `${nm}: ${extra}`;
+  const BSA_FOR_V: Strat<BsP> = { ...BS1, targets: (c, _held, P, m) => { const el = bsElig(c, P); return equalW(el, 1 / Math.max(el.length, 1), m); } };
+  if (MODE === "bsv") {
+    // BS1 데이터·구현 검증(시험 아님, 시험 번호·게이트 없음, 읽기 전용).
+    const cB = startOf(BS1, false), WB = windowsFor(cB), bs = runS(BS1, BS1.P0, cB, null, { lag: 1, detail: true });
+    const dataEndIdx = nCal - 1;
+    console.log(`\n=== V1. 데이터 출처·기간·종목 수 ===`);
+    console.log(`출처: 고정 스냅샷 연도별 가격 Parquet(2010~2026, Supabase Storage → Actions 캐시, 매니페스트 SHA-256 일치) + 적용된 조정 이벤트 ${[...h.adjustments.values()].reduce((a, l) => a + l.length, 0)}건 | 거래일 ${nCal}일 ${CAL[0]}~${CAL[dataEndIdx]} | 월말 시장 구분(KOSPI/KOSDAQ) 목록: KRX Open API 월말 스냅샷(저장본)`);
+    console.log("| 연도 | 그 해 행이 있는 종목 | 마지막 월말 시장표 코스피 | 코스닥 | BS1 적격 유니버스(코스피 / 코스닥) | 그 해 마지막 행으로 사라진 종목(상장폐지 포함 소멸) |\n|---|---|---|---|---|---|");
+    for (let y = 2011; y <= 2026; y++) {
+      const ys = `${y}-`, endsY = monthEndIdx.filter((c) => CAL[c].startsWith(ys)), cL = endsY.length ? endsY[endsY.length - 1] : -1;
+      let present = 0, gone = 0, kp = 0, kq = 0, ekp = 0, ekq = 0;
+      for (const s2 of h.stocks) { if (s2.dates.some((d) => d.startsWith(ys))) present++; if (s2.last.startsWith(ys) && s2.last < CAL[dataEndIdx]) gone++; }
+      if (cL >= 0) {
+        const m = membAt(CAL[cL]);
+        if (m) for (const [, mk] of m) { if (mk === "KOSPI") kp++; else if (mk === "KOSDAQ") kq++; }
+        for (const code of bsElig(cL, BS1.P0)) { const mk = m?.get(code); if (mk === "KOSPI") ekp++; else if (mk === "KOSDAQ") ekq++; }
+      }
+      console.log(`| ${y} | ${present} | ${kp} | ${kq} | ${ekp + ekq}(${ekp} / ${ekq}) | ${gone} |`);
+    }
+    const goneAll = h.stocks.filter((s2) => s2.last < CAL[dataEndIdx]).length;
+    console.log(`상장폐지·소멸 포함 여부: 마지막 행이 데이터 끝(${CAL[dataEndIdx]})보다 앞인 종목 ${goneAll}개가 데이터에 들어 있고 월말 시장표도 그 시점 구성(과거 스냅샷)이라 BS1 유니버스에 포함됨(생존 편향 없음). 코스닥 포함: 월말 시장표가 KOSDAQ인 종목 포함(위 표).`);
+
+    console.log(`\n=== V2. 일간 수익률 산식 ===`);
+    console.log(`수익률 = 조정 종가의 전일 대비 비율(수정주가: 가격 Parquet 종가에 적용된 조정 이벤트 계수를 거꾸로 곱함, 등락률 열 미사용). 행이 없는 날(거래정지·미상장) 수익률 0, 상장 전 0. 체결·평가는 조정 종가, 거래대금 조건은 원 종가 × 거래량.`);
+    const evs: { code: string; eventDate: string; factor: number; adjR: number; rawR: number; i: number }[] = [];
+    for (const [code, list] of h.adjustments) for (const e of list) {
+      const s2 = h.byCode.get(code); if (!s2) continue;
+      const i = s2.dates.findIndex((d) => d >= e.eventDate);
+      if (i < 1 || !(s2.raw[i - 1] > 0)) continue;
+      evs.push({ code, eventDate: e.eventDate, factor: e.factor, adjR: s2.close[i] / s2.close[i - 1] - 1, rawR: s2.raw[i] / s2.raw[i - 1] - 1, i });
+    }
+    evs.sort((a, b) => (a.eventDate < b.eventDate ? -1 : 1));
+    const big = (t: number): number => evs.filter((e) => Math.abs(e.adjR) > t).length;
+    console.log(`조정 이벤트 ${evs.length}건(종목 행이 있는 건): 이벤트 당일 수정 수익률 절댓값 > 10% ${big(0.1)}건, > 20% ${big(0.2)}건, > 30% ${big(0.3)}건.`);
+    const pick5 = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => evs[Math.floor((evs.length * (k + 0.5)) / 8)]);
+    const topBig = [...evs].sort((a, b) => Math.abs(b.adjR) - Math.abs(a.adjR)).slice(0, 4);
+    console.log("| 표본 | 종목 | 이벤트일 | 계수 | 원 종가 전일 → 당일 | 원 종가 수익률 % | 수정 종가 수익률 % | 거래량 당일 |\n|---|---|---|---|---|---|---|---|");
+    for (const [tag, list] of [["고른 8건(시기별 균등)", pick5], ["수정 수익률 절댓값 최대 4건", topBig]] as const) for (const e of list) { const s2 = h.byCode.get(e.code) as S; console.log(`| ${tag} | ${label(e.code)} | ${e.eventDate} | ${e.factor.toFixed(4)} | ${s2.raw[e.i - 1]} → ${s2.raw[e.i]} | ${f2(e.rawR * 100)} | ${f2(e.adjR * 100)} | ${s2.vol[e.i]} |`); }
+
+    console.log(`\n=== V3. BS1 보유 중 일간 수정 수익률 ≤ −25% 또는 ≥ +25%인 날 전부 분류 ===`);
+    const evByCodeDate = new Map<string, { factor: number }>();
+    for (const [code, list] of h.adjustments) for (const e of list) evByCodeDate.set(`${code}|${e.eventDate}`, { factor: e.factor });
+    interface Flag { code: string; d: string; adjR: number; rawR: number; vol: number; gap: number; cls: string }
+    const flags: Flag[] = [];
+    let heldDays = 0;
+    for (const t of [...bs.trades, ...bs.open]) {
+      const s2 = h.byCode.get(t.code); if (!s2) continue;
+      const endC = t.exitC !== undefined && Number.isFinite(t.exitC) ? Math.min(t.exitC, dataEndIdx) : dataEndIdx;
+      const a = al(s2);
+      for (let k = t.entryC + 1; k <= endC; k++) {
+        heldDays++;
+        const r = a[k - 1] > 0 && a[k] > 0 ? a[k] / a[k - 1] - 1 : 0;
+        if (Math.abs(r) < 0.25) continue;
+        const i = s2.idx.get(CAL[k]);
+        let pi = -1;
+        for (let q = k - 1; q >= 0; q--) { const j = s2.idx.get(CAL[q]); if (j !== undefined) { pi = j; break; } }
+        const rawR = i !== undefined && pi >= 0 ? s2.raw[i] / s2.raw[pi] - 1 : Number.NaN;
+        const prevK = pi >= 0 ? (h.calIdx.get(s2.dates[pi]) as number) : k - 1, gap = k - prevK;
+        let hasEv = false;
+        for (let q = prevK + 1; q <= k; q++) if (evByCodeDate.has(`${t.code}|${CAL[q]}`)) hasEv = true;
+        const vol = i !== undefined ? s2.vol[i] : 0;
+        const cls = i === undefined ? "당일 행 없음(전일 값 유지 중 → 이 날 수익률은 다음 행에 반영)" : hasEv ? "조정 이벤트 구간(수정 수익률 별도 검토)" : gap > 5 ? `긴 공백 뒤 재개(${gap}거래일 만에 행)` : Math.abs(rawR) > 0.3 + 1e-9 ? "가격제한폭 초과 변동인데 이벤트 없음(의심)" : vol === 0 ? "거래량 0" : "실제 가격 변동으로 보임(원 종가 변동 = 수정 종가 변동, 이벤트 없음, 거래량 > 0, 제한폭 이내)";
+        flags.push({ code: t.code, d: CAL[k], adjR: r, rawR, vol, gap, cls });
+      }
+    }
+    flags.sort((x, y) => (x.d < y.d ? -1 : 1));
+    const byCls = new Map<string, number>();
+    for (const f of flags) byCls.set(f.cls.split("(")[0], (byCls.get(f.cls.split("(")[0]) ?? 0) + 1);
+    console.log(`보유 종목-일 ${heldDays}개 중 |수정 수익률| ≥ 25%인 날 ${flags.length}개: ${[...byCls].map(([k2, v]) => `${k2} ${v}건`).join(", ") || "없음"}`);
+    console.log("| 종목 | 날짜 | 수정 수익률 % | 원 종가 수익률 % | 거래량 | 직전 행과 간격(거래일) | 분류 |\n|---|---|---|---|---|---|---|");
+    for (const f of flags.slice(0, 80)) console.log(`| ${label(f.code)} | ${f.d} | ${f2(f.adjR * 100)} | ${f2(f.rawR * 100)} | ${f.vol} | ${f.gap} | ${f.cls} |`);
+    if (flags.length > 80) console.log(`… 나머지 ${flags.length - 80}건 생략(위는 날짜순 앞 80건)`);
+
+    console.log(`\n=== V4. 소멸(폐지) 처리 ${bs.trades.filter((t) => t.reason.startsWith("폐지")).length}건 ===`);
+    console.log("| 종목 | 진입(체결일) | 청산(체결일) | 마지막 행 날짜 | 마지막 원 종가 / 거래량 | 보유 구간 수익률 % | 같은 이름의 다른 코드(코드 변경·이전상장 후보) |\n|---|---|---|---|---|---|---|");
+    for (const t of bs.trades.filter((x) => x.reason.startsWith("폐지"))) {
+      const s2 = h.byCode.get(t.code) as S, li = s2.dates.length - 1, nm = nameOf.get(t.code);
+      const same = nm ? h.stocks.filter((o2) => o2.code !== t.code && nameOf.get(o2.code) === nm).map((o2) => `${o2.code}(${o2.dates[0]}~${o2.last})`).join(", ") : "";
+      console.log(`| ${label(t.code)} | ${CAL[t.entryC]} | ${CAL[t.exitC]} | ${s2.last} | ${s2.raw[li]} / ${s2.vol[li]} | ${f2((t.proceeds / t.spend - 1) * 100)} | ${same || "없음"} |`);
+    }
+
+    console.log(`\n=== V5. BS1 최대 낙폭(MDD) 구간 ===`);
+    {
+      const rr = bs.ret.map((x, i2) => ({ d: bs.dates[i2], r: x })).filter((x) => x.d >= WB.FULL.from);
+      let v = 1, peak = 1, peakD = rr[0].d, mdd = 0, mp = rr[0].d, mt = rr[0].d;
+      for (const x of rr) { v *= 1 + x.r / 100; if (v > peak) { peak = v; peakD = x.d; } const dd = 1 - v / peak; if (dd > mdd) { mdd = dd; mp = peakD; mt = x.d; } }
+      console.log(`BS1 연속 전체 MDD ${f2(mdd * 100)}%: 고점일 ${mp} → 저점일 ${mt}`);
+      const kospi = await getIndexPriceSeries("KOSPI", "2009-01-01", CAL[dataEndIdx]), kosdaq = await getIndexPriceSeries("KOSDAQ", "2009-01-01", CAL[dataEndIdx]);
+      dbRead["beta_price_history(KOSPI)"] = kospi.length; dbRead["beta_price_history(KOSDAQ)"] = kosdaq.length;
+      const chg = (ser: { tradeDate: string; closePrice: number }[], a: string, b: string): number => { const x = [...ser].reverse().find((p2) => p2.tradeDate <= a), y = [...ser].reverse().find((p2) => p2.tradeDate <= b); return x && y ? (y.closePrice / x.closePrice - 1) * 100 : Number.NaN; };
+      const ew = runS(BSA_FOR_V, BS1.P0, cB, null, { lag: 1 }), ewr = ew.dates.map((d, i2) => ({ d, r: ew.ret[i2] }));
+      const curveChg = (rs: { d: string; r: number }[], a: string, b: string): number => { let vv = 1; for (const x of rs) if (x.d > a && x.d <= b) vv *= 1 + x.r / 100; return (vv - 1) * 100; };
+      const bh = h.bhP.dates.map((d, i2) => ({ d, r: h.bhP.ret[i2] }));
+      console.log(`같은 구간(${mp}~${mt}) 등락 %: BS1 ${f2(curveChg(rr, mp, mt))} | 전 종목 동일 비중 ${f2(curveChg(ewr, mp, mt))} | 069500 ${f2(curveChg(bh, mp, mt))} | KOSPI 지수 ${f2(chg(kospi, mp, mt))} | KOSDAQ 지수 ${f2(chg(kosdaq, mp, mt))} (지수 행 수 KOSPI ${kospi.length}, KOSDAQ ${kosdaq.length})`);
+    }
+    console.log(`\nBS1 검증 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    return;
+  }
   if (MODE === "info") {
     // 사전등록 정보용 보고(시험 아님, 시험 번호·게이트 없음): PF1 짝 보통주 대체 분해·보유 종목 거래대금, MV1 실현 변동성.
     const cP = startOf(PF1, false), WP = windowsFor(cP);

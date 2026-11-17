@@ -30,3 +30,5 @@ Storage 읽기 0.21 MiB(캐시 적중 17건), 쓰기 0, DB 쓴 행 0, 외부 요
 요약 문서: `batch5-summary.md`(시험 12개 모두 탈락, 정보용 보고 포함). 블록 D 결과가 나오면 7절과 `data-feasibility-4.md`를 채우고 최종 보고.
 
 RT1(306~308) 완료: `rt1-prereg.md`(acb4f24)·`rt1-summary.md` — 3개 모두 탈락. 전 종목 데이터 품질·소멸 관례 제안: `data-quality-fullmarket.md`(시험 아님, 누적 308 유지).
+
+DS13(309·310): `ds13-prereg.md`(74838e1)·`ds13-summary.md` — DS13M·DS13L 모두 A~H 전부 통과(선택 편향 큼, 포워드 확인 필요). 데이터 표준: K200P 17건 보정 적용. 누적 시험 310.

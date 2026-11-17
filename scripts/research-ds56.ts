@@ -713,7 +713,7 @@ async function main(): Promise<void> {
     const okT = Math.abs(t1[0] - 0.2) < 1e-12 && Math.abs(t1[1] - 0.48) < 1e-12 && Math.abs(t1[2] - 0.32) < 1e-12 && Math.abs(t1.reduce((a, x) => a + x, 0) - 1) < 1e-12 && t2[0] === 0.1 && t2[1] === 0.5;
     console.log(`  상한 규칙 합성 점검: [0.5,0.3,0.2] 상한 0.2(첫째) → [${t1.map((x) => x.toFixed(2)).join(", ")}] (기대 [0.20, 0.48, 0.32]), 상한 미만은 그대로 [${t2.map((x) => x.toFixed(2)).join(", ")}] ${okT ? "통과" : "불일치"}`);
     if (!okT) throw new Error("상한 규칙 합성 점검 실패 — 중단하고 보고한다(구현 오류만 수정, 사유 기록)");
-    for (const [cid, cdv] of Object.entries(CANDS_ALL)) {
+    for (const [cid, cdv] of Object.entries(CANDS_ALL).filter(([k0]) => !RESCORE_IDS || RESCORE_IDS.has(k0))) {
       const o = buildSat(cdv.sat, () => 1, cdv.cap), we = warmEnd(o);
       const post = o.wTgt.map((row) => row.slice(we));
       const sumDev = Math.max(...o.wTgt[0].map((_, i) => Math.abs(o.wTgt.reduce((a, row) => a + row[i], 0) - 1)));

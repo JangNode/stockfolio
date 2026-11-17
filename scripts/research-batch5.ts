@@ -1291,6 +1291,62 @@ async function main(): Promise<void> {
     console.log(`\n=== 정보용 2. MV1 연 실현 변동성(일수익률 표준편차 연율화(하니스 ETF_TRADING_DAYS_PER_YEAR), %) 대 069500(같은 구간) ===`);
     console.log("| 구간 | MV1 | 069500 | MV1 / 069500 |\n|---|---|---|---|");
     for (const [nm, w] of WM.ALL) { const a = h.st(mv, w), b = h.st(h.bhP, w); console.log(`| ${nm} | ${f2(a.vol)} | ${f2(b.vol)} | ${f2(a.vol / b.vol)} |`); }
+    // ---- 정보용 3. BS1 정보(시험 아님) ----
+    {
+      const cB = startOf(BS1, false), WB = windowsFor(cB), bs = runS(BS1, BS1.P0, cB, null, { lag: 1, detail: true });
+      const BSL: Strat<BsP> = { ...BS1, vanish: "last" };
+      const BSA: Strat<BsP> = { ...BS1, targets: (c, _held, P, m) => { const el = bsElig(c, P); return equalW(el, 1 / Math.max(el.length, 1), m); } };
+      const bl = runS(BSL, BS1.P0, cB, null, { lag: 1 }), ba = runS(BSA, BS1.P0, cB, null, { lag: 1 });
+      console.log(`\n=== 정보용 3. BS1 정보(시험 아님; 소멸 종목 처리·전 종목 동일 비중 대조) ===`);
+      console.log("| 구간 | BS1(소멸 = 전액 손실) | 소멸 = 마지막 종가 청산 | 전 종목(적격) 동일 비중 월 재조정 |\n|---|---|---|---|");
+      for (const [nm, w] of WB.ALL) { const a = h.st(bs, w), b = h.st(bl, w), c2 = h.st(ba, w); console.log(`| ${nm} | ${f2(a.cagr)} / ${f2(a.mdd)} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${f2(c2.cagr)} / ${f2(c2.mdd)} |`); }
+      const ents = [...bs.trades, ...bs.open];
+      let kospi = 0, kosdaq = 0;
+      const caps: number[] = [], ratios: number[] = [];
+      for (const t of ents) {
+        const c = t.entryC - 1, sk = h.byCode.get(t.code);
+        if (!sk) continue;
+        const mk = membAt(CAL[c])?.get(t.code);
+        if (mk === "KOSPI") kospi++; else if (mk === "KOSDAQ") kosdaq++;
+        const mc = mcapNear(sk, c);
+        if (Number.isFinite(mc)) caps.push(mc);
+        const tvs: number[] = [];
+        for (let k = c - BS1.P0.tvMedianDays + 1; k <= c; k++) { const j = rowAt(sk, k); tvs.push(j === undefined ? 0 : sk.raw[j] * sk.vol[j]); }
+        const md = medianOf(tvs);
+        if (md > 0) ratios.push(1e8 / md);
+      }
+      caps.sort((x, y) => x - y); ratios.sort((x, y) => x - y);
+      const q = (arr: number[], f: number): number => arr[Math.min(arr.length - 1, Math.floor(arr.length * f))];
+      console.log(`BS1 보유 진입 ${ents.length}건: 코스피 ${kospi}건(${f2((kospi / Math.max(kospi + kosdaq, 1)) * 100)}%) / 코스닥 ${kosdaq}건(${f2((kosdaq / Math.max(kospi + kosdaq, 1)) * 100)}%) | 진입 시 시가총액 중앙값 ${f2(median(caps))}억 원(하위 10% ${f2(q(caps, 0.1))}억, 상위 10% ${f2(q(caps, 0.9))}억) | 1억 원 주문 ÷ 60일 거래대금 중앙값: 중앙값 ${f2(median(ratios) * 100)}% / 90분위 ${f2(q(ratios, 0.9) * 100)}% / 최대 ${f2(ratios[ratios.length - 1] * 100)}%`);
+      const dl = ents.filter((t) => t.reason.startsWith("폐지")), allPnl = ents.reduce((a, t) => a + pnlS(t), 0), dlPnl = dl.reduce((a, t) => a + pnlS(t), 0);
+      console.log(`BS1 소멸(폐지) 청산 ${dl.length}건: 계좌 대비 손익 합 ${f2(dlPnl * 100)}%p(전 거래 손익 합 ${f2(allPnl * 100)}%p, 진입 시 계좌 대비 합) | 진입 체결일 거래정지로 건너뜀 ${bs.haltSkip}건, 청산 순연 ${bs.exitDefer}건 | 평균 보유 종목 수 ${f2(h.st(bs, WB.FULL).avgN)}`);
+    }
+    // ---- 정보용 4. 시험한 전략들의 일수익률 상관(시험 아님) ----
+    {
+      const mk = (name: string, dates: string[], ret: number[]): { name: string; m: Map<string, number> } => ({ name, m: new Map(dates.map((d, i) => [d, ret[i]])) });
+      const cT = startOf(RM1, false);
+      const series = [
+        mk("069500", h.bhP.dates, h.bhP.ret), mk("DS6", b6.res.run.dates, b6.res.run.ret),
+        (() => { const r = runS(RM1, RM1.P0, cT, null, { lag: 1 }); return mk("RM1", r.dates, r.ret); })(),
+        (() => { const r = runS(LR1, LR1.P0, startOf(LR1, false), null, { lag: 1 }); return mk("LR1", r.dates, r.ret); })(),
+        (() => { const r = runS(PF1, PF1.P0, startOf(PF1, false), null, { lag: 1 }); return mk("PF1", r.dates, r.ret); })(),
+        (() => { const r = runTS(B5_TS_P0, { lag: 1 }); return mk("TS1", r.dates, r.ret); })(),
+        (() => { const r = runS(MV1, MV1.P0, startOf(MV1, false), null, { lag: 1 }); return mk("MV1", r.dates, r.ret); })(),
+        (() => { const r = runS(BS1, BS1.P0, startOf(BS1, false), null, { lag: 1 }); return mk("BS1", r.dates, r.ret); })(),
+      ];
+      const first = series.slice(2).reduce((mx, x) => { const d = [...x.m.keys()].sort()[0]; return d > mx ? d : mx; }, "");
+      const days = [...series[1].m.keys()].filter((d) => d >= first && series.every((x) => x.m.has(d))).sort();
+      const corr = (a: Map<string, number>, b: Map<string, number>): number => {
+        const xs = days.map((d) => a.get(d) as number), ys = days.map((d) => b.get(d) as number), n = xs.length;
+        const mx = xs.reduce((u, v) => u + v, 0) / n, my = ys.reduce((u, v) => u + v, 0) / n;
+        let sxy = 0, sxx = 0, syy = 0;
+        for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+        return sxy / Math.sqrt(sxx * syy);
+      };
+      console.log(`\n=== 정보용 4. 시험한 전략(단독형)·DS6·069500 일수익률 상관계수(공통 구간 ${days[0]}~${days[days.length - 1]}, ${days.length}일, 시험 아님) ===`);
+      console.log(`| | ${series.map((x) => x.name).join(" | ")} |\n|---|${series.map(() => "---").join("|")}|`);
+      for (const a of series) console.log(`| ${a.name} | ${series.map((b) => f2(corr(a.m, b.m))).join(" | ")} |`);
+    }
     console.log(`\n정보용 실행 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     return;
   }

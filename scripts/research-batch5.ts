@@ -588,7 +588,16 @@ async function main(): Promise<void> {
   };
 
   // ---- BS1 ----
+  // 성능 전용 메모이제이션(결과 불변): 같은 (신호일, 파라미터)의 적격 목록·정렬을 무작위 대조 1000회·이웃이 반복 계산하지 않게 한다.
+  const bsEligMemo = new Map<string, string[]>(), bsSortedMemo = new Map<string, { code: string; score: number }[]>();
   const bsElig = (c: number, P: BsP): string[] => {
+    const key = `${c}|${JSON.stringify(P)}`, hit = bsEligMemo.get(key);
+    if (hit) return hit;
+    const r = bsEligRaw(c, P);
+    bsEligMemo.set(key, r);
+    return r;
+  };
+  const bsEligRaw = (c: number, P: BsP): string[] => {
     const d = CAL[c], m = membAt(d), out: string[] = [];
     if (!m) return out;
     for (const s of h.stocks) {
@@ -615,6 +624,13 @@ async function main(): Promise<void> {
     return out;
   };
   const bsSorted = (c: number, P: BsP): { code: string; score: number }[] => {
+    const key = `${c}|${JSON.stringify(P)}`, hit = bsSortedMemo.get(key);
+    if (hit) return hit;
+    const r = bsSortedRaw(c, P);
+    bsSortedMemo.set(key, r);
+    return r;
+  };
+  const bsSortedRaw = (c: number, P: BsP): { code: string; score: number }[] => {
     const el = bsElig(c, P), a: number[] = [], b: number[] = [], t: number[] = [];
     for (const code of el) {
       const s = h.byCode.get(code) as S, r = retFill(s);

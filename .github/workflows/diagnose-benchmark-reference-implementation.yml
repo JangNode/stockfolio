@@ -29,6 +29,10 @@ on:
         description: "보정 재채점 대상 ID(쉼표 구분, 예 RM1C 또는 RT1,RT1F 또는 DS6). 비우면 전체"
         required: false
         default: ""
+      neutralize:
+        description: "정보용 중립화(DS13 ds13ex): 수정 수익률을 0으로 둘 종목 코드(쉼표 구분, 예 005930,000660). 기본 비움"
+        required: false
+        default: ""
       pilot:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
@@ -1272,6 +1276,7 @@ jobs:
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'batch5' }}
         run: npx tsx --conditions=react-server scripts/research-batch5.ts
         env:
+          NEUTRALIZE_CODES: ${{ inputs.neutralize }}
           PRICE_CORRECTION: ${{ inputs.correct }}
           B5_IDS: ${{ inputs.ids }}
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}

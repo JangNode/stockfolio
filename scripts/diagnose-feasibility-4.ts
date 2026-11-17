@@ -8,8 +8,9 @@ import { callKis, newKisRun, blockedNow, kst, kstDate, rowsOf, type Rec } from "
 
 const T0 = Date.now();
 // 20회 상한은 1차(13회) + 후속(fu, 4회 계획)을 합친 값이다. 후속 실행은 남은 7회 안에서만 부른다.
-const FU = process.env.FEAS4_ONLY?.trim() === "fu";
-const MAX_CALLS = FU ? 7 : 20;
+const FU2 = process.env.FEAS4_ONLY?.trim() === "fu2"; // 후속 2차: 1차·후속이 모두 오류(404·호출 전처리 오류)여서 시간대를 바꿔 3회만 재시도(합계 20회)
+const FU = process.env.FEAS4_ONLY?.trim() === "fu" || FU2;
+const MAX_CALLS = FU2 ? 3 : FU ? 7 : 20;
 const NOT_BEFORE_UTC = Date.parse("2026-11-17T22:05:00Z"); // 2026-11-18 07:05 KST: 마지막 확정 프로브(07:00 KST) 뒤
 const run = newKisRun();
 const MAXMS = 1800e3;
@@ -44,14 +45,17 @@ async function main(): Promise<void> {
     // 후속(1차에서 재무비율 경로가 404였음): 운영 코드(lib/kis.ts)에서 쓰는 대차대조표·손익계산서 경로로 이력 깊이·필드·상장폐지 종목 조회를 확인한다(4회).
     console.log("\n=== 후속: 대차대조표·손익계산서(운영 코드와 같은 경로) 이력 깊이·필드 ===");
     const BS = "/uapi/domestic-stock/v1/finance/balance-sheet", IS = "/uapi/domestic-stock/v1/finance/income-statement";
-    for (const [lb, path, tr, code, div] of [["대차대조표 삼성전자 연", BS, "FHKST66430100", "005930", "0"], ["대차대조표 삼성전자 분기", BS, "FHKST66430100", "005930", "1"], ["손익계산서 삼성전자 연", IS, "FHKST66430200", "005930", "0"], ["대차대조표 한진해운(상장폐지) 연", BS, "FHKST66430100", "117930", "0"]] as const) {
+    const fuCalls = FU2
+      ? [["대차대조표 삼성전자 연", BS, "FHKST66430100", "005930", "0"], ["재무비율 삼성전자 연", FR_PATH, FR_TR, "005930", "0"], ["대차대조표 한진해운(상장폐지) 연", BS, "FHKST66430100", "117930", "0"]] as const
+      : [["대차대조표 삼성전자 연", BS, "FHKST66430100", "005930", "0"], ["대차대조표 삼성전자 분기", BS, "FHKST66430100", "005930", "1"], ["손익계산서 삼성전자 연", IS, "FHKST66430200", "005930", "0"], ["대차대조표 한진해운(상장폐지) 연", BS, "FHKST66430100", "117930", "0"]] as const;
+    for (const [lb, path, tr, code, div] of fuCalls) {
       const b = await call(lb, path, tr, { FID_DIV_CLS_CODE: div, fid_cond_mrkt_div_code: "J", fid_input_iscd: code });
       const rows = rowsOf(b, ["output"]);
       const ym = rows.map((r) => String(r.stac_yymm ?? "")).filter(Boolean).sort();
       console.log(`[${lb}] ${msgOf(b)} | ${rows.length}행, 결산월 ${ym[0] ?? "-"}~${ym[ym.length - 1] ?? "-"} | 필드: ${keysOf(rows[0])}`);
       for (const r of rows.slice(0, 3)) console.log(`   ${show(r)}`);
     }
-    console.log(`\n후속 호출 ${run.req}회(상한 ${MAX_CALLS}; 1차 13회와 합쳐 ${13 + run.req}회 ≤ 20), 오류 ${run.errors}, rate limit ${run.rlEvents}회 | Storage 쓰기 0 | DB 쓰기 0 | DART 0`);
+    console.log(`\n후속 호출 ${run.req}회(상한 ${MAX_CALLS}; 1차 13회${FU2 ? " + 후속 4회" : ""}와 합쳐 ${13 + (FU2 ? 4 : 0) + run.req}회 ≤ 20), 오류 ${run.errors}, rate limit ${run.rlEvents}회 | Storage 쓰기 0 | DB 쓰기 0 | DART 0`);
     return;
   }
 

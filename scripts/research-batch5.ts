@@ -19,6 +19,11 @@ import { KSS_R3_DRAWS, KSS_R3_SEED, F_E_TOP_TRADES, F_C_MAX_CAGR_DROP, F_C_MAX_M
 import { SAT_MDD_EPS } from "@/lib/satelliteV1Config";
 import { rebalSim, type RebalRun } from "@/lib/rebalSim";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { INVESTOR_FLOW_STOCK_STORE_BUCKET } from "@/lib/investorFlowConfig";
+import { PRICE_CORRECTION_PATH, loadPriceOverrides, type PriceOverride, type PriceOverrideFile } from "@/lib/priceCorrection";
+import { K200P_CORR_TARGETS, K200P_CORR_CONTROLS, K200P_CORR_CONTROL_MAX_DIFF_PP, K200P_CORR_CONTROL_MAX_SHIFT_DAYS, K200P_CORR_MAX_CALLS, K200P_CORR_SLEEP_MS, KRX_API_BASE } from "@/lib/k200pCorrectionConfig";
+import { blockedNow, kst, sleep } from "@/lib/forwardCollectKit";
 import { RT1_P0, RT2_P0, RT1_NB, RT2_NB, RT_BASELINE_MAX_GAP_PP, RT_WATCH, RT_TOP_N_WEIGHT, type RtP } from "@/lib/rt1Config";
 import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL, DQ_LISTING_MAX_ROW, DQ_RESUME_MIN_GAP, DQ_LIQUIDATION_ROWS, DQ_MCAP_DIFF_FRAC, DQ_VANISH_WINDOW_DAYS, DQ_VANISH_HALT_DAYS, DQ_VANISH_MIN_CLOSE, DQ_ALT_LAST_ROWS, DQ_ALT_LAST_RETURN, DQ_RECENT_VANISH_DAYS, DQ_LIST_MAX, DQ_RECOVER_ROWS, DQ_RECOVER_TOL } from "@/lib/dataQualityConfig";
 import { solveMinVar, projectCappedSimplex } from "@/lib/minVar";
@@ -27,7 +32,7 @@ import { ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConf
 import { capWeights } from "@/lib/coreCapWeights";
 import { DS89_PRIOR_TESTS, DS8_TRIAL, DS9_TRIAL, DS89_RUN_START, DS89_WINDOWS, DS89_DS6_REF, DS8_SMOOTH_WIN, DS8_NB_WINDOWS, DS9_CORE_N, DS9_CORE_CAP, DS9_NB_N, DS9_NB_CAP, DS89_CORE_W, DS89_F_DENOMINATOR, DS89_SAMSUNG } from "@/lib/ds89Config";
 import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST, CS_CORE_W_NEIGHBOR, CS_ACCOUNTING_TOL_PP } from "@/lib/coreSatelliteConfig";
-import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, type S, type Win } from "./researchHarness";
+import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, type S, type Win } from "./researchHarness";
 import { evaluate, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 
@@ -39,7 +44,9 @@ type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov 필요");
+  const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
+  if (PRICE_CORRECTION_ON) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -934,7 +941,8 @@ async function main(): Promise<void> {
     const sF = h.st(b6.res.run, FULL), s1 = h.st(b6.res.run, { from: FULL.from, to: "2016-12-30" });
     const ok = f2(sF.cagr) === f2(DS89_DS6_REF.전체[0]) && f2(sF.mdd) === f2(DS89_DS6_REF.전체[1]) && f2(s1.cagr) === f2(DS89_DS6_REF.구간1[0]) && f2(s1.mdd) === f2(DS89_DS6_REF.구간1[1]);
     console.log(`\nDS6 재현(환경 확인): 연속 전체 ${f2(sF.cagr)} / ${f2(sF.mdd)} (기록 ${DS89_DS6_REF.전체.join(" / ")}), 구간 1(CAGR 기간 ${FULL.from}~2016-12-30) ${f2(s1.cagr)} / ${f2(s1.mdd)} (기록 ${DS89_DS6_REF.구간1.join(" / ")}) → ${ok ? "일치" : "불일치"}`);
-    if (!ok) throw new Error("DS6 기록과 다르다 — 시험을 시작하지 않고 중단해 보고한다");
+    if (!ok && !PRICE_CORRECTION_ON) throw new Error("DS6 기록과 다르다 — 시험을 시작하지 않고 중단해 보고한다");
+    if (!ok) console.log("  (보정 적용 모드: 기록값과 달라짐은 기대된 결과이며 중단하지 않는다)");
   }
   const ds6Lines = new Map<string, string>();
   const ds6GateLine = (id: string, Wx: Windows, run: SimRun): void => {
@@ -1296,12 +1304,14 @@ async function main(): Promise<void> {
   let tn = Number(process.env.B5_TRIAL ?? "294");
   const trialNums: number[] = [];
   const doS = <P,>(def: Strat<P>, id: string, F: boolean, title: string): void => {
+    if (IDS && !IDS.has(id)) return;
     const cS = startOf(def, false), Wx = windowsFor(cS), trial = tn++;
     trialNums.push(trial);
     console.log(`\n연속 평가(${id}, 시험 ${trial}): 첫 신호일 ${CAL[cS]}, 수익률 집계 ${Wx.FULL.from}~${h.dataEnd} | 구간 ${Wx.NW.map(([n, w]) => `${n} ${w.from}~${w.to === "9999-12-31" ? h.dataEnd : w.to}`).join(" / ")}`);
     verdicts.push(evaluate(h, Wx, mkS(def, id, trial, F, cS, Wx, title)));
   };
   const doC = <P,>(def: Strat<P>, id: string, title: string): void => {
+    if (IDS && !IDS.has(id)) return;
     const cS = startOf(def, false), Wx = windowsFor(cS), trial = tn++;
     trialNums.push(trial);
     console.log(`\n연속 평가(${id}, 시험 ${trial}): 위성 첫 신호일 ${CAL[cS]}, 수익률 집계 ${Wx.FULL.from}~${h.dataEnd} (069500·DS6도 같은 구간)`);
@@ -1309,6 +1319,128 @@ async function main(): Promise<void> {
   };
   const ttl = (nm: string, extra: string): string => `${nm}: ${extra}`;
   const BSA_FOR_V: Strat<BsP> = { ...BS1, targets: (c, _held, P, m) => { const el = bsElig(c, P); return equalW(el, 1 / Math.max(el.length, 1), m); } };
+  if (MODE === "kcorr") {
+    // K200P 가격 오류 17건 보정값 수집(KRX Open API 일별매매정보 공식 등락률), 사전등록 docs/research/k200p-correction-prereg.md.
+    if (PRICE_CORRECTION_ON) throw new Error("kcorr는 보정 미적용으로만 실행한다");
+    if (blockedNow()) throw new Error(`호출 금지 시간대(KST 14:00~15:40, 03:50~06:20)라 실행하지 않는다 (KST ${kst()})`);
+    const key = (process.env.KRX_API_KEY ?? "").trim();
+    if (!key) throw new Error("KRX_API_KEY가 없다");
+    let calls = 0;
+    type Rw = Record<string, string>;
+    const dayCache = new Map<string, { rows: Rw[]; note: string }>();
+    const krx = async (endpoint: string, date8: string): Promise<{ rows: Rw[]; note: string }> => {
+      const ck = `${endpoint}|${date8}`, hit = dayCache.get(ck);
+      if (hit) return hit;
+      if (calls >= K200P_CORR_MAX_CALLS) throw new Error(`KRX 호출 상한 ${K200P_CORR_MAX_CALLS}회 도달`);
+      calls++;
+      await sleep(K200P_CORR_SLEEP_MS);
+      let out: { rows: Rw[]; note: string };
+      try {
+        const res = await fetch(`${KRX_API_BASE}/${endpoint}?basDd=${date8}`, { headers: { AUTH_KEY: key } });
+        const text = await res.text();
+        let j: Record<string, unknown> | null = null;
+        try { j = JSON.parse(text) as Record<string, unknown>; } catch { j = null; }
+        out = { rows: (j?.OutBlock_1 as Rw[] | undefined) ?? [], note: `HTTP ${res.status} ${String(j?.respCode ?? "-")} ${String(j?.respMsg ?? "").slice(0, 40)}` };
+      } catch (e) { out = { rows: [], note: `fetch 실패 ${e instanceof Error ? e.message.slice(0, 60) : ""}` }; }
+      dayCache.set(ck, out);
+      return out;
+    };
+    const codeOf = (r: Rw): string => { const c = r.ISU_SRT_CD ?? r.ISU_CD ?? ""; return c.length === 12 ? c.slice(3, 9) : c; };
+    const flucOf = (r: Rw | undefined): number | null => { if (!r) return null; const n = Number(String(r.FLUC_RT ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : null; };
+    const ourRet = (code: string, d: string): number | null => { const s2 = byCode.get(code); if (!s2) return null; const i = s2.dates.indexOf(d); return i >= 1 && s2.close[i - 1] > 0 ? s2.close[i] / s2.close[i - 1] - 1 : null; };
+    const find = async (code: string, d: string): Promise<{ fl: number | null; mkt: string; note: string }> => {
+      const d8 = d.replace(/-/g, "");
+      for (const [ep, nm] of [["sto/stk_bydd_trd", "유가증권"], ["sto/ksq_bydd_trd", "코스닥"]] as const) {
+        const r = await krx(ep, d8), row = r.rows.find((x) => codeOf(x) === code);
+        if (row) return { fl: flucOf(row), mkt: nm, note: r.note };
+        if (ep === "sto/stk_bydd_trd" && r.rows.length === 0) return { fl: null, mkt: "-", note: `${r.note} (응답 행 없음)` };
+      }
+      return { fl: null, mkt: "-", note: "종목 없음" };
+    };
+    console.log(`\n=== KRX 보정값 수집(KST ${kst()}; 호출 상한 ${K200P_CORR_MAX_CALLS}회) ===`);
+    // (c) 대조용 정상일 5건
+    console.log("| 대조 종목 | 대조 날짜(미룬 경우 실제) | 기존 수정 수익률 % | KRX 등락률 % | 차이 %p | 판정 |\n|---|---|---|---|---|---|");
+    let controlFail = 0;
+    for (const c0 of K200P_CORR_CONTROLS) {
+      let d = c0.date, res: { fl: number | null; mkt: string; note: string } = { fl: null, mkt: "-", note: "" }, mine: number | null = null;
+      for (let shift = 0; shift <= K200P_CORR_CONTROL_MAX_SHIFT_DAYS; shift++) {
+        if (shift > 0) { let t = new Date(Date.parse(d) + 86_400_000); while (t.getUTCDay() === 0 || t.getUTCDay() === 6) t = new Date(t.getTime() + 86_400_000); d = t.toISOString().slice(0, 10); }
+        mine = ourRet(c0.code, d);
+        if (mine === null) continue;
+        res = await find(c0.code, d);
+        if (res.fl !== null) break;
+      }
+      const diff = res.fl !== null && mine !== null ? res.fl - mine * 100 : Number.NaN, ok = Number.isFinite(diff) && Math.abs(diff) <= K200P_CORR_CONTROL_MAX_DIFF_PP + 1e-9;
+      if (!ok) controlFail++;
+      console.log(`| ${label(c0.code)} | ${d}${d !== c0.date ? ` (원 ${c0.date})` : ""} | ${mine === null ? "-" : f2(mine * 100)} | ${res.fl === null ? "-" : f2(res.fl)} | ${Number.isFinite(diff) ? f2(diff) : "-"} | ${ok ? "일치(≤0.1%p)" : "불일치·대조 불가 → 중단 조건"} |`);
+    }
+    // 17건
+    const rows: PriceOverride[] = [];
+    console.log("\n| # | 종목 | 날짜 | 기존 수정 수익률 % | KRX 등락률 % | 적용값 % | 구분 | 제한폭 | 시장 |\n|---|---|---|---|---|---|---|---|---|");
+    let n17 = 0;
+    for (const t of K200P_CORR_TARGETS) {
+      n17++;
+      const old = ourRet(t.code, t.date);
+      if (old === null) throw new Error(`기존 수익률을 계산할 수 없다: ${t.code} ${t.date}`);
+      const r = await find(t.code, t.date), lim = (t.date <= DQ_LIMIT_CHANGE_DATE ? DQ_LIMIT_BEFORE : DQ_LIMIT_AFTER) + DQ_LIMIT_TOL;
+      const okK = r.fl !== null && Math.abs(r.fl / 100) <= lim;
+      const row: PriceOverride = { code: t.code, date: t.date, ret: okK ? (r.fl as number) / 100 : 0, kind: okK ? "확인" : "미확인", krxFluc: r.fl, oldRet: old };
+      rows.push(row);
+      console.log(`| ${n17} | ${label(t.code)} | ${t.date} | ${f2(old * 100)} | ${r.fl === null ? "-" : f2(r.fl)} | ${f2(row.ret * 100)} | ${row.kind} | ±${f2(lim * 100)}% | ${r.mkt} |`);
+    }
+    // 이벤트일 교차 대조(무료: 같은 응답 안의 다른 종목, 정보용)
+    {
+      let nb = 0, nok = 0;
+      for (const t of K200P_CORR_TARGETS) {
+        const r = dayCache.get(`sto/stk_bydd_trd|${t.date.replace(/-/g, "")}`);
+        if (!r) continue;
+        for (const x of r.rows) { const code = codeOf(x), mine = ourRet(code, t.date), fl = flucOf(x); if (mine === null || fl === null || K200P_CORR_TARGETS.some((q) => q.code === code && q.date === t.date)) continue; nb++; if (Math.abs(fl - mine * 100) <= 0.1) nok++; }
+      }
+      console.log(`이벤트일 응답 교차 대조(정보용): 보정 대상이 아닌 종목-일 ${nb}개 중 |KRX 등락률 − 기존 수정 수익률| ≤ 0.1%p ${nok}개(${nb ? f2((nok / nb) * 100) : "-"}%)`);
+    }
+    console.log(`확인 ${rows.filter((x) => x.kind === "확인").length}건 / 미확인(0% 처리) ${rows.filter((x) => x.kind === "미확인").length}건 | KRX 호출 ${calls}회(상한 ${K200P_CORR_MAX_CALLS}) | 대조 불일치·불가 ${controlFail}건`);
+    if (controlFail > 0) { console.log("대조용 정상일에서 0.1%p 넘게 다르거나 대조가 안 됨 — 보정을 중단하고 보고한다(덮어쓰기 표를 저장하지 않음)"); throw new Error("보정 중단: 대조 실패"); }
+    const body: PriceOverrideFile = { version: 1, createdAt: new Date().toISOString(), rows };
+    const bytes = new TextEncoder().encode(JSON.stringify(body, null, 1));
+    const up = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).upload(PRICE_CORRECTION_PATH, bytes, { contentType: "application/json", upsert: true });
+    if (up.error) throw new Error(`덮어쓰기 표 저장 실패: ${up.error.message}`);
+    console.log(`덮어쓰기 표 저장: Storage ${PRICE_CORRECTION_PATH} (${bytes.byteLength} B, SHA-256 ${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}…) | Supabase 쓴 행 0 | KIS 호출 0 | DART 0 | ${storageLine()}`);
+    return;
+  }
+  if (MODE === "kcov") {
+    // 17건이 각 전략의 보유와 겹쳤는가(보정 미적용 보유 경로 + 보정값으로 영향 추정, 시험 아님).
+    if (PRICE_CORRECTION_ON) throw new Error("kcov는 보정 미적용으로만 실행한다");
+    const ov = await loadPriceOverrides();
+    const pathTg = <P,>(def: Strat<P>, F: boolean, c0: number): { c: number; t: Map<string, number> }[] => {
+      const out: { c: number; t: Map<string, number> }[] = [];
+      let held: ReadonlySet<string> = new Set();
+      for (const c of sigDays(def, F).filter((x) => x >= c0)) { const t = def.targets(c, held, def.P0, F ? filterMult(c, B5_MA_DAYS) : 1, true); out.push({ c, t }); held = new Set(t.keys()); }
+      return out;
+    };
+    const wAt = (pt: { c: number; t: Map<string, number> }[], code: string, k: number): number => { let w = 0; for (const x of pt) { if (x.c + 1 < k) w = x.t.get(code) ?? 0; else break; } return w; };
+    const cRm = startOf(RM1, false), cMv = startOf(MV1, false), cRt = startOf(RT1, false);
+    const ptRm = pathTg(RM1, false, cRm), ptMv = pathTg(MV1, false, cMv), ptRt = pathTg(RT1, false, cRt), ptRtF = pathTg(RT1, true, cRt);
+    const spell = (r: { trades: { code: string; entryC: number; exitC: number }[]; open?: { code: string; entryC: number }[] }, code: string, k: number): boolean => r.trades.some((t) => t.code === code && t.entryC < k && k <= t.exitC) || (r.open ?? []).some((t) => t.code === code && t.entryC < k);
+    const ds6 = b6.satX.run, ds8 = build(DS6D, { smooth: DS8_SMOOTH_WIN }).satX.run;
+    const names = ["DS6(위성 LV1 6%)", "DS8(위성 LV1 평활 6%)", "RM1C(위성 RM1 3%)", "MV1C(위성 MV1 비중×0.6)", "RT1(시총 비중)", "RT1F(시총 비중×필터)"] as const;
+    const tot = new Map<string, { n: number; sum: number }>(names.map((n) => [n, { n: 0, sum: 0 }]));
+    console.log(`\n=== 17건 보유 겹침(보정 미적용 경로; 영향 추정 = 비중 × (보정 수익률 − 기존 수익률), 단순 합 %p) ===`);
+    console.log("| # | 종목 | 날짜 | 기존 → 보정 수익률 % | 겹친 전략: 비중 → 영향 %p |\n|---|---|---|---|---|");
+    let idx = 0;
+    for (const o of ov) {
+      idx++;
+      const k = h.calIdx.get(o.date) as number, d = (o.ret - o.oldRet) * 100, hits: string[] = [];
+      const add = (nm: typeof names[number], w: number): void => { if (w > 0) { hits.push(`${nm}: ${f2(w * 100)}% → ${f2(w * d)}`); const t = tot.get(nm) as { n: number; sum: number }; t.n++; t.sum += w * d; } };
+      if (spell(ds6, o.code, k)) add(names[0], 0.06);
+      if (spell(ds8, o.code, k)) add(names[1], 0.06);
+      add(names[2], 0.6 * wAt(ptRm, o.code, k)); add(names[3], 0.6 * wAt(ptMv, o.code, k)); add(names[4], wAt(ptRt, o.code, k)); add(names[5], wAt(ptRtF, o.code, k));
+      console.log(`| ${idx} | ${label(o.code)} | ${o.date} | ${f2(o.oldRet * 100)} → ${f2(o.ret * 100)}(${o.kind}) | ${hits.length ? hits.join(" ; ") : "겹침 없음"} |`);
+    }
+    console.log("\n| 전략 | 겹친 건수 | 영향 추정 합(%p, 단순) |\n|---|---|---|");
+    for (const nm of names) { const t = tot.get(nm) as { n: number; sum: number }; console.log(`| ${nm} | ${t.n} | ${f2(t.sum)} |`); }
+    console.log(`\n겹침 점검 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    return;
+  }
   if (MODE === "rtpre") {
     // RT 사전 점검(성과 미계산): 기준선 RT0 vs 069500(±RT_BASELINE_MAX_GAP_PP %p 넘으면 중단), 목표 비중표 독립 대조(모든 신호일), 체결 타이밍.
     const fails: string[] = [];
@@ -1475,6 +1607,14 @@ async function main(): Promise<void> {
         console.log(`| ${label(e.code)} | ${e.d} | ${f2(e.adjR * 100)} | ${hit.length ? hit.map((r) => r.nm).join(", ") : "겹침 없음"} | ${hit.length ? hit.map((r) => f2(r.w * e.adjR * 100)).join(" / ") : "-"} |`);
       }
       console.log(`겹친 의심일 ${any}건 / ${K.length}건. DS6 코어(K200P 시총 상위 2종목)는 의심 종목의 당시 순위가 모두 3위 밖이라 영향 없음(가장 높은 순위 ${K.map((e) => e.k200).sort((a, b) => a - b)[0]}위).`);
+    }
+    {
+      const L = exs.filter((e) => e.cls === "나" && !special(e) && !e.ev && !e.ex);
+      const mk = (e: Ex): string => membAt(e.d)?.get(e.code) ?? "?";
+      const dates = new Set(L.map((e) => e.d)), dm = new Set(L.map((e) => `${e.d}|${mk(e)}`));
+      const byM = new Map<string, number>(); for (const e of L) byM.set(mk(e), (byM.get(mk(e)) ?? 0) + 1);
+      console.log(`\n=== Q8. 의심 ${L.length}건을 KRX 공식 등락률로 보정할 때의 호출 수 ===`);
+      console.log(`시장 구분(월말 시장표 기준): ${[...byM].map(([k2, v]) => `${k2} ${v}건`).join(", ")} | 서로 다른 날짜 ${dates.size}개 | (날짜, 시장) 조합 ${dm.size}개 → 일별매매정보는 날짜·시장당 1회 호출(전 종목 응답)이므로 **최소 ${dm.size}회**(시장을 모르면 날짜당 2회 시도 시 최대 ${dates.size * 2}회). K200P 17건과 같은 날짜가 겹치는 것은 이미 호출했으므로 제외 가능.`);
     }
     // ---- Q5. 소멸 종목 처리 관례 제안 집계 ----
     console.log(`\n=== Q5. 소멸 종목 집계 (마지막 행이 데이터 끝 ${dataEnd}보다 앞인 종목) ===`);
@@ -1718,6 +1858,7 @@ async function main(): Promise<void> {
     doS(RT1, "RT1F", true, ttl("RT1F", "RT1 + 월말 069500 종가 < 200일선이면 주식 비중 50%"));
     doS(RT2, "RT2", false, ttl("RT2", "RT1에서 점수 상위 25%, 유지 35%"));
     // ---- RT 정보용 보고(사전등록 2절 항목 2~6) ----
+    if (!IDS) {
     const cR = startOf(RT1, false), WR = windowsFor(cR);
     const base = (def: Strat<RtP>, F: boolean): RebalRun => runS(def, def.P0, cR, F ? { ma: B5_MA_DAYS } : null, { lag: 1, detail: true });
     const rt1 = base(RT1, false), rt1f = base(RT1, true), rt2 = base(RT2, false), rt0 = base(RT0, false), rm1 = runS(RM1, RM1.P0, startOf(RM1, false), null, { lag: 1 });
@@ -1774,8 +1915,10 @@ async function main(): Promise<void> {
       console.log(`| | ${ser.map((x) => x.name).join(" | ")} |\n|---|${ser.map(() => "---").join("|")}|`);
       for (const x of ser) console.log(`| ${x.name} | ${ser.map((y) => f2(corr(x.m, y.m))).join(" | ")} |`);
     }
+    }
   }
   summaryReport(verdicts, trialNums, { prior: Number(process.env.B5_TRIAL ?? "294") - 1, contamNote: "경고(오염): 2011~2026은 선행 연구에서 반복해 본 데이터다. 변형(F·C 형태)은 DS6·DS7·DS10 결과를 본 뒤 만든 것(선택 편향)이라 순수 검증이 아니다." });
+  if (PRICE_CORRECTION_ON) console.log("※ 보정 재채점: 아래 누적 시험 횟수·기대 건수는 원 시험 번호 기준 표기이며 이 재채점은 누적 시험 308에 더하지 않는다(사용자 지정).");
   console.log(`사전 고지: 이 묶음 누적 시험 ${Number(process.env.B5_TRIAL ?? "294") - 1 + trialNums.length}회 기준 우연 통과 기대 ${((Number(process.env.B5_TRIAL ?? "294") - 1 + trialNums.length) * 0.05).toFixed(2)}건(근사). 통과 후보가 있어도 독립 확인 전에는 후보일 뿐이다. 정의는 첫 시험 전에 고정했고 결과를 보고 바꾸지 않았다.`);
   console.log(`\n=== 실행 지표 ===\nSupabase 읽은 행: ${Object.entries(dbRead).map(([kk, v]) => `${kk} ${v}`).join(" | ") || "없음"} | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분 | 시험 번호 ${trialNums.join(",")}`);
 }

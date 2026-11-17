@@ -21,6 +21,14 @@ on:
         description: "which=test: 이전 차수까지 실행한 시험 개수"
         required: false
         default: "0"
+      correct:
+        description: "보정 재채점(K200P 가격 오류 17건): k200p17이면 덮어쓰기 표를 적용한다(기본 비움 = 미적용, 기존 재현성 유지)"
+        required: false
+        default: ""
+      ids:
+        description: "보정 재채점 대상 ID(쉼표 구분, 예 RM1C 또는 RT1,RT1F 또는 DS6). 비우면 전체"
+        required: false
+        default: ""
       pilot:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
@@ -1021,6 +1029,8 @@ jobs:
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'ds56' }}
         run: npx tsx --conditions=react-server scripts/research-ds56.ts
         env:
+          PRICE_CORRECTION: ${{ inputs.correct }}
+          RESCORE_IDS: ${{ inputs.ids }}
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
@@ -1262,6 +1272,9 @@ jobs:
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'batch5' }}
         run: npx tsx --conditions=react-server scripts/research-batch5.ts
         env:
+          PRICE_CORRECTION: ${{ inputs.correct }}
+          B5_IDS: ${{ inputs.ids }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
@@ -1568,6 +1581,7 @@ jobs:
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'ds89' }}
         run: npx tsx --conditions=react-server scripts/research-ds89.ts
         env:
+          PRICE_CORRECTION: ${{ inputs.correct }}
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"

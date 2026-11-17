@@ -20,7 +20,7 @@ import { ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConf
 import { capWeights } from "@/lib/coreCapWeights";
 import { DS89_PRIOR_TESTS, DS8_TRIAL, DS9_TRIAL, DS89_RUN_START, DS89_WINDOWS, DS89_DS6_REF, DS8_SMOOTH_WIN, DS8_NB_WINDOWS, DS9_CORE_N, DS9_CORE_CAP, DS9_NB_N, DS9_NB_CAP, DS89_CORE_W, DS89_F_DENOMINATOR, DS89_SAMSUNG } from "@/lib/ds89Config";
 import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST, CS_CORE_W_NEIGHBOR, CS_ACCOUNTING_TOL_PP } from "@/lib/coreSatelliteConfig";
-import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, type S, type Win } from "./researchHarness";
+import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, type S, type Win } from "./researchHarness";
 import { evaluate, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 
@@ -391,7 +391,8 @@ async function main(): Promise<void> {
     let maxD = 0, nDiff = 0;
     if (sameDates) for (let k = 0; k < n; k++) { const df = Math.abs(r.ret[k] - ref.ret[k]); if (df > 0) nDiff++; maxD = Math.max(maxD, df); }
     console.log(`  LV1: 이번 ${r.dates[0]}~${r.dates[n - 1]} ${n}일 | 날짜 앞부분 ${sameDates ? "일치" : "불일치"} | 값이 다른 날 ${nDiff}일, 최대 차이 ${maxD.toExponential(2)}%p | 캐시 파일 SHA-256 ${refSha} ${okSha ? "(ALLOC 해시와 일치)" : "(ALLOC 해시와 불일치)"}`);
-    if (!sameDates || !(maxD <= 1e-9) || !okSha) throw new Error("LV1 재현 불일치 — 중단하고 보고한다");
+    if ((!sameDates || !(maxD <= 1e-9) || !okSha) && !PRICE_CORRECTION_ON) throw new Error("LV1 재현 불일치 — 중단하고 보고한다");
+    if (!sameDates || !(maxD <= 1e-9) || !okSha) console.log("보정 재채점 모드: LV1 기록 대조 불일치는 기대된 결과(가격 보정)라 중단하지 않는다");
   }
 
   console.log(`\n=== 1b. DS8 평활 구조 점검 (성과 아님; 평활 없음 = 기준 LV1, 창 1 = 기준과 비트 동일, 창 ${DS8_SMOOTH_WIN} 배율 = 기준 배율 최근 ${DS8_SMOOTH_WIN}일 중 계산된 날의 단순평균) ===`);
@@ -464,7 +465,8 @@ async function main(): Promise<void> {
     const rr = rollRows(b6.res.run.ret);
     const ok = f2(sF.cagr) === f2(DS89_DS6_REF.전체[0]) && f2(sF.mdd) === f2(DS89_DS6_REF.전체[1]) && f2(s1.cagr) === f2(DS89_DS6_REF.구간1[0]) && f2(s1.mdd) === f2(DS89_DS6_REF.구간1[1]) && f2(rr.cagrShare) === f2(DS89_DS6_REF.rollCagrShare) && f2(rr.mddShare) === f2(DS89_DS6_REF.rollMddShare);
     console.log(`\nDS6 기본 계좌 일관성: 연속 전체 ${f2(sF.cagr)} / ${f2(sF.mdd)} (기록 ${DS89_DS6_REF.전체.join(" / ")}), 구간 1(기록과 같은 CAGR 기간 ${FULL.from}~2016-12-30) ${f2(s1.cagr)} / ${f2(s1.mdd)} (기록 ${DS89_DS6_REF.구간1.join(" / ")}; 사용자 지정 끝 ${NW[0][1].to}로 세면 ${f2(s1b.cagr)} / ${f2(s1b.mdd)}), 롤링 3년 창 ${rr.n}개 중 069500보다 CAGR 높은 창 ${f2(rr.cagrShare)}% (기록 ${DS89_DS6_REF.rollCagrShare}%) · MDD 작은 창 ${f2(rr.mddShare)}% (기록 ${DS89_DS6_REF.rollMddShare}%) → ${ok ? "일치" : "불일치"}`);
-    if (!ok) throw new Error("DS6 기록과 다르다 — 중단하고 보고한다");
+    if (!ok && !PRICE_CORRECTION_ON) throw new Error("DS6 기록과 다르다 — 중단하고 보고한다");
+    if (!ok) console.log("보정 재채점 모드: DS6 기록값과 달라짐은 기대된 결과이며 중단하지 않는다");
   }
   if (REPRO) {
     console.log(`\n사전 점검 종료: LV1 재현, DS8 평활 구조 점검, DS9 상한 함수·코어 회계 점검(N=2/3/4/5, 상한 30/40/50%), DS6 기본 계좌 일관성(연속 전체 11.70 / 39.15, 구간 1 4.10 / 24.51, 롤링 92.81% / 32.03%) 통과. DS8·DS9 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);

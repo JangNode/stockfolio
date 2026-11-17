@@ -27,7 +27,7 @@ import { DS56_PRIOR_TESTS, DS5_SIDE_CAP, DS56_CANDS, DS56_RECORDED } from "@/lib
 import { CS_PRIOR_TESTS, CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST, CS_MOVE_COST_SENS, CS_CORE_W_NEIGHBOR, CS_F_DENOMINATOR, CS_SAT_COMPS, CS_CANDS, CS_R3_REF, CS_R1_REF, CS_ACCOUNTING_TOL_PP } from "@/lib/coreSatelliteConfig";
 import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
 import { RMD_WINDOWS_2017, RMD_DOWN_DAY, RMD_K_ITER, RMD_BENCH_REF } from "@/lib/riskMatchedDiagnosticConfig";
-import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, type S, type Win } from "./researchHarness";
+import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, type S, type Win } from "./researchHarness";
 import { evaluate, yearlyTable, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 
@@ -395,7 +395,8 @@ async function main(): Promise<void> {
     if (!ok || !okSha) mism.push(cp.id);
     console.log(`| ${cp.id} | ${r.dates[0]} | ${f2(s.cagr)} / ${f2(s.mdd)} | ${rec.cagr.toFixed(2)} / ${rec.mdd.toFixed(2)} | ${ok ? "일치" : "불일치"} | ${seriesSha[cp.id]} | ${okSha ? "일치" : "불일치"} |`);
   }
-  if (mism.length) throw new Error(`구성요소 재현 불일치(${mism.join(", ")}) — 중단하고 보고한다`);
+  if (mism.length && !PRICE_CORRECTION_ON) throw new Error(`구성요소 재현 불일치(${mism.join(", ")}) — 중단하고 보고한다`);
+  if (mism.length) console.log(`보정 재채점 모드: 구성요소 기록·해시 대조 불일치(${mism.join(", ")})는 기대된 결과(가격 보정)라 중단하지 않는다`);
   const refDir = process.env.ALLOC_REF_DIR?.trim();
   if (refDir) {
     const lines: string[] = [];
@@ -403,7 +404,7 @@ async function main(): Promise<void> {
       try { lines.push(`${cp.id} ${sha(await fs.readFile(path.join(refDir, `${cp.id}.json`))) === seriesSha[cp.id] ? "일치" : "불일치"}`); } catch { lines.push(`${cp.id} 파일 없음`); }
     }
     console.log(`이전 연구 일별 순수익 캐시(${refDir}) 파일 해시 대조: ${lines.join(" | ")}`);
-    if (lines.some((l) => l.endsWith("불일치"))) throw new Error("이전 연구 일별 순수익 캐시와 다르다");
+    if (lines.some((l) => l.endsWith("불일치")) && !PRICE_CORRECTION_ON) throw new Error("이전 연구 일별 순수익 캐시와 다르다");
   } else console.log("이전 연구 일별 순수익 캐시 복원 없음 — 재계산 해시를 ALLOC 사전등록 기록과 대조해 통과");
 
   // ---- 2. 공통 평가 시작으로 자른 계열 ----
@@ -438,7 +439,7 @@ async function main(): Promise<void> {
     if (!ok) mism2.push(cp.id);
     console.log(`| ${cp.id} | ${f2(s.cagr)} / ${f2(s.mdd)} | ${rec.cagr.toFixed(2)} / ${rec.mdd.toFixed(2)} | ${ok ? "일치" : "불일치"} |`);
   }
-  if (mism2.length) throw new Error(`공통 구간 재현 불일치(${mism2.join(", ")}) — 중단하고 보고한다`);
+  if (mism2.length && !PRICE_CORRECTION_ON) throw new Error(`공통 구간 재현 불일치(${mism2.join(", ")}) — 중단하고 보고한다`);
 
   {
     const b = h.st(h.bhP, FULL), okb = f2(b.cagr) === f2(RMD_BENCH_REF.cagr) && f2(b.mdd) === f2(RMD_BENCH_REF.mdd);
@@ -956,7 +957,9 @@ async function main(): Promise<void> {
   };
 
   const specs: CandSpec[] = [], verdicts: Verdict[] = [];
-  for (const cid of ["DS5", "DS6"] as const) { const sp = mkSpec(cid); specs.push(sp); verdicts.push(evaluate(h, W, sp)); }
+  const RESCORE_IDS = (process.env.RESCORE_IDS ?? "").trim() ? new Set((process.env.RESCORE_IDS as string).split(",").map((x) => x.trim())) : null;
+  if (PRICE_CORRECTION_ON) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드 그대로, 가격 입력만 보정, 누적 시험 횟수에 더하지 않음. 대상: ${RESCORE_IDS ? [...RESCORE_IDS].join(",") : "전체"} ***`);
+  for (const cid of (["DS5", "DS6"] as const).filter((x) => !RESCORE_IDS || RESCORE_IDS.has(x))) { const sp = mkSpec(cid); specs.push(sp); verdicts.push(evaluate(h, W, sp)); }
 
   // ---- 공통 보고 ----
   const coreN2 = coreSerOf(2);

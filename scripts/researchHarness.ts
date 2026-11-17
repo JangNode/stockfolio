@@ -13,6 +13,9 @@ import { MM_PARQUET_PATH } from "@/lib/marketMembershipConfig";
 import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
+import { PRICE_CORRECTION_ON, PRICE_CORRECTION_ID, loadPriceOverrides, applyReturnOverride, type PriceOverride } from "@/lib/priceCorrection";
+
+export { PRICE_CORRECTION_ON };
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
 import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
@@ -88,6 +91,8 @@ export async function verifySnapshotManifest(): Promise<string> {
 /** 입력 적재: 가격 Parquet 2010~, 적용된 조정 이벤트, 069500 가격(DB 읽기), 지표 함수. */
 export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파일 마지막 날짜 뒤 거래일의 069500 원주가 행([날짜, 종가, 출처 표지])을 이어 붙인다. 없으면 기존 동작 그대로. */ extendBench?: (cal: string[], auxLast: string) => Promise<[string, number, number][]> }): Promise<Harness> {
   const adjustments = await loadAppliedAdjustments();
+  const overrides = new Map<string, PriceOverride[]>();
+  if (PRICE_CORRECTION_ON) { for (const o of await loadPriceOverrides()) overrides.set(o.code, [...(overrides.get(o.code) ?? []), o]); console.log(`가격 보정 적용(${PRICE_CORRECTION_ID}): ${[...overrides.values()].reduce((a, l) => a + l.length, 0)}건 — 기존 스냅샷·Parquet은 그대로, 메모리의 수정 시세에만 덮어씀(보정 재채점, 시험 번호·누적 횟수 불변)`); }
   if (SNAP_END) for (const [code, list] of adjustments) { const kept = list.filter((e) => e.eventDate <= SNAP_END); if (kept.length) adjustments.set(code, kept); else adjustments.delete(code); }
   dbRead["stock_price_adjustment_events(applied)"] = [...adjustments.values()].reduce((a, l) => a + l.length, 0);
   const series = await loadAllStockSeriesFromParquet(2010, SNAP_END ? Number(SNAP_END.slice(0, 4)) : new Date().getUTCFullYear());
@@ -103,6 +108,8 @@ export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파�
     const adj = rows.map((r) => ({ ...r }));
     const al = adjustments.get(code);
     if (al) applyAdjustmentsInPlace(adj, al);
+    const ov = overrides.get(code);
+    if (ov) for (const o of ov) applyReturnOverride(adj, o.date, o.ret);
     for (const r of rows) if (r.tradeDate >= "2010-01-01") calSet.add(r.tradeDate);
     rows0.push({ code, dates: rows.map((r) => r.tradeDate), close: Float64Array.from(adj.map((r) => r.closePrice)), raw: Float64Array.from(rows.map((r) => r.closePrice)), mcap: Float64Array.from(rows.map((r) => r.marketCapEok)), vol: Float64Array.from(rows.map((r) => r.volume)), avgTv: computeTrailingAvgTradingValue(adj, PIT_LIQUIDITY_LOOKBACK_DAYS), open: Float64Array.from(adj.map((r) => r.openPrice)), high: Float64Array.from(adj.map((r) => r.highPrice)), low: Float64Array.from(adj.map((r) => r.lowPrice)), tv: Float64Array.from(rows.map((r) => r.tradingValue)) });
   }

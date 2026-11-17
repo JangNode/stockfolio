@@ -1308,6 +1308,7 @@ jobs:
         run: npx tsx --conditions=react-server scripts/diagnose-feasibility-4.ts
         env:
           NODE_OPTIONS: --max-old-space-size=2048
+          FEAS4_ONLY: ${{ inputs.only }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}

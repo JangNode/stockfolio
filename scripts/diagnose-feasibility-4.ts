@@ -7,7 +7,9 @@
 import { callKis, newKisRun, blockedNow, kst, kstDate, rowsOf, type Rec } from "@/lib/forwardCollectKit";
 
 const T0 = Date.now();
-const MAX_CALLS = 20;
+// 20회 상한은 1차(13회) + 후속(fu, 4회 계획)을 합친 값이다. 후속 실행은 남은 7회 안에서만 부른다.
+const FU = process.env.FEAS4_ONLY?.trim() === "fu";
+const MAX_CALLS = FU ? 7 : 20;
 const NOT_BEFORE_UTC = Date.parse("2026-11-17T22:05:00Z"); // 2026-11-18 07:05 KST: 마지막 확정 프로브(07:00 KST) 뒤
 const run = newKisRun();
 const MAXMS = 1800e3;
@@ -37,6 +39,21 @@ async function main(): Promise<void> {
   console.log(`저평가 지표 데이터 확인(블록 D) 시작: ${new Date().toISOString()} (KST ${kstDate()} ${kst()}) | 저장 없음, DART 0, 키 비출력, 호출 상한 ${MAX_CALLS}회`);
   if (Date.now() < NOT_BEFORE_UTC) throw new Error("마지막 확정 프로브(11-18 07:00 KST) 전이라 실행하지 않는다");
   if (blockedNow()) throw new Error("호출 금지 시간대(14:00~15:40, 03:50~06:20 KST)라 실행하지 않는다");
+
+  if (FU) {
+    // 후속(1차에서 재무비율 경로가 404였음): 운영 코드(lib/kis.ts)에서 쓰는 대차대조표·손익계산서 경로로 이력 깊이·필드·상장폐지 종목 조회를 확인한다(4회).
+    console.log("\n=== 후속: 대차대조표·손익계산서(운영 코드와 같은 경로) 이력 깊이·필드 ===");
+    const BS = "/uapi/domestic-stock/v1/finance/balance-sheet", IS = "/uapi/domestic-stock/v1/finance/income-statement";
+    for (const [lb, path, tr, code, div] of [["대차대조표 삼성전자 연", BS, "FHKST66430100", "005930", "0"], ["대차대조표 삼성전자 분기", BS, "FHKST66430100", "005930", "1"], ["손익계산서 삼성전자 연", IS, "FHKST66430200", "005930", "0"], ["대차대조표 한진해운(상장폐지) 연", BS, "FHKST66430100", "117930", "0"]] as const) {
+      const b = await call(lb, path, tr, { FID_DIV_CLS_CODE: div, fid_cond_mrkt_div_code: "J", fid_input_iscd: code });
+      const rows = rowsOf(b, ["output"]);
+      const ym = rows.map((r) => String(r.stac_yymm ?? "")).filter(Boolean).sort();
+      console.log(`[${lb}] ${msgOf(b)} | ${rows.length}행, 결산월 ${ym[0] ?? "-"}~${ym[ym.length - 1] ?? "-"} | 필드: ${keysOf(rows[0])}`);
+      for (const r of rows.slice(0, 3)) console.log(`   ${show(r)}`);
+    }
+    console.log(`\n후속 호출 ${run.req}회(상한 ${MAX_CALLS}; 1차 13회와 합쳐 ${13 + run.req}회 ≤ 20), 오류 ${run.errors}, rate limit ${run.rlEvents}회 | Storage 쓰기 0 | DB 쓰기 0 | DART 0`);
+    return;
+  }
 
   console.log("\n=== 1. 재무비율 이력(FHKST66430300) ===");
   const samsungY = await fr("삼성전자 연", "005930", "0");

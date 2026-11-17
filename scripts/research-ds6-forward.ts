@@ -22,11 +22,14 @@ import { P17_RUN_START, P17_END, P17_CAND } from "@/lib/ds6Pre2017Config";
 import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST } from "@/lib/coreSatelliteConfig";
 import { BENCH_AUX_BLOCK_FROM_KST_MIN, BENCH_AUX_BLOCK_TO_KST_MIN, BENCH_AUX_KRX_GAP_MS } from "@/lib/benchmarkAuxConfig";
 import { DS6F_FIXED_DATE, DS6F_DEF_COMMITS, DS6F_REC_A, DS6F_REC_FULL, DS6F_KRX_CAP, DS6F_KRX_BASE, DS6F_DOWNLOAD_YEARS, DS6F_LOG_CSV, DS6F_WORK_DIR, DS6F_VERIFY_FILE, DS6F_SUMMARY_FILE, DS6F_CSV_HEADER, DS6F_PREFIX_INFO_TOL_PP, DS6F_PARTIAL_DAY_RATIO } from "@/lib/ds6ForwardConfig";
-import { loadHarness, loadK200P, verifySnapshotManifest, storageLine, selectAll, dbRead, SNAP_END, f2, type S, type Win } from "./researchHarness";
+import { loadHarness, loadK200P, verifySnapshotManifest, storageLine, selectAll, dbRead, SNAP_END, f2, PRICE_CORRECTION_ON, type S, type Win } from "./researchHarness";
+import { ds13Phase } from "./ds13ForwardRecord";
 import { parquetCacheStats } from "@/lib/parquetDiskCache";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 
 const T0 = Date.now();
+/** 테스트 모드(워크플로 only=YYYY-MM-DD): DS13 시작 기준일을 바꾸고 KRX를 부르지 않으며 docs/research 에 쓰지 않는다(.ds6fwd/test 에만 쓴다). 정규 실행에서는 비어 있다. */
+const TEST_START = process.env.DS13F_TEST_START_AFTER?.trim() || undefined;
 /** 공통 평가 시작 이후로 자른 일별 계열(구성요소 하나의 계좌 기준). */
 interface Sl { dates: string[]; ret: number[]; costFrac: number[]; nPos: number[]; inv: number[]; turn: number[]; wMax: number[] }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -53,6 +56,7 @@ async function main(): Promise<void> {
   const FORWARD = PHASE === "forward";
   console.log(`연구 DS6 포워드 관찰(시험 아님, 시험 번호 273 유지) 단계=${PHASE} 시작(읽기 전용): ${new Date().toISOString()} (KST 분 ${kstMin()}) | 정의 커밋 ${DS6F_DEF_COMMITS.join(", ")} | 고정 날짜 ${DS6F_FIXED_DATE}`);
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
+  if (!PRICE_CORRECTION_ON) throw new Error("PRICE_CORRECTION=k200p17(K200P 17건 보정, DS13 포워드 기본 적용)이 아니면 실행하지 않는다");
   const prevLog = FORWARD ? await readPrevLog() : new Map<string, string[]>();
   const closes = new Map<string, CloseRec & { fresh: boolean }>();
   let krxRequests = 0, krxNote = "";
@@ -77,13 +81,14 @@ async function main(): Promise<void> {
     const csvClose = (d: string): CloseRec | undefined => { const c = prevLog.get(d); const px = c ? num(c[8]) : null; return c && px !== null ? { px, src: c[9] } : undefined; };
     const unresolved = need.filter((d) => !csvClose(d) && !dbMap.has(d));
     console.log(`069500 종가 필요 거래일 ${need.length}일(${need[0]}~${need[need.length - 1]}): 로그 CSV ${need.filter((d) => csvClose(d)).length}일, etf_daily_prices ${need.filter((d) => !csvClose(d) && dbMap.has(d)).length}일, KRX 필요 ${unresolved.length}일`);
-    if (unresolved.length > DS6F_KRX_CAP) throw new Error(`KRX 필요 ${unresolved.length}일이 요청 상한 ${DS6F_KRX_CAP}을 넘는다 — 호출하지 않고 중단`);
+    if (!TEST_START && unresolved.length > DS6F_KRX_CAP) throw new Error(`KRX 필요 ${unresolved.length}일이 요청 상한 ${DS6F_KRX_CAP}을 넘는다 — 호출하지 않고 중단`);
     const out: [string, number, number][] = [];
     for (const d of need) {
       const c = csvClose(d), b = dbMap.get(d);
       if (c && b !== undefined && Math.abs(c.px - b) > 1e-9) throw new Error(`${d} 069500 종가가 로그 CSV(${c.px})와 etf_daily_prices(${b})에서 다르다 — 중단`);
       if (c) { closes.set(d, { ...c, fresh: false }); out.push([d, c.px, 2]); continue; }
       if (b !== undefined) { closes.set(d, { px: b, src: "db", fresh: true }); out.push([d, b, 2]); continue; }
+      if (TEST_START) { krxNote = `테스트 모드: ${d}부터 069500 종가 없음 — KRX 호출 없이 여기까지만 사용`; console.log(`  ${krxNote}`); break; }
       if (inBlock()) throw new Error(`KRX 호출 중 KST 14:00 금지 시간대에 들어섰다(${d}에서 중단)`);
       const key = process.env.KRX_API_KEY;
       if (!key) throw new Error("KRX_API_KEY 환경변수가 필요하다(키 값은 출력하지 않는다)");
@@ -106,7 +111,8 @@ async function main(): Promise<void> {
 
   const h = await loadHarness(FORWARD ? { extendBench } : undefined);
   const { CAL, nCal, byCode } = h;
-  const { excluded, membAt, nameOf, mmDates } = await loadK200P(h);
+  const k200p = await loadK200P(h);
+  const { excluded, membAt, nameOf, mmDates } = k200p;
   const mmLast = mmDates[mmDates.length - 1];
   const mmFor = (d: string): string => { let lo = 0, hi = mmDates.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (mmDates[m] <= d) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 ? mmDates[k] : ""; };
 
@@ -352,7 +358,9 @@ async function main(): Promise<void> {
     await fs.mkdir(DS6F_WORK_DIR, { recursive: true });
     await fs.writeFile(DS6F_VERIFY_FILE, JSON.stringify({ fixedDate: DS6F_FIXED_DATE, dates: preIdx.map((i) => dates0[i]), ret: preIdx.map((i) => base.run.ret[i]) }));
     const line = `검증 단계 통과: 고정 구간 재계산이 기록값과 일치(${DS6F_REC_A.cagr}/${DS6F_REC_A.mdd}, ${DS6F_REC_FULL.cagr}/${DS6F_REC_FULL.mdd}), 고정 구간 일별 ${preIdx.length}일 저장`;
-    console.log(`\n${line}\n${storageLine()} | Supabase 쓰기 0 | Storage 쓰기 0 | 외부 요청 0 | 소요 ${((Date.now() - T0) / 1000).toFixed(0)}초`);
+    console.log(`\n${line}`);
+    await ds13Phase({ h, k200p, fixedDate: DS6F_FIXED_DATE, forward: false, closes: new Map(), ds6ToolRet: new Map() });
+    console.log(`\n${storageLine()} | Supabase 쓰기 0 | Storage 쓰기 0 | 외부 요청 0 | 소요 ${((Date.now() - T0) / 1000).toFixed(0)}초`);
     return;
   }
 
@@ -382,8 +390,10 @@ async function main(): Promise<void> {
   }
   let nChanged = 0;
   for (const r of rows) { const p = prevLog.get(r[0]); if (p && (p[1] !== r[1] || p[2] !== r[2])) nChanged++; }
-  await fs.mkdir(path.dirname(DS6F_LOG_CSV), { recursive: true });
-  await fs.writeFile(DS6F_LOG_CSV, [DS6F_CSV_HEADER, ...rows.map((r) => r.join(","))].join("\n") + "\n");
+  if (!TEST_START) {
+    await fs.mkdir(path.dirname(DS6F_LOG_CSV), { recursive: true });
+    await fs.writeFile(DS6F_LOG_CSV, [DS6F_CSV_HEADER, ...rows.map((r) => r.join(","))].join("\n") + "\n");
+  }
 
   console.log(`\n=== 관찰 구간 (고정 날짜 ${DS6F_FIXED_DATE} 종가 = 100, 다음 거래일부터) 마지막 10일 ===\n| 날짜 | DS6 일 % | 069500 일 % | DS6 누적 % | 069500 누적 % | 초과 %p | DS6 낙폭 % | 069500 낙폭 % | 코어 보유(코어 안 비중 %) |\n|---|---|---|---|---|---|---|---|---|`);
   for (const r of rows.slice(-10)) console.log(`| ${r[0]} | ${r[1]} | ${r[2]} | ${r[3]} | ${r[4]} | ${r[5]} | ${r[6]} | ${r[7]} | ${r[10].split("|").map((x) => { const [c, w] = x.split(":"); return `${nameOf.get(c) ?? c} ${w}`; }).join(" / ")} |`);
@@ -397,6 +407,7 @@ async function main(): Promise<void> {
   await fs.mkdir(DS6F_WORK_DIR, { recursive: true });
   await fs.writeFile(DS6F_SUMMARY_FILE, `${summary}\n${resLine}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, `### DS6 포워드 관찰\n\n${summary}\n\n${resLine}\n`);
+  await ds13Phase({ h, k200p, fixedDate: DS6F_FIXED_DATE, forward: true, startAfter: TEST_START, outDir: TEST_START ? ".ds6fwd/test" : undefined, closes, ds6ToolRet: new Map(dates0.map((d, i) => [d, base.run.ret[i]] as [string, number])) });
   void membAt; void excluded; void byCode; void nCal;
 }
 

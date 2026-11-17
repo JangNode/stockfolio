@@ -16,13 +16,12 @@ import { solveMinVar } from "@/lib/minVar";
 import { capWeights } from "@/lib/coreCapWeights";
 import { DS13_W, type Alloc3 } from "@/lib/ds13Config";
 import { B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, type RmP, type MvP } from "@/lib/batch5Config";
-import { DS89_RUN_START, DS89_WINDOWS, DS8_TRIAL, DS9_TRIAL, DS8_SMOOTH_WIN, DS9_CORE_N, DS9_CORE_CAP, DS89_CORE_W } from "@/lib/ds89Config";
+import { DS89_RUN_START, DS89_WINDOWS, DS89_CORE_W } from "@/lib/ds89Config";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST } from "@/lib/coreSatelliteConfig";
 import type { Harness, S, Win, loadK200P } from "@/scripts/researchHarness";
 import type { Windows } from "@/scripts/researchGates";
 
-const f2 = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : "-");
 export type K200PInfo = Awaited<ReturnType<typeof loadK200P>>;
 
 export interface CorePos { code: string; s: S; shares: number; lastPx: number; entryC: number; spend: number; vAtEntry: number; rep: boolean; repVal: number; realized: number; out: number }
@@ -53,7 +52,7 @@ export interface FCfg { ma: number }
 export interface D13Parts { res: CombineNOut; rm: RebalRun; low: SimRun; core: CoreRun; sls: Sl[] }
 /** 공통 평가 시작 이후로 자른 일별 계열(구성요소 하나의 계좌 기준). */
 export interface Sl { dates: string[]; ret: number[]; costFrac: number[]; nPos: number[]; inv: number[]; turn: number[]; wMax: number[] }
-export type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
+export type LvOpts = { lag: number; smooth?: number; replace?: Set<string>; /** 보고용(시뮬레이션에 영향 없음): 포워드 도구가 보유 종목표를 읽는 데 쓴다. */ onDay?: (c: number, V: number, held: [string, number][]) => void };
 export interface CombineNOut { run: SimRun; moved: number[]; cost: number[]; contribDaily: number[][]; wEnd: number[][] }
 
 export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
@@ -147,7 +146,7 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
         return r > LE2.keepRank ? "앙상블 순위 밖" : null;
       },
     };
-    runLV1 = (o) => simSlots(env(cS), cfgOf(o.smooth), hooks, { lag: o.lag, replace: o.replace, detail: true });
+    runLV1 = (o) => simSlots(env(cS), cfgOf(o.smooth), hooks, { lag: o.lag, replace: o.replace, detail: true, onDay: o.onDay });
     randLV1 = (rng, ob, smooth) => simSlots(env(cS), cfgOf(smooth), {
       candsOf: (c, held, blocked) => {
         const n = ob.get(c) ?? 0;
@@ -284,7 +283,6 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
   const dates0 = lv1Of(1).sl.dates, nDays = dates0.length;
   const zeros: number[] = new Array<number>(nDays).fill(0);
   const zeroSl: Sl = { dates: dates0, ret: zeros, costFrac: zeros, nPos: zeros, inv: zeros, turn: zeros, wMax: zeros };
-  const dateIdx = new Map(dates0.map((d, i) => [d, i]));
   const bhRet = new Map(h.bhP.dates.map((d, i) => [d, h.bhP.ret[i]]));
   const coreCache = new Map<string, CoreX>();
   const coreOf = (N: number, capW: number | undefined, lag: number, o: { repl?: Set<string>; exclude?: ReadonlySet<string> } = {}): CoreX => {
@@ -555,17 +553,20 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     return { run: { dates: parts[0].dates, ret, costFrac, nPos, inv, turn: turn.map((v, i) => ({ d: parts[0].dates[i], v })), trades: [], entryCs: [], wMax, haltSkip: 0, exitDefer: 0 }, moved, cost, contribDaily, wEnd };
   };
 
-  const d13Of = (kind: "MV1" | "LV1", cS: number, Wx: Windows) => {
+  const d13Of = (kind: "MV1" | "LV1", cS: number, Wx: Windows, shift = 0) => {
     const from = Wx.FULL.from, W0 = DS13_W, rmP0 = RM1.P0;
-    const sigSet = new Set(monthEndIdx.filter((c) => c > cS).map((c) => CAL[c]));
+    // shift > 0은 정보용 견고성 점검: 첫 신호일(cS) 뒤의 월 신호일(RM1·MV1 신호, 하위 계좌 간 재조정 신호)만 마지막 거래일에서 shift 거래일 앞당긴다. shift = 0이면 정의 그대로.
+    const shiftDays = <T extends { signalDays: number[] }>(st: T): T => (shift === 0 ? st : { ...st, signalDays: st.signalDays.map((c) => (c > cS ? c - shift : c)) });
+    const RM1x = shiftDays(RM1), MV1x = shiftDays(MV1);
+    const sigSet = new Set(monthEndIdx.filter((c) => c > cS).map((c) => CAL[c - shift]));
     const coreSlOf = (lag: number): { run: CoreRun; sl: Sl } => { const x = coreOf(2, undefined, lag, {}); return { run: x.run, sl: sliceSl(x.sl, from) }; };
     const lowOf = (lag: number, repl?: Set<string>): { run: SimRun; sl: Sl } => {
-      if (kind === "MV1") { const r = runS(MV1, MV1.P0, cS, null, { lag, detail: true, replace: repl }); return { run: r, sl: slFromRun(r) }; }
+      if (kind === "MV1") { const r = runS(MV1x, MV1.P0, cS, null, { lag, detail: true, replace: repl }); return { run: r, sl: slFromRun(r) }; }
       const x = lv1Of(lag, undefined, repl);
       return { run: x.run, sl: sliceSl(x.sl, from) };
     };
     const build = (o: { w?: Alloc3; rmP?: RmP; lag: number; repl?: { rm: Set<string>; low: Set<string> } }): D13Parts => {
-      const rm = runS(RM1, o.rmP ?? rmP0, cS, null, { lag: o.lag, detail: true, replace: o.repl?.rm }), lo = lowOf(o.lag, o.repl?.low), cx = coreSlOf(o.lag);
+      const rm = runS(RM1x, o.rmP ?? rmP0, cS, null, { lag: o.lag, detail: true, replace: o.repl?.rm }), lo = lowOf(o.lag, o.repl?.low), cx = coreSlOf(o.lag);
       const sls = [cx.sl, slFromRun(rm), lo.sl];
       return { res: combineN(sls, o.w ?? W0, CS_MOVE_COST, sigSet), rm, low: lo.run, core: cx.run, sls };
     };
@@ -580,5 +581,5 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     return { from, W0, rmP0, sigSet, coreSlOf, lowOf, build, merge, base };
   };
 
-  return { cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of };
+  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of };
 }

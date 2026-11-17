@@ -1596,37 +1596,46 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: 연구 DS6 포워드 1단계 검증 (고정 스냅샷, 기록값 4.10/24.51·11.70/39.15 재확인, 외부 요청 0건, Storage 읽기 0)
+      - name: 연구 DS6·DS13 포워드 1단계 검증 (고정 스냅샷, 기록값 DS6 4.10/24.51·11.70/39.15, DS13L 12.40/37.91, DS13M 11.57/40.29 재확인, 외부 요청 0건, 보정 17건 표 읽기만)
         id: ds6fwd_verify
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'ds6fwd' }}
         run: npx tsx --conditions=react-server scripts/research-ds6-forward.ts
         env:
           NODE_OPTIONS: --max-old-space-size=14336
           FWD_PHASE: verify
+          PRICE_CORRECTION: k200p17
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
           BENCH_AUX_069500: "1"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: 연구 DS6 포워드 2단계 관찰 (KST 14:00~15:40 금지, 캐시 적중이면 2026 파일만 받음, 069500 신규 거래일만 KRX, DART 호출 0, DB 쓰기 0)
+      - name: 연구 DS6·DS13 포워드 2단계 관찰 (KST 14:00~15:40 금지, 캐시 적중이면 2026 파일만 받음, 069500 신규 거래일만 KRX, DART 호출 0, DB 쓰기 0)
         id: ds6fwd_run
         if: ${{ steps.parquet_gate.outputs.gate == 'ok' && inputs.which == 'ds6fwd' }}
         run: npx tsx --conditions=react-server scripts/research-ds6-forward.ts
         env:
           NODE_OPTIONS: --max-old-space-size=14336
           FWD_PHASE: forward
+          PRICE_CORRECTION: k200p17
+          # 테스트 전용: only=YYYY-MM-DD 이면 DS13 시작 기준일을 바꾸고 KRX를 부르지 않으며 커밋하지 않는다(정규 실행은 only 비움)
+          DS13F_TEST_START_AFTER: ${{ inputs.only }}
           BENCH_AUX_069500: "1"
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: DS6 포워드 로그 업로드 (커밋 작업과 보관용; ds6-forward-log.csv 한 파일)
-        if: ${{ steps.ds6fwd_run.conclusion == 'success' && inputs.which == 'ds6fwd' }}
+      - name: DS6·DS13 포워드 로그 업로드 (커밋 작업과 보관용; 일별 수익·신호·보유·경고 요약 5개 파일, 가격 데이터 아님)
+        if: ${{ steps.ds6fwd_run.conclusion == 'success' && inputs.which == 'ds6fwd' && inputs.only == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: ds6-forward-log
-          path: docs/research/ds6-forward-log.csv
+          path: |
+            docs/research/ds6-forward-log.csv
+            docs/research/ds13-forward-log.csv
+            docs/research/ds13-forward-signals.csv
+            docs/research/ds13-forward-dq.csv
+            docs/research/ds13-forward-holdings.md
           retention-days: 90
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
@@ -1690,7 +1699,7 @@ jobs:
   # 연구 DS6 포워드 로그 커밋: ds6-forward-log.csv 한 파일만, 연구 브랜치에서 실행했을 때만 같은 브랜치에 커밋한다(main 아님, PR 없음). 실패해도 아티팩트(ds6-forward-log)에 로그가 남는다.
   commit-ds6-forward-log:
     needs: run
-    if: ${{ inputs.which == 'ds6fwd' && needs.run.result == 'success' && github.ref == 'refs/heads/claude/ma-v3-portfolio-cap-run' }}
+    if: ${{ inputs.which == 'ds6fwd' && inputs.only == '' && needs.run.result == 'success' && github.ref == 'refs/heads/claude/ma-v3-portfolio-cap-run' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1706,17 +1715,19 @@ jobs:
           name: ds6-forward-log
           path: .ds6fwd-artifact
 
-      - name: ds6-forward-log.csv만 커밋·푸시
+      - name: 포워드 로그 5개 파일만 커밋·푸시
         run: |
           set -e
-          cp .ds6fwd-artifact/ds6-forward-log.csv docs/research/ds6-forward-log.csv
+          for f in ds6-forward-log.csv ds13-forward-log.csv ds13-forward-signals.csv ds13-forward-dq.csv ds13-forward-holdings.md; do
+            cp ".ds6fwd-artifact/$f" "docs/research/$f"
+          done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/research/ds6-forward-log.csv
+          git add docs/research/ds6-forward-log.csv docs/research/ds13-forward-log.csv docs/research/ds13-forward-signals.csv docs/research/ds13-forward-dq.csv docs/research/ds13-forward-holdings.md
           if git diff --cached --quiet; then echo "로그 변경 없음 — 커밋하지 않음"; exit 0; fi
           git diff --cached --stat
           rows=$(($(wc -l < docs/research/ds6-forward-log.csv) - 1))
-          git commit -m "연구 DS6 포워드 관찰: 로그 갱신(${rows}거래일, 워크플로 실행 ${GITHUB_RUN_ID})"
+          git commit -m "연구 DS6·DS13 포워드 관찰: 로그 갱신(DS6 ${rows}거래일, 워크플로 실행 ${GITHUB_RUN_ID})"
           for i in 1 2 3; do
             git pull --rebase origin claude/ma-v3-portfolio-cap-run && git push origin HEAD:claude/ma-v3-portfolio-cap-run && exit 0
             sleep $((i * 3))

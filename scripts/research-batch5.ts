@@ -36,10 +36,10 @@ const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").up
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob 필요");
   const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
   if (NEUTRALIZE_ON) console.log(`*** 정보용 중립화 모드(NEUTRALIZE_CODES=${process.env.NEUTRALIZE_CODES}): 해당 종목의 수정 수익률을 전 기간 0으로 둔다(시험 아님) ***`);
-  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex") console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
+  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob") console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -1096,6 +1096,22 @@ async function main(): Promise<void> {
     console.log(`\nDS13 사전 점검 종료: 날짜 축·합성 회계(독립 재계산 포함)·비중 이탈 ${fails.length === 0 ? "통과" : `— 실패 ${fails.length}건`}. DS13M·DS13L 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     for (const f of fails) console.log(`  실패: ${f}`);
     if (fails.length) throw new Error("DS13 사전 점검 실패 — 시험을 시작하지 않고 중단해 보고한다");
+    return;
+  }
+  if (MODE === "ds13rob") {
+    // 정보용 견고성 점검(시험 번호·게이트 없음, 판정에 쓰지 않음): 월 신호일(RM1·MV1 신호, 하위 계좌 간 재조정 신호)을 마지막 거래일에서 5·10거래일 앞당긴다. 코어·LV1은 월 신호가 아닌 일별 규칙이라 그대로. 첫 신호일(2011-01-31)은 같게 둬 평가 구간을 맞춘다.
+    const cS13 = startOf(RM1, false), W13 = windowsFor(cS13), from13 = W13.FULL.from;
+    const SHIFTS = [0, 5, 10];
+    const res: { id: string; shift: number; run: { dates: string[]; ret: number[] } }[] = [];
+    for (const [id, kind] of [["DS13L", "LV1"], ["DS13M", "MV1"]] as const) for (const sh of SHIFTS) res.push({ id, shift: sh, run: d13Of(kind, cS13, W13, sh).base.res.run });
+    console.log(`\n=== 정보용 견고성 점검: 월 신호일 앞당김(마지막 거래일 − N거래일) — CAGR % / MDD % (같은 구간 ${from13}~, 보정 적용 데이터) ===`);
+    console.log(`| 구간 | 069500 | ${res.map((r) => `${r.id} −${r.shift}일`).join(" | ")} |\n|---|---|${res.map(() => "---").join("|")}|`);
+    for (const [nm, w] of W13.ALL) console.log(`| ${nm} | ${cell({ dates: h.bhP.dates, ret: h.bhP.ret }, w)} | ${res.map((r) => cell(r.run, w)).join(" | ")} |`);
+    const fullOf = (r: { run: { dates: string[]; ret: number[] } }): { cagr: number; mdd: number } => h.st(r.run, W13.FULL);
+    console.log(`\n| 전략 | 앞당김 | 연속 CAGR | MDD | CAGR − 기준(0일) %p | MDD − 기준 %p | CAGR 차이 1.5%p 초과 |\n|---|---|---|---|---|---|---|`);
+    for (const r of res) { const b0 = fullOf(res.find((x) => x.id === r.id && x.shift === 0) as (typeof res)[number]), f = fullOf(r), dc = f.cagr - b0.cagr, dm = f.mdd - b0.mdd; console.log(`| ${r.id} | −${r.shift}일 | ${f2(f.cagr)} | ${f2(f.mdd)} | ${sg(dc)} | ${sg(dm)} | ${Math.abs(dc) > 1.5 ? "예" : "아니오"} |`); }
+    const big = res.filter((r) => r.shift > 0).some((r) => Math.abs(fullOf(r).cagr - fullOf(res.find((x) => x.id === r.id && x.shift === 0) as (typeof res)[number]).cagr) > 1.5);
+    console.log(`\n견고성 점검 요약: 연속 CAGR 차이가 1.5%p를 넘는 경우 ${big ? "있음(위 표 참고)" : "없음"} | 시험 아님, 시험 번호 쓰지 않음, 판정 불사용 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     return;
   }
   if (MODE === "ds13ex") {

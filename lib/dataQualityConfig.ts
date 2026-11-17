@@ -25,3 +25,6 @@ export const DQ_ALT_LAST_RETURN = -0.5;
 export const DQ_RECENT_VANISH_DAYS = 10;
 /** 목록 출력 상한(초과분은 건수만 표시). */
 export const DQ_LIST_MAX = 400;
+/** 보조 탐지(시총 회복형): 가격 급변 다음 이 행 수 안에 시총이 변동 전 행 수준 ± DQ_RECOVER_TOL 안으로 돌아오면 주식 수가 뒤따라 바뀐 분할·증자·감자 패턴으로 본다. */
+export const DQ_RECOVER_ROWS = 10;
+export const DQ_RECOVER_TOL = 0.15;

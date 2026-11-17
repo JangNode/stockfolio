@@ -19,7 +19,8 @@ import { KSS_R3_DRAWS, KSS_R3_SEED, F_E_TOP_TRADES, F_C_MAX_CAGR_DROP, F_C_MAX_M
 import { SAT_MDD_EPS } from "@/lib/satelliteV1Config";
 import { rebalSim, type RebalRun } from "@/lib/rebalSim";
 import { getIndexPriceSeries } from "@/lib/betaPriceHistoryStorage";
-import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL, DQ_LISTING_MAX_ROW, DQ_RESUME_MIN_GAP, DQ_LIQUIDATION_ROWS, DQ_MCAP_DIFF_FRAC, DQ_VANISH_WINDOW_DAYS, DQ_VANISH_HALT_DAYS, DQ_VANISH_MIN_CLOSE, DQ_ALT_LAST_ROWS, DQ_ALT_LAST_RETURN, DQ_RECENT_VANISH_DAYS, DQ_LIST_MAX } from "@/lib/dataQualityConfig";
+import { RT1_P0, RT2_P0, RT1_NB, RT2_NB, RT_BASELINE_MAX_GAP_PP, RT_WATCH, RT_TOP_N_WEIGHT, type RtP } from "@/lib/rt1Config";
+import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL, DQ_LISTING_MAX_ROW, DQ_RESUME_MIN_GAP, DQ_LIQUIDATION_ROWS, DQ_MCAP_DIFF_FRAC, DQ_VANISH_WINDOW_DAYS, DQ_VANISH_HALT_DAYS, DQ_VANISH_MIN_CLOSE, DQ_ALT_LAST_ROWS, DQ_ALT_LAST_RETURN, DQ_RECENT_VANISH_DAYS, DQ_LIST_MAX, DQ_RECOVER_ROWS, DQ_RECOVER_TOL } from "@/lib/dataQualityConfig";
 import { solveMinVar, projectCappedSimplex } from "@/lib/minVar";
 import { B5_F_DENOMINATOR, B5_CORE_W, B5_MA_DAYS, B5_MA_NB, B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_LR_P0, B5_LR_NB, B5_PF_P0, B5_PF_NB, B5_PF_SLIP, B5_PF_TV_DAYS, B5_TS_P0, B5_TS_NB, B5_TS_CAP, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, B5_MV_CHECK_SAMPLES, B5_BS_P0, B5_BS_NB, B5_BS_SLIP_K200, B5_BS_SLIP_OTHER, type RmP, type LrP, type PfP, type TsP, type MvP, type BsP } from "@/lib/batch5Config";
 import { ALLOC_SERIES_SHA, type AllocCompId } from "@/lib/strategyAllocationConfig";
@@ -38,7 +39,7 @@ type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt 필요");
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -449,6 +450,8 @@ async function main(): Promise<void> {
     vanish: "last" | "loss";
     /** 종목당 기본 비중(보고용). */
     wOf: (P: P) => number;
+    /** 시총 비중형처럼 종목마다 비중이 다른 전략의 무작위 대조용 목표 비중(코드 목록 → 비중, 필터 배수 m 포함). 없으면 동일 비중 wOf × m. */
+    wMap?: (c: number, codes: string[], P: P, m: number) => Map<string, number>;
   }
   const pickKeep = (sorted: string[], held: ReadonlySet<string>, n: number, keepRank: number): string[] => {
     const rankOf = new Map(sorted.map((code, k) => [code, k + 1]));
@@ -491,6 +494,36 @@ async function main(): Promise<void> {
     targets: (c, held, P, m) => equalW(pickKeep(rmSorted(c, P).map((x) => x.code), held, P.n, P.n * P.keepMult), 1 / P.n, m),
     pool: (c, P) => rank200(c).list.filter((s) => Number.isFinite(rmScore(s, c, P))).map((s) => s.code),
     slip: () => L_SLIPPAGE, vanish: "last", wOf: (P) => 1 / P.n,
+  };
+
+  // ---- RT1·RT2 (시가총액 비중 + 잔차 모멘텀 기울기) / RT0(기준선: K200P 전 종목 시총 비중) ----
+  const mcAt = (s: S, c: number): number => { const i = rowAt(s, c); return i === undefined ? Number.NaN : s.mcapRow[i]; };
+  /** 상한 cap으로 시총 비중을 만든다(기존 capWeights). 상한 × 종목 수 < 1이면 균등 비중(방어 규칙). */
+  const capW = (mcs: number[], cap: number): number[] => (cap * mcs.length < 1 - 1e-12 ? mcs.map(() => 1 / mcs.length) : capWeights(mcs, cap));
+  const rtSorted = (c: number, P: RtP): { code: string; sc: number }[] => rmSorted(c, { ...B5_RM_P0, start: P.start, skip: P.skip, minValid: P.minValid });
+  const rtPick = (c: number, held: ReadonlySet<string>, P: RtP): string[] => {
+    const sorted = rtSorted(c, P).map((x) => x.code), nS = sorted.length;
+    return pickKeep(sorted, held, Math.ceil(P.share * nS), Math.ceil((P.share + P.keepOff) * nS));
+  };
+  const rtWeights = (c: number, codes: string[], cap: number, m: number): Map<string, number> => {
+    const live = codes.filter((code) => { const s = byCode.get(code) as S; return mcAt(s, c) > 0; });
+    if (!live.length) return new Map();
+    const w = capW(live.map((code) => mcAt(byCode.get(code) as S, c)), cap);
+    return new Map(live.map((code, k) => [code, w[k] * m] as [string, number]));
+  };
+  const RT1: Strat<RtP> = {
+    id: "RT1", P0: RT1_P0, nbs: RT1_NB, signalDays: monthEndIdx, isSwap: () => true,
+    targets: (c, held, P, m) => rtWeights(c, rtPick(c, held, P), P.cap, m),
+    pool: (c, P) => rtSorted(c, P).map((x) => x.code),
+    slip: () => L_SLIPPAGE, vanish: "last", wOf: (P) => P.cap,
+    wMap: (c, codes, P, m) => rtWeights(c, codes, P.cap, m),
+  };
+  const RT2: Strat<RtP> = { ...RT1, id: "RT2", P0: RT2_P0, nbs: RT2_NB };
+  const RT0: Strat<RtP> = {
+    id: "RT0", P0: RT1_P0, nbs: [], signalDays: monthEndIdx, isSwap: () => true,
+    targets: (c, _held, P, m) => rtWeights(c, rank200(c).list.map((s) => s.code), P.cap, m),
+    pool: (c) => rank200(c).list.map((s) => s.code),
+    slip: () => L_SLIPPAGE, vanish: "last", wOf: (P) => P.cap,
   };
 
   // ---- LR1 ----
@@ -709,7 +742,7 @@ async function main(): Promise<void> {
           for (let a = 0; a < Math.min(k, pl.length); a++) { const m = a + Math.floor(rng() * (pl.length - a)); [pl[a], pl[m]] = [pl[m], pl[a]]; exp.set(pl[a], j + hold[Math.floor(rng() * hold.length)]); }
         }
         const mult = F ? filterMult(c, F.ma) : 1;
-        return new Map([...exp.keys()].map((code) => [code, def.wOf(P) * mult] as [string, number]));
+        return def.wMap ? def.wMap(c, [...exp.keys()], P, mult) : new Map([...exp.keys()].map((code) => [code, def.wOf(P) * mult] as [string, number]));
       },
       stockOf: (code) => h.byCode.get(code),
     }, { lag: 1 });
@@ -1284,7 +1317,7 @@ async function main(): Promise<void> {
     const hasEv = (code: string, a: string, b: string): boolean => (evBy.get(code) ?? []).some((d) => d > a && d <= b);
     const meIdx = monthEndIdx;
     const lastMeBefore = (k: number): number => { let lo = 0, hi = meIdx.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (meIdx[m] <= k - 1) { r = meIdx[m]; lo = m + 1; } else hi = m - 1; } return r; };
-    interface Ex { code: string; d: string; adjR: number; rawR: number; mcR: number; shR: number; vol: number; gap: number; ev: boolean; listing: boolean; resume: boolean; liq: boolean; cls: "가" | "나" | "다"; ex: boolean; k200: number }
+    interface Ex { code: string; d: string; adjR: number; rawR: number; mcR: number; shR: number; vol: number; gap: number; ev: boolean; listing: boolean; resume: boolean; liq: boolean; cls: "가" | "나" | "다"; ex: boolean; k200: number; rec: number; recJ: number }
     const exs: Ex[] = [];
     let rowsAll = 0, daysAll = 0;
     for (const s2 of h.stocks) {
@@ -1301,7 +1334,7 @@ async function main(): Promise<void> {
         const mcR = mcOk ? s2.mcapRow[i] / s2.mcapRow[pi] - 1 : Number.NaN, shR = mcOk ? s2.mcapRow[i] / s2.raw[i] / (s2.mcapRow[pi] / s2.raw[pi]) : Number.NaN;
         const cls: "가" | "나" | "다" = !mcOk ? "다" : Math.abs(mcR - adjR) > DQ_MCAP_DIFF_FRAC * Math.abs(adjR) ? "가" : "나";
         const c = lastMeBefore(h.calIdx.get(d) as number), rk = c >= 0 ? rank200(c).rank.get(s2.code) : undefined;
-        exs.push({ code: s2.code, d, adjR, rawR, mcR, shR, vol: s2.vol[i], gap, ev: hasEv(s2.code, s2.dates[pi], d), listing: i <= DQ_LISTING_MAX_ROW, resume: gap >= DQ_RESUME_MIN_GAP, liq: vanished && i >= n - DQ_LIQUIDATION_ROWS, cls, ex: excluded.has(s2.code), k200: rk === undefined ? -1 : rk });
+        exs.push({ code: s2.code, d, adjR, rawR, mcR, shR, vol: s2.vol[i], gap, ev: hasEv(s2.code, s2.dates[pi], d), listing: i <= DQ_LISTING_MAX_ROW, resume: gap >= DQ_RESUME_MIN_GAP, liq: vanished && i >= n - DQ_LIQUIDATION_ROWS, cls, ex: excluded.has(s2.code), k200: rk === undefined ? -1 : rk, ...(() => { let best = Number.POSITIVE_INFINITY, bj = 0; for (let j = 1; j <= DQ_RECOVER_ROWS && i + j < n; j++) { if (!(s2.mcapRow[i + j] > 0 && s2.mcapRow[pi] > 0)) continue; const v = Math.abs(s2.mcapRow[i + j] / s2.mcapRow[pi] - 1); if (v < best) { best = v; bj = j; } } return { rec: best, recJ: bj }; })() });
       }
     }
     console.log(`\n=== Q1. 제한폭 초과 종목-일 (전 종목 ${h.stocks.length}개, 수익률 계산 가능한 종목-일 ${daysAll.toLocaleString()}개, ${CAL[0]}~${dataEnd}) ===`);
@@ -1333,6 +1366,21 @@ async function main(): Promise<void> {
     console.log(`\n(가) 중 표시 있음·이벤트 있음·제외 대상 ${rest.length}건 — 표시별: 상장직후 ${rest.filter((e) => e.listing).length}, 재개 ${rest.filter((e) => e.resume).length}, 정리매매 ${rest.filter((e) => e.liq).length}, 이벤트 있음 ${rest.filter((e) => e.ev).length}, 제외 대상 ${rest.filter((e) => e.ex).length}`);
     console.log(`BS1 의심 3일(동서 2012-11-28·2013-11-27, 싸이토젠 2022-09-28)의 분류: ${exs.filter((e) => (e.code === "026960" && (e.d === "2012-11-28" || e.d === "2013-11-27")) || (e.code === "217330" && e.d === "2022-09-28")).map((e) => `${label(e.code)} ${e.d} → (${e.cls}) 시총 ${f2(e.mcR * 100)}% 시총÷가격 ${f2(e.shR)}`).join(" | ")}`);
 
+    // ---- Q6. 시총 회복형(주식 수가 뒤따라 바뀌는 형태) 보조 탐지 ----
+    {
+      const flagged = (e: Ex): boolean => Number.isFinite(e.rec) && e.rec <= DQ_RECOVER_TOL;
+      const B = exs.filter((e) => e.cls === "나" && !special(e) && !e.ev && !e.ex);
+      console.log(`\n=== Q6. 보조 탐지: 가격이 제한폭을 넘어 변한 뒤 ${DQ_RECOVER_ROWS}행 안에 시총이 직전(변동 전 행) 수준 ±${DQ_RECOVER_TOL * 100}% 안으로 돌아오는가(상장주식수가 며칠 뒤 갱신되는 분할·무상증자·감자 패턴) ===`);
+      console.log(`(나) 표시 아님·이벤트 없음·제외 대상 아님 ${B.length}건 중 회복형 ${B.filter(flagged).length}건, 비회복형 ${B.length - B.filter(flagged).length}건 | K200P 해당 ${B.filter((e) => e.k200 >= 0).length}건 중 회복형 ${B.filter((e) => e.k200 >= 0 && flagged(e)).length}건`);
+      console.log("| 연도 | (나) 표시 아님·이벤트 없음 | 그중 회복형 |\n|---|---|---|");
+      for (let y = 2010; y <= 2026; y++) { const a = B.filter((e) => e.d.startsWith(`${y}-`)); console.log(`| ${y} | ${a.length} | ${a.filter(flagged).length} |`); }
+      const fm = (e: Ex): string => `| ${label(e.code)} | ${e.d} | ${f2(e.adjR * 100)} | ${f2(e.mcR * 100)} | ${e.vol} | ${Number.isFinite(e.rec) ? `${f2(e.rec * 100)}% (${e.recJ}행 뒤)` : "-"} | ${flagged(e) ? "회복형" : "비회복형"} | ${e.k200 >= 0 ? `K200P ${e.k200}위` : "-"} |`;
+      const hd = "| 종목 | 날짜 | 수정 수익률 % | 시총 변동 % | 거래량 | 시총이 직전 수준에 가장 가까워진 거리(시점) | 판정 | K200P |\n|---|---|---|---|---|---|---|---|";
+      console.log("\nK200P 해당 (나) 표시 아님·이벤트 없음:"); console.log(hd); for (const e of B.filter((x) => x.k200 >= 0).sort((a, b) => (a.d < b.d ? -1 : 1))) console.log(fm(e));
+      console.log("\n회복형 중 제한폭 초과 크기 상위 " + Math.min(DQ_LIST_MAX, B.filter(flagged).length) + "건:"); console.log(hd);
+      for (const e of B.filter(flagged).sort((a, b) => Math.abs(b.adjR) - Math.abs(a.adjR)).slice(0, DQ_LIST_MAX)) console.log(fm(e));
+      console.log("\nBS1 의심 3일: " + exs.filter((e) => (e.code === "026960" && (e.d === "2012-11-28" || e.d === "2013-11-27")) || (e.code === "217330" && e.d === "2022-09-28")).map((e) => fm(e)).join(" ||"));
+    }
     // ---- Q5. 소멸 종목 처리 관례 제안 집계 ----
     console.log(`\n=== Q5. 소멸 종목 집계 (마지막 행이 데이터 끝 ${dataEnd}보다 앞인 종목) ===`);
     interface Va { code: string; last: string; lastIdx: number; close: number; halts: number; r7: number; r20: number; volRatio: number; ex: boolean; recent: boolean }

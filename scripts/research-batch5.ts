@@ -36,7 +36,7 @@ type LvOpts = { lag: number; smooth?: number; replace?: Set<string> };
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info 필요");
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");

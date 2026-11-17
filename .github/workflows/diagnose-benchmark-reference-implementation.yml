@@ -836,7 +836,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Restore 저장된 WFR 점수 (alloc, 없으면 중단)
-        if: ${{ inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || inputs.which == 'ds56' }}
+        if: ${{ inputs.which == 'alloc' || inputs.which == 'recycle' || inputs.which == 'ivalloc' || inputs.which == 'semidiag' || inputs.which == 'csat' || inputs.which == 'csdelay' || inputs.which == 'dsat' || inputs.which == 'ds4' || inputs.which == 'ds4fwd' || (inputs.which == 'ds56' && inputs.ids != 'DS6') }}
         uses: actions/cache/restore@v4
         with:
           path: .wfr

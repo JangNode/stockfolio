@@ -60,6 +60,7 @@ function episodes(ret: number[]): Episode[] {
 
 async function main(): Promise<void> {
   const REPRO = process.env.ALLOC_MODE?.trim().toLowerCase() === "repro";
+  const RESCORE_IDS = (process.env.RESCORE_IDS ?? "").trim() ? new Set((process.env.RESCORE_IDS as string).split(",").map((x) => x.trim())) : null;
   console.log(`연구 DS5·DS6(공시 미사용 DS4 변형) ${REPRO ? "사전 점검(재현·자체 점검만, DS5·DS6 성과 미계산)" : "시도 270~271 시험"} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -113,7 +114,8 @@ async function main(): Promise<void> {
   const comps: Comp[] = [];
 
   // ================= W3 (저장된 WFR 점수) =================
-  {
+  // 보정 재채점에서 DS5를 제외하면(DS6만) W3가 필요 없다 — 만료된 WFR 점수 캐시 없이도 DS6(코어 + LV1)를 다시 채점할 수 있다.
+  if (!RESCORE_IDS || RESCORE_IDS.has("DS5")) {
     const cd = LTR_CANDS.W3;
     const DIR = process.env.WFR_DIR?.trim() || ".wfr";
     const RANK_EXIT = "순위 밖", OUT_EXIT = "유니버스 이탈", RANDOM_EXIT = "무작위 이탈";
@@ -957,7 +959,6 @@ async function main(): Promise<void> {
   };
 
   const specs: CandSpec[] = [], verdicts: Verdict[] = [];
-  const RESCORE_IDS = (process.env.RESCORE_IDS ?? "").trim() ? new Set((process.env.RESCORE_IDS as string).split(",").map((x) => x.trim())) : null;
   if (PRICE_CORRECTION_ON) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드 그대로, 가격 입력만 보정, 누적 시험 횟수에 더하지 않음. 대상: ${RESCORE_IDS ? [...RESCORE_IDS].join(",") : "전체"} ***`);
   for (const cid of (["DS5", "DS6"] as const).filter((x) => !RESCORE_IDS || RESCORE_IDS.has(x))) { const sp = mkSpec(cid); specs.push(sp); verdicts.push(evaluate(h, W, sp)); }
 

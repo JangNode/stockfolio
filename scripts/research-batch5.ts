@@ -1257,6 +1257,27 @@ async function main(): Promise<void> {
     verdicts.push(evaluate(h, Wx, mkC(def, id, trial, cS, Wx, title)));
   };
   const ttl = (nm: string, extra: string): string => `${nm}: ${extra}`;
+  if (MODE === "info") {
+    // 사전등록 정보용 보고(시험 아님, 시험 번호·게이트 없음): PF1 짝 보통주 대체 분해·보유 종목 거래대금, MV1 실현 변동성.
+    const cP = startOf(PF1, false), WP = windowsFor(cP);
+    const pf = runS(PF1, PF1.P0, cP, null, { lag: 1, detail: true });
+    const comOf = (code: string): string => code.slice(0, 5) + "0", prefOf = (code: string): string => code.slice(0, 5) + "5";
+    const PF1S: Strat<PfP> = { ...PF1, targets: (c, held, P, m) => new Map([...PF1.targets(c, new Set([...held].map(prefOf)), P, m, true)].map(([k, v]) => [comOf(k), v] as [string, number])) };
+    const sw = runS(PF1S, PF1.P0, cP, null, { lag: 1, detail: true });
+    console.log(`\n=== 정보용 1. PF1 우선주 대 짝 보통주 대체(같은 월말 선정·같은 비중·같은 슬리피지 ${B5_PF_SLIP * 100}%·같은 체결, 시험 아님; CAGR % / MDD %) ===`);
+    console.log("| 구간 | PF1(우선주) | 같은 선정을 짝 보통주로 | 차이(우선주 − 보통주) CAGR %p |\n|---|---|---|---|");
+    for (const [nm, w] of WP.ALL) { const a = h.st(pf, w), b = h.st(sw, w); console.log(`| ${nm} | ${f2(a.cagr)} / ${f2(a.mdd)} | ${f2(b.cagr)} / ${f2(b.mdd)} | ${a.cagr - b.cagr >= 0 ? "+" : ""}${f2(a.cagr - b.cagr)} |`); }
+    const tvs: number[] = [];
+    for (const t of [...pf.trades, ...pf.open]) { const st = h.byCode.get(t.code); if (st) tvs.push(tvAvg(st, t.entryC - 1, B5_PF_TV_DAYS)); }
+    tvs.sort((x, y) => x - y);
+    console.log(`PF1 보유 종목(진입 시점, 우선주 ${B5_PF_TV_DAYS}일 평균 거래대금 = 원 종가 × 거래량) ${tvs.length}건: 최솟값 ${f2(tvs[0] / 1e8)}억 원 | 하위 10% ${f2(tvs[Math.floor(tvs.length * 0.1)] / 1e8)}억 | 중앙값 ${f2(median(tvs) / 1e8)}억 | 대상 기준 ${f2(B5_PF_P0.minTv / 1e8)}억`);
+    const cM = startOf(MV1, false), WM = windowsFor(cM), mv = runS(MV1, MV1.P0, cM, null, { lag: 1, detail: true });
+    console.log(`\n=== 정보용 2. MV1 연 실현 변동성(일수익률 표준편차 연율화(하니스 ETF_TRADING_DAYS_PER_YEAR), %) 대 069500(같은 구간) ===`);
+    console.log("| 구간 | MV1 | 069500 | MV1 / 069500 |\n|---|---|---|---|");
+    for (const [nm, w] of WM.ALL) { const a = h.st(mv, w), b = h.st(h.bhP, w); console.log(`| ${nm} | ${f2(a.vol)} | ${f2(b.vol)} | ${f2(a.vol / b.vol)} |`); }
+    console.log(`\n정보용 실행 종료 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
+    return;
+  }
   if (MODE === "a") {
     doS(RM1, "RM1", false, ttl("RM1", "K200P, 월말 신호, 069500 회귀 잔차 점수(√n·α/σ) 상위 20종목 5% 동일 비중, 보유는 40위 안이면 유지, 매월 5%로 재조정, 항상 100%"));
     doC(RM1, "RM1C", ttl("RM1C", "DS6 코어 40% + 위성 60% = RM1"));

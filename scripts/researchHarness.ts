@@ -16,6 +16,9 @@ import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
 import { PRICE_CORRECTION_ON, PRICE_CORRECTION_ID, loadPriceOverrides, applyReturnOverride, type PriceOverride } from "@/lib/priceCorrection";
 
 export { PRICE_CORRECTION_ON };
+/** 정보용: 환경 변수 NEUTRALIZE_CODES(쉼표 구분)에 든 종목의 수정 수익률을 전 기간 0으로 둔다(원 종가·거래량·시총은 그대로, 순위·유니버스 유지). 기본 비어 있음. */
+const NEUTRALIZE = new Set((process.env.NEUTRALIZE_CODES ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+export const NEUTRALIZE_ON = NEUTRALIZE.size > 0;
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
 import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
@@ -110,6 +113,7 @@ export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파�
     if (al) applyAdjustmentsInPlace(adj, al);
     const ov = overrides.get(code);
     if (ov) for (const o of ov) applyReturnOverride(adj, o.date, o.ret);
+    if (NEUTRALIZE.has(code) && adj.length) { const c0 = adj[0].closePrice; for (const r of adj) { r.openPrice = c0; r.highPrice = c0; r.lowPrice = c0; r.closePrice = c0; } }
     for (const r of rows) if (r.tradeDate >= "2010-01-01") calSet.add(r.tradeDate);
     rows0.push({ code, dates: rows.map((r) => r.tradeDate), close: Float64Array.from(adj.map((r) => r.closePrice)), raw: Float64Array.from(rows.map((r) => r.closePrice)), mcap: Float64Array.from(rows.map((r) => r.marketCapEok)), vol: Float64Array.from(rows.map((r) => r.volume)), avgTv: computeTrailingAvgTradingValue(adj, PIT_LIQUIDITY_LOOKBACK_DAYS), open: Float64Array.from(adj.map((r) => r.openPrice)), high: Float64Array.from(adj.map((r) => r.highPrice)), low: Float64Array.from(adj.map((r) => r.lowPrice)), tv: Float64Array.from(rows.map((r) => r.tradingValue)) });
   }

@@ -206,7 +206,9 @@ async function kisFetch(
   appKey: string,
   appSecret: string,
   priority: KisCallPriority = "user",
-  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES
+  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES,
+  /** 연구 전용(블록 D): 공식 예제(kis_auth.py)처럼 Accept·charset·User-Agent·tr_cont 헤더를 더 보낼 때만 쓴다. 운영 호출은 넘기지 않는다. */
+  extraHeaders?: Record<string, string>
 ): Promise<KisResponse> {
   for (let attempt = 0; attempt <= maxRateLimitRetries; attempt++) {
     await acquireSlot(priority);
@@ -220,6 +222,7 @@ async function kisFetch(
         appsecret: appSecret,
         tr_id: trId,
         custtype: "P",
+        ...(extraHeaders ?? {}),
       },
       cache: "no-store",
     });
@@ -707,13 +710,14 @@ export async function kisGetForResearch(
   path: string,
   trId: string,
   params: Record<string, string>,
-  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES
+  maxRateLimitRetries: number = RATE_LIMIT_MAX_RETRIES,
+  extraHeaders?: Record<string, string>
 ): Promise<Record<string, unknown>> {
   const { appKey, appSecret } = getCredentials();
   const accessToken = await getAccessToken();
   const url = new URL(path, KIS_BASE_URL);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const data = await kisFetch(url, trId, accessToken, appKey, appSecret, "batch", maxRateLimitRetries);
+  const data = await kisFetch(url, trId, accessToken, appKey, appSecret, "batch", maxRateLimitRetries, extraHeaders);
   return data as unknown as Record<string, unknown>;
 }
 

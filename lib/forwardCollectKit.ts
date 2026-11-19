@@ -85,7 +85,7 @@ export async function waitIfBlocked(t0: number, maxMs: number, run?: KisRun): Pr
  * 순차 호출 하나. 성공하면 응답 본문, 실패하면 null(run.stop에 사유가 있으면 멈춘다). rate limit은 5/15/60초 재시도, 10분 안 N회면 중단, 연속 오류 N건이면 중단.
  * 호출 사이 최소 간격(FWD_MIN_GAP_MS)을 둔다.
  */
-export async function callKis(run: KisRun, t0: number, maxMs: number, label: string, path: string, tr: string, params: Record<string, string>): Promise<Rec | null> {
+export async function callKis(run: KisRun, t0: number, maxMs: number, label: string, path: string, tr: string, params: Record<string, string>, extraHeaders?: Record<string, string>): Promise<Rec | null> {
   for (let rl = 0; ; rl++) {
     await waitIfBlocked(t0, maxMs, run);
     if (run.stop) return null;
@@ -94,7 +94,7 @@ export async function callKis(run: KisRun, t0: number, maxMs: number, label: str
     if (gap > 0) await sleep(gap);
     const r0 = getKisCallStats().total, c0 = Date.now();
     try {
-      const body = await kisGetForResearch(path, tr, params, 0);
+      const body = await kisGetForResearch(path, tr, params, 0, extraHeaders);
       run.lastCallAt = Date.now(); run.latenciesMs.push(run.lastCallAt - c0);
       run.consec = 0; run.req += getKisCallStats().total - r0;
       return body as Rec;

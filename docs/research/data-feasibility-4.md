@@ -75,3 +75,29 @@
 | 정정 반영 여부 | **확인 못 함**(연 대 분기 값 비교 호출 실패) |
 | KRX 서비스 목록 | **확인 못 함**(웹 검색으로도 PER·PBR·배당수익률 서비스 미확인) |
 | 실행 여부·새 일정 | 실행함(20회 상한 소진). 재시도는 상한이 없어 새 일정 없음 — KIS 재무 API 오류 원인 확인 후 사용자 승인 시 약 5회 재확인 |
+
+## 11. 블록 D 재확인(사용자 승인 2026-11-20, 추가 KIS 5회·총 25회) — ① 호출 없이 한 확인
+KIS 공식 예제 저장소 `koreainvestment/open-trading-api`(`examples_llm`, main)의 소스를 읽어(호출 0) 우리 호출과 비교했다. 예제 파일은 모두 2025-06-17 작성으로 표시되고, 읽은 범위의 커밋 메시지에 재무 API 경로·TR 변경은 없었다(대상 폴더 이력은 2025-07~09만 보임, 2025-09-17 커밋 d8c7f79는 649개 파일 삭제로 표시되나 목록이 잘려 재무 폴더 포함 여부는 확인하지 못함. 현재 main에는 재무 폴더가 있다).
+
+| API | 경로(예제 = 우리) | TR ID(예제 = 우리) | 파라미터 이름·대소문자(예제) | 우리 호출 |
+|---|---|---|---|---|
+| 재무비율 `v1_국내주식-080` | `/uapi/domestic-stock/v1/finance/financial-ratio` | FHKST66430300 | `FID_DIV_CLS_CODE`(대문자) · `fid_cond_mrkt_div_code` · `fid_input_iscd`(소문자) | **동일** |
+| 대차대조표 `-078` | `/finance/balance-sheet` | FHKST66430100 | 위와 같음 | **동일** |
+| 손익계산서 `-079` | `/finance/income-statement` | FHKST66430200 | 위와 같음 | **동일** |
+| 수익성비율 `-081` | `/finance/profit-ratio` | FHKST66430400 | `fid_input_iscd` · `FID_DIV_CLS_CODE` · `fid_cond_mrkt_div_code` | 운영 코드 동일 |
+| 성장성비율 `-085` · 안정성비율 `-083` · 기타주요비율 `-082` | `/finance/growth-ratio` · `/stability-ratio` · `/other-major-ratios` | FHKST66430800 · 66430600 · 66430500 | **`fid_div_cls_code`(소문자)** | 운영 코드(성장성)도 소문자로 동일 |
+| 배당일정 `국내주식-145` | `/uapi/domestic-stock/v1/ksdinfo/dividend` | HHKDB669102C0 | `CTS`·`GB1`(0 전체·1 결산·2 중간)·`F_DT`·`T_DT`·`SHT_CD`·`HIGH_GB`(모두 대문자), 응답 `output1` | 동일(응답 `output1` 읽음) |
+- 공통: `FID_DIV_CLS_CODE` 값 0 = 년, 1 = 분기. 시장 코드 J. 모든 API가 GET + 쿼리 문자열. 연속 조회는 응답 헤더 `tr_cont = "M"`이면 `tr_cont: "N"`으로 재호출(최대 10회).
+- **헤더(예제 `kis_auth.py`)**: `Content-Type: application/json`, `Accept: text/plain`, `charset: UTF-8`, `User-Agent`(설정값, README 예시 `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`), `authorization: Bearer …`, `appkey`, `appsecret`, `tr_id`, `custtype: P`, **`tr_cont`(첫 호출은 빈 문자열)**. **우리 호출에는 `Accept`·`charset`·`User-Agent`·`tr_cont`가 없다**(`Content-Type`·`authorization`·`appkey`·`appsecret`·`tr_id`·`custtype`만).
+- 실전·모의: 재무(FHKST…)·배당(HHKDB…) TR ID는 `T`·`J`·`C`로 시작하지 않아 모의 모드에서도 변환되지 않는다(예제 코드 기준 추론). 재무·배당 API에 "모의투자 미지원" 문구는 예제에 없다. 실전 도메인 `https://openapi.koreainvestment.com:9443`, 모의 `https://openapivts.koreainvestment.com:29443`. 우리는 실전 도메인.
+- 응답 필드(예제 `chk_*.py` 컬럼 매핑): 재무비율 = `stac_yymm`(결산 년월) · `grs`(매출액 증가율) · `bsop_prfi_inrt`(영업이익 증가율) · `ntin_inrt`(순이익 증가율) · `roe_val` · **`eps` · `sps` · `bps`** · `rsrv_rate` · `lblt_rate`. 대차대조표 = `stac_yymm` · `cras` · `fxas` · `total_aset` · `flow_lblt` · `fix_lblt` · `total_lblt` · `cpfn` · `cfp_surp` · `prfi_surp` · `total_cptl`. **발표일·공시일 컬럼은 없다.** 반환 결산기 수(이력 깊이)는 어디에도 문서화돼 있지 않다.
+- `examples_llm/domestic_stock/finance_ratio`는 재무비율 **순위**(`ranking/finance-ratio`, FHPST01750000, 회계년도·분기 지정)로 다른 API다(결산월 `stac_month`).
+
+### 실패 원인 가설 (404 · "호출 전처리 오류"와 위 표 비교)
+| 가설 | 근거 | 이번 확인 |
+|---|---|---|
+| H1 경로·TR·파라미터 오류 | 경로·TR·파라미터 이름·대소문자가 예제와 **같다** | **기각**(가능성 낮음) |
+| H2 헤더 차이 | 예제는 `Accept`·`charset`·`User-Agent`·`tr_cont`를 보내고 우리는 보내지 않는다. 다만 같은 헤더 구성으로 배당·상품기본·현재가는 성공했다 | 재호출에서 **예제와 같은 헤더**로 검증 |
+| H3 시간대 | 실패 3회(07:12·07:15·08:31 KST)가 모두 장 시작 전. 재무 DB 갱신·점검 시간대일 수 있음 | 재호출을 **장중(10:05 KST)** 에 실행 |
+| H4 KIS 쪽 변경·권한 | 예제 저장소에 11-13·11-16 응답 바디 수정 커밋(다른 API)이 있어 KIS가 API를 손보는 중. 재무비율만 404, 나머지 재무는 "전처리 오류"로 증상이 다름 | 호출로 구분 불가 — H2·H3이 모두 아니면 남는 가설 |
+- 첫 호출(삼성전자 재무비율, 예제 헤더, 장중)이 또 실패하면 나머지 호출은 쓰지 않고 이 가설만 보고한다.

@@ -1195,6 +1195,28 @@ async function main(): Promise<void> {
     for (const s of gone) { const y = s.last.slice(0, 4), g = gy.get(y) ?? { n: 0, r: 0, any: 0 }; g.n++; if (bySrc.get("R")?.has(s.code)) g.r++; if (allMap.has(s.code)) g.any++; gy.set(y, g); }
     console.log(`가격 Parquet의 소멸 종목 ${gone.length}개 중 R 재무 있음 ${gone.filter((s) => bySrc.get("R")?.has(s.code)).length}, 어느 표든 있음 ${gone.filter((s) => allMap.has(s.code)).length}`);
     console.log(`소멸 연도별(종목 수 / R 재무 있음 / 어느 표든): ${[...gy].sort().map(([y, g]) => `${y} ${g.n}/${g.r}/${g.any}`).join(" | ")}`);
+    console.log(`\n=== V5. 새 수집 계획용 대상 수(2011-03~2016-04 월말, R 자료 이전 구간) ===`);
+    const corpRows = await selectAll<Record<string, unknown>>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("stock_code, corp_code").range(f, t));
+    const corpOf = new Map(corpRows.map((r) => [String(r.stock_code), String(r.corp_code)]));
+    const monthsOf = new Map<string, { a: number; b: number; goneBefore2016: boolean }>();
+    for (const d of h.monthEnds) {
+      if (d < "2011-03-01" || d > "2016-04-30") continue;
+      const m = membAt(d);
+      for (const s of h.stocks) {
+        const i = s.idx.get(d);
+        if (i === undefined || excluded.has(s.code) || !m || !m.has(s.code) || !(s.mcapRow[i] > 0)) continue;
+        const x = monthsOf.get(s.code) ?? { a: 0, b: 0, goneBefore2016: s.last < "2016-05-01" };
+        x.a++; if (s.avgTvRow[i] >= 3e8 && s.raw[i] >= 1000) x.b++;
+        monthsOf.set(s.code, x);
+      }
+    }
+    const stocksA = [...monthsOf.keys()], stocksB = [...monthsOf].filter(([, x]) => x.b > 0).map(([c]) => c);
+    const noRecA = stocksA.filter((c) => !allMap.has(c)), noRecB = stocksB.filter((c) => !allMap.has(c));
+    const mapped = (arr: string[]): number => arr.filter((c) => corpOf.has(c)).length;
+    const mm = (arr: string[], k: "a" | "b"): number => arr.reduce((acc, c) => acc + (monthsOf.get(c) as { a: number; b: number })[k], 0);
+    console.log(`구간 안에 한 번이라도 월말 목록·가격 행·제외 규칙 통과: 전 종목 A ${stocksA.length}개(corp_code 매핑 ${mapped(stocksA)}개), BS1 적격 한 번이라도 B ${stocksB.length}개(매핑 ${mapped(stocksB)}개)`);
+    console.log(`그중 기존 자료(R·Supabase 표)에 자본 기록이 전혀 없는 종목: A ${noRecA.length}개(매핑 ${mapped(noRecA)}), B ${noRecB.length}개(매핑 ${mapped(noRecB)}) | 구간 안에 소멸(2016-05 전 마지막 행): A ${stocksA.filter((c) => (monthsOf.get(c) as { goneBefore2016: boolean }).goneBefore2016).length}개`);
+    console.log(`종목-월 합계: A ${mm(stocksA, "a")}, B ${mm(stocksB, "b")} → 분기보고서 수 추정(종목-월 ÷ 3) A ${Math.round(mm(stocksA, "a") / 3)}, B ${Math.round(mm(stocksB, "b") / 3)} / 사업보고서만(÷ 12) A ${Math.round(mm(stocksA, "a") / 12)}, B ${Math.round(mm(stocksB, "b") / 12)}`);
     console.log(`\n읽기: fin·filings 파일 ${((finBuf.byteLength + filBuf.byteLength) / 1048576).toFixed(2)} MiB | ${storageLine()} | Supabase 쓴 행 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     return;
   }

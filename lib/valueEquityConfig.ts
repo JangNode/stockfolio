@@ -26,7 +26,7 @@ export const VEQ_KEY_ENVS = ["DART_API_KEY_3", "DART_API_KEY_2"] as const;
 export const VEQ_KEY_DAILY_CAP = 18_000;
 export const VEQ_TOTAL_CALL_CAP = 60_000;
 export const VEQ_GAP_MS = 150;
-export const VEQ_CONCURRENCY = 4;
+export const VEQ_CONCURRENCY = 16; // 1회차(동시 4)가 응답 지연(호출당 약 6초)으로 시간당 약 2,400건에 그쳐 16으로 올림(호출 간격 150 ms는 그대로)
 export const VEQ_MAX_RETRIES = 2;
 export const VEQ_RETRY_BASE_MS = 1000;
 /** 응답 대기 상한(응답이 멈춘 호출이 수집 전체를 붙잡지 않게). 시간 초과는 재시도 대상. */

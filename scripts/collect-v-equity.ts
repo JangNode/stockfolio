@@ -24,7 +24,24 @@ const pc = (a: number, b: number): string => (b ? `${((a / b) * 100).toFixed(1)}
 const addDays = (iso: string, n: number): string => new Date(Date.parse(iso) + n * 86_400_000).toISOString().slice(0, 10);
 
 // ---- DART 호출: 키 풀 + 동시 4 + 최소 간격 ----
-let pool: DartKeyPool;
+interface PoolLike { reserve(): PoolKey | null; on020(name: string): boolean; total: number; used: Map<string, number>; got020: Map<string, number>; stopReason: string | null }
+/** 키별 하루 한도(cap)에 닿으면 다음 키로 넘어가는 풀(본 수집용). 모든 키가 한도에 닿으면 멈춘다. */
+class DailyKeyPool implements PoolLike {
+  used = new Map<string, number>(); got020 = new Map<string, number>(); total = 0; stopReason: string | null = null;
+  private disabled = new Set<string>();
+  constructor(private keys: PoolKey[], private totalCap: number) { for (const k of keys) { this.used.set(k.name, 0); this.got020.set(k.name, 0); } }
+  private open(k: PoolKey): boolean { return !this.disabled.has(k.name) && (k.cap === undefined || (this.used.get(k.name) ?? 0) < k.cap); }
+  reserve(): PoolKey | null {
+    if (this.stopReason) return null;
+    if (this.total >= this.totalCap) { this.stopReason = `전체 요청 상한 ${this.totalCap}건 도달`; return null; }
+    const k = this.keys.find((x) => this.open(x));
+    if (!k) { this.stopReason = "모든 키가 오늘 한도(또는 status 020)에 도달"; return null; }
+    this.total++; this.used.set(k.name, (this.used.get(k.name) ?? 0) + 1);
+    return k;
+  }
+  on020(name: string): boolean { this.got020.set(name, (this.got020.get(name) ?? 0) + 1); this.disabled.add(name); const more = this.keys.some((x) => this.open(x)); if (!more) this.stopReason = `${name} status 020 수신, 전환할 키 없음`; return more; }
+}
+let pool: PoolLike;
 let nextSlot = 0;
 const slot = async (): Promise<void> => { const now = Date.now(), s = Math.max(now, nextSlot); nextSlot = s + VEQ_GAP_MS; if (s > now) await sleep(s - now); };
 const statusOf = (buf: Buffer): string | undefined => { const t = buf.toString("utf-8", 0, 400); return /"status"\s*:\s*"(\d+)"/.exec(t)?.[1] ?? /<status>(\d+)</.exec(t)?.[1]; };
@@ -230,7 +247,7 @@ async function collectAll(all: Cand[], keys: PoolKey[]): Promise<void> {
   const done = new Set(prog.done);
   const used = prog.daily[today] ?? {};
   const capped: PoolKey[] = keys.map((k) => ({ ...k, cap: Math.max(VEQ_KEY_DAILY_CAP - (used[k.name] ?? 0), 0) }));
-  pool = new DartKeyPool(capped.filter((k) => (k.cap ?? 0) > 0), VEQ_TOTAL_CALL_CAP);
+  pool = new DailyKeyPool(capped.filter((k) => (k.cap ?? 0) > 0), VEQ_TOTAL_CALL_CAP);
   console.log(`대상 ${targets.length}개사(corp_code 있음), 이미 완료 ${done.size}개사, 저장 행 ${rows.length} | 오늘(${today}) 키별 남은 한도 ${capped.map((k) => `${k.name} ${k.cap}`).join(", ")}`);
   const todo = targets.filter((c) => !done.has(c.corp));
   let cursor = 0, doneNow = 0, stop = "전체 처리 완료", listFail = 0, fetchFail = 0;

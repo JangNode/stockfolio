@@ -13,12 +13,16 @@ import { MM_PARQUET_PATH } from "@/lib/marketMembershipConfig";
 import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
+import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL } from "@/lib/dataQualityConfig";
 import { PRICE_CORRECTION_ON, PRICE_CORRECTION_ID, loadPriceOverrides, applyReturnOverride, type PriceOverride } from "@/lib/priceCorrection";
 
 export { PRICE_CORRECTION_ON };
 /** 정보용: 환경 변수 NEUTRALIZE_CODES(쉼표 구분)에 든 종목의 수정 수익률을 전 기간 0으로 둔다(원 종가·거래량·시총은 그대로, 순위·유니버스 유지). 기본 비어 있음. */
 const NEUTRALIZE = new Set((process.env.NEUTRALIZE_CODES ?? "").split(",").map((x) => x.trim()).filter(Boolean));
 export const NEUTRALIZE_ON = NEUTRALIZE.size > 0;
+/** 저평가(PBR) 시험(보정 후보 A, 사용자 지정 2026-11-20): 환경 변수 ZERO_SUSPECT=1이면 "연속 거래일 ∧ 조정 이벤트 없음 ∧ 제한폭 초과"인 종목-일의 수정 수익률을 0%로 둔다(그날 이전 수정 시세에 계수를 곱함, 원 종가·거래량·시총은 그대로). 기본 미적용. */
+export const ZERO_SUSPECT_ON = (process.env.ZERO_SUSPECT ?? "").trim() === "1";
+export const suspectLog: { code: string; date: string; adjR: number }[] = [];
 import { computeTrailingAvgTradingValue } from "@/lib/pitUniverse";
 import { PIT_LIQUIDITY_LOOKBACK_DAYS, PIT_MIN_AVG_TRADING_VALUE_WON } from "@/lib/strategyBacktestSummaryConfig";
 import { computeCumulativeAndMdd, computeCagrPct } from "@/lib/strategyBacktestSummary";
@@ -121,6 +125,23 @@ export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파�
   const nCal = CAL.length, dataEnd = CAL[nCal - 1];
   if (SNAP_END && dataEnd !== SNAP_END) throw new Error(`고정 스냅샷의 마지막 거래일 ${dataEnd}이 데이터 종료일 ${SNAP_END}과 다릅니다`);
   const calIdx = new Map(CAL.map((d, i) => [d, i]));
+  if (ZERO_SUSPECT_ON) {
+    for (const r of rows0) {
+      const evs = (adjustments.get(r.code) ?? []).map((e) => e.eventDate);
+      for (let i = 1; i < r.dates.length; i++) {
+        const gi = (calIdx.get(r.dates[i]) as number) - (calIdx.get(r.dates[i - 1]) as number);
+        if (gi !== 1 || !(r.close[i] > 0 && r.close[i - 1] > 0)) continue;
+        const adjR = r.close[i] / r.close[i - 1] - 1, lim = r.dates[i] <= DQ_LIMIT_CHANGE_DATE ? DQ_LIMIT_BEFORE : DQ_LIMIT_AFTER;
+        if (Math.abs(adjR) <= lim + DQ_LIMIT_TOL) continue;
+        if (evs.some((d) => d > r.dates[i - 1] && d <= r.dates[i])) continue;
+        const f = r.close[i] / r.close[i - 1];
+        for (let k = 0; k < i; k++) { r.close[k] *= f; r.open[k] *= f; r.high[k] *= f; r.low[k] *= f; }
+        suspectLog.push({ code: r.code, date: r.dates[i], adjR });
+      }
+    }
+    console.log(`의심 종목-일 0% 처리(ZERO_SUSPECT=1, 보정 후보 A): ${suspectLog.length}건(연속 거래일 ∧ 조정 이벤트 없음 ∧ 제한폭 초과, ${DQ_LIMIT_BEFORE * 100}%→${DQ_LIMIT_AFTER * 100}% ${DQ_LIMIT_CHANGE_DATE} 기준, 허용 ${DQ_LIMIT_TOL * 100}%p)`);
+  }
+
   const monthEnds: string[] = [];
   for (let k = 0; k + 1 < nCal; k++) if (CAL[k].slice(0, 7) !== CAL[k + 1].slice(0, 7)) monthEnds.push(CAL[k]);
   const endedBefore = new Date(Date.parse(dataEnd) - FLOW_TILT_ENDED_GRACE_DAYS * MS_DAY).toISOString().slice(0, 10);

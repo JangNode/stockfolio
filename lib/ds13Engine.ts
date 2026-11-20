@@ -41,7 +41,9 @@ export interface Strat<P> {
   targets: (c: number, held: ReadonlySet<string>, P: P, m: number, swap: boolean) => Map<string, number>;
   pool: (c: number, P: P) => string[];
   slip: (code: string, c: number, lag: number) => number;
-  vanish: "last" | "loss";
+  vanish: "last" | "loss" | "rule";
+  /** vanish가 "rule"일 때: 소멸 종목을 전액 손실로 볼지 종목별로 판단(저평가 시험). */
+  vanishLoss?: (code: string) => boolean;
   /** 종목당 기본 비중(보고용). */
   wOf: (P: P) => number;
   /** 시총 비중형처럼 종목마다 비중이 다른 전략의 무작위 대조용 목표 비중(코드 목록 → 비중, 필터 배수 m 포함). 없으면 동일 비중 wOf × m. */
@@ -483,7 +485,7 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
   };
   const runS = <P,>(def: Strat<P>, P: P, cS: number, F: FCfg | null, o: { lag: number; replace?: Set<string>; detail?: boolean }): RebalRun => {
     const sd = new Set(sigDays(def, F !== null).filter((c) => c >= cS));
-    return rebalSim(env(cS), { slipOf: (code, c) => def.slip(code, c, o.lag), vanish: def.vanish }, {
+    return rebalSim(env(cS), { slipOf: (code, c) => def.slip(code, c, o.lag), vanish: def.vanish, vanishLoss: def.vanishLoss }, {
       isSignal: (c) => sd.has(c),
       targetsAt: (c, held) => def.targets(c, held, P, F ? filterMult(c, F.ma) : 1, def.isSwap(c)),
       stockOf: (code) => h.byCode.get(code),

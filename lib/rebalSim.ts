@@ -10,8 +10,9 @@ import type { SimEnv, SimRun, SimS, SimTrade } from "@/lib/slotSim";
 export interface RebalCfg {
   /** 종목·체결일별 편도 슬리피지(소수). 기본 슬리피지(env.baseSlip)를 이 값으로 바꾼다(slotSim의 cfg.slip과 같은 방식). */
   slipOf: (code: string, c: number) => number;
-  /** 데이터가 끝난(폐지) 종목: "last" = 마지막 수정 종가로 청산(수수료·세금 부과), "loss" = 전액 손실(받는 금액 0). */
-  vanish: "last" | "loss";
+  /** 데이터가 끝난(폐지) 종목: "last" = 마지막 수정 종가로 청산(수수료·세금 부과), "loss" = 전액 손실(받는 금액 0), "rule" = 종목별로 vanishLoss(code)가 true면 전액 손실 아니면 마지막 종가 청산(저평가 시험 VB1~VB1C). */
+  vanish: "last" | "loss" | "rule";
+  vanishLoss?: (code: string) => boolean;
 }
 export interface RebalHooks {
   /** 신호일인가. */
@@ -61,7 +62,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
         p.lastPx = px; p.peak = Math.max(p.peak, px);
       } else if (p.s.last < d && p.s.last < env.endedBefore) {
         const v = val(p);
-        if (cfg.vanish === "last") { const sr = sellRateOf(d, cfg.slipOf(p.code, c)); cash += v * (1 - sr); costF += (v * sr) / prevV; sellN += v; finish(p, c, "폐지", v * (1 - sr) + p.realized, p.lastPx); }
+        if (cfg.vanish === "last" || (cfg.vanish === "rule" && !(cfg.vanishLoss?.(p.code) ?? false))) { const sr = sellRateOf(d, cfg.slipOf(p.code, c)); cash += v * (1 - sr); costF += (v * sr) / prevV; sellN += v; finish(p, c, "폐지", v * (1 - sr) + p.realized, p.lastPx); }
         else finish(p, c, "폐지(전액 손실)", p.realized, p.lastPx);
       } else if (c > cS) { const e = out.contrib.get(p.code) ?? { pct: 0, days: 0 }; e.days++; out.contrib.set(p.code, e); }
     }

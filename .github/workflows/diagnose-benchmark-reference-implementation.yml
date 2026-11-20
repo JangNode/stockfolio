@@ -33,6 +33,14 @@ on:
         description: "정보용 중립화(DS13 ds13ex): 수정 수익률을 0으로 둘 종목 코드(쉼표 구분, 예 005930,000660). 기본 비움"
         required: false
         default: ""
+      zero:
+        description: "저평가(PBR) 시험: 1이면 연속 거래일·조정 이벤트 없음·제한폭 초과 종목-일의 수정 수익률을 0%로 처리(보정 후보 A). 기본 비움 = 처리 없음"
+        required: false
+        default: ""
+      vstart:
+        description: "저평가(PBR) 시험·정보용 실행: 시험 시작 월말 신호일(YYYY-MM-DD)"
+        required: false
+        default: ""
       pilot:
         description: "N 수집 파일럿(1이면 저장 없이 소규모 검증)"
         required: false
@@ -1294,6 +1302,8 @@ jobs:
           NEUTRALIZE_CODES: ${{ inputs.neutralize }}
           PRICE_CORRECTION: ${{ inputs.correct }}
           B5_IDS: ${{ inputs.ids }}
+          ZERO_SUSPECT: ${{ inputs.zero }}
+          V_START: ${{ inputs.vstart }}
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"

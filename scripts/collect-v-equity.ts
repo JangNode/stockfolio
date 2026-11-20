@@ -10,7 +10,7 @@ import { parseInst, ctxKind, periodOf, lastDayOfMonth, type Filing, type RFact }
 import {
   VEQ_DATA_FILE, VEQ_PROGRESS_FILE, VEQ_SIGNAL_FROM, VEQ_SIGNAL_TO, VEQ_LIST_FROM, VEQ_LIST_TO, VEQ_LIST_PAGE_COUNT, VEQ_PILOT,
   VEQ_ANNUAL_DUE_MMDD, VEQ_QUARTER_DUE_DAYS, VEQ_KEY_ENVS, VEQ_KEY_DAILY_CAP, VEQ_TOTAL_CALL_CAP, VEQ_GAP_MS, VEQ_CONCURRENCY, VEQ_MAX_RETRIES,
-  VEQ_RETRY_BASE_MS, VEQ_SOFT_DEADLINE_MINUTES, VEQ_FLUSH_EVERY_CORPS, VEQ_USER_EQUITY_LOCAL, VEQ_PARENT_EQUITY_LOCAL,
+  VEQ_RETRY_BASE_MS, VEQ_FETCH_TIMEOUT_MS, VEQ_SOFT_DEADLINE_MINUTES, VEQ_FLUSH_EVERY_CORPS, VEQ_USER_EQUITY_LOCAL, VEQ_PARENT_EQUITY_LOCAL,
 } from "@/lib/valueEquityConfig";
 import { DartKeyPool, type PoolKey } from "./dartKeyPool";
 import { loadHarness, loadK200P, verifySnapshotManifest, selectAll, mulberry32, SNAP_END, storageLine } from "./researchHarness";
@@ -29,14 +29,15 @@ let nextSlot = 0;
 const slot = async (): Promise<void> => { const now = Date.now(), s = Math.max(now, nextSlot); nextSlot = s + VEQ_GAP_MS; if (s > now) await sleep(s - now); };
 const statusOf = (buf: Buffer): string | undefined => { const t = buf.toString("utf-8", 0, 400); return /"status"\s*:\s*"(\d+)"/.exec(t)?.[1] ?? /<status>(\d+)</.exec(t)?.[1]; };
 interface Resp { buf: Buffer; zip: boolean; status?: string }
-const callsByKey = new Map<string, number>();
 async function dartGet(build: (key: string) => string): Promise<Resp | null> {
   for (let attempt = 0; attempt <= VEQ_MAX_RETRIES; attempt++) {
     const k = pool.reserve();
     if (!k) return null;
     await slot();
     try {
-      const res = await fetch(build(k.value));
+      const ac = new AbortController(), to = setTimeout(() => ac.abort(), VEQ_FETCH_TIMEOUT_MS);
+      let res: Response;
+      try { res = await fetch(build(k.value), { signal: ac.signal }); } finally { clearTimeout(to); }
       const buf = Buffer.from(await res.arrayBuffer());
       if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
       if (isZip(buf)) return { buf, zip: true };

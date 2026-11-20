@@ -29,6 +29,8 @@ export const VEQ_GAP_MS = 150;
 export const VEQ_CONCURRENCY = 4;
 export const VEQ_MAX_RETRIES = 2;
 export const VEQ_RETRY_BASE_MS = 1000;
+/** 응답 대기 상한(응답이 멈춘 호출이 수집 전체를 붙잡지 않게). 시간 초과는 재시도 대상. */
+export const VEQ_FETCH_TIMEOUT_MS = 90_000;
 export const VEQ_SOFT_DEADLINE_MINUTES = 170;
 export const VEQ_FLUSH_EVERY_CORPS = 100;
 export const VEQ_USER_EQUITY_LOCAL = "Equity";

@@ -29,7 +29,7 @@ import { makeDs13Engine, type Sl, type CoreRun, type Strat, type FCfg } from "@/
 import { downloadBuf, decodeTable } from "@/lib/nBookStore";
 import { R_STORE_PREFIX } from "@/lib/kodexSectorSatConfig";
 import { selectAll } from "./researchHarness";
-import { ZERO_SUSPECT_ON, suspectLog } from "./researchHarness";
+import { ZERO_SUSPECT_ON, suspectLog, zeroSuspects } from "./researchHarness";
 import { VB1_P0, VB2_P0, VB1_NB, VB2_NB, VB_FIRST_TRIAL, VB_PRIOR_TESTS, VB_F_DENOMINATOR, VB_COVERAGE_MIN, VB_C2_START, VB_C2_WINDOW1_TO, VB_C2_WINDOW2_FROM, type VbP } from "@/lib/valueConfig";
 import { VEQ_DATA_FILE } from "@/lib/valueEquityConfig";
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, NEUTRALIZE_ON, type S, type Win } from "./researchHarness";
@@ -54,6 +54,7 @@ async function main(): Promise<void> {
   const { CAL, nCal, byCode } = h;
   const k200pInfo = await loadK200P(h);
   const { excluded, membAt, nameOf, indOf } = k200pInfo;
+  if (ZERO_SUSPECT_ON) zeroSuspects(h, excluded);
   const E = makeDs13Engine(h, k200pInfo);
   const { cPE, NW, FULL, W, env, label, randLV1, mcapNear, lv1Of, zeroSl, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of } = E;
 

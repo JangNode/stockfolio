@@ -13,7 +13,7 @@ import { MM_PARQUET_PATH } from "@/lib/marketMembershipConfig";
 import { loadAllStockSeriesFromParquet } from "@/lib/stockDailyPricesStorage";
 import { loadAppliedAdjustments } from "@/lib/stockPriceAdjustmentsStorage";
 import { applyAdjustmentsInPlace } from "@/lib/priceAdjustment";
-import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL } from "@/lib/dataQualityConfig";
+import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL, DQ_LISTING_MAX_ROW, DQ_RESUME_MIN_GAP, DQ_LIQUIDATION_ROWS } from "@/lib/dataQualityConfig";
 import { PRICE_CORRECTION_ON, PRICE_CORRECTION_ID, loadPriceOverrides, applyReturnOverride, type PriceOverride } from "@/lib/priceCorrection";
 
 export { PRICE_CORRECTION_ON };
@@ -125,22 +125,6 @@ export async function loadHarness(opts?: { /** 연구 DS6 포워드: 보조 파�
   const nCal = CAL.length, dataEnd = CAL[nCal - 1];
   if (SNAP_END && dataEnd !== SNAP_END) throw new Error(`고정 스냅샷의 마지막 거래일 ${dataEnd}이 데이터 종료일 ${SNAP_END}과 다릅니다`);
   const calIdx = new Map(CAL.map((d, i) => [d, i]));
-  if (ZERO_SUSPECT_ON) {
-    for (const r of rows0) {
-      const evs = (adjustments.get(r.code) ?? []).map((e) => e.eventDate);
-      for (let i = 1; i < r.dates.length; i++) {
-        const gi = (calIdx.get(r.dates[i]) as number) - (calIdx.get(r.dates[i - 1]) as number);
-        if (gi !== 1 || !(r.close[i] > 0 && r.close[i - 1] > 0)) continue;
-        const adjR = r.close[i] / r.close[i - 1] - 1, lim = r.dates[i] <= DQ_LIMIT_CHANGE_DATE ? DQ_LIMIT_BEFORE : DQ_LIMIT_AFTER;
-        if (Math.abs(adjR) <= lim + DQ_LIMIT_TOL) continue;
-        if (evs.some((d) => d > r.dates[i - 1] && d <= r.dates[i])) continue;
-        const f = r.close[i] / r.close[i - 1];
-        for (let k = 0; k < i; k++) { r.close[k] *= f; r.open[k] *= f; r.high[k] *= f; r.low[k] *= f; }
-        suspectLog.push({ code: r.code, date: r.dates[i], adjR });
-      }
-    }
-    console.log(`의심 종목-일 0% 처리(ZERO_SUSPECT=1, 보정 후보 A): ${suspectLog.length}건(연속 거래일 ∧ 조정 이벤트 없음 ∧ 제한폭 초과, ${DQ_LIMIT_BEFORE * 100}%→${DQ_LIMIT_AFTER * 100}% ${DQ_LIMIT_CHANGE_DATE} 기준, 허용 ${DQ_LIMIT_TOL * 100}%p)`);
-  }
 
   const monthEnds: string[] = [];
   for (let k = 0; k + 1 < nCal; k++) if (CAL[k].slice(0, 7) !== CAL[k + 1].slice(0, 7)) monthEnds.push(CAL[k]);
@@ -286,3 +270,27 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
   return { kAt, nameOf, indOf, excluded, membAt: (d) => { const md = mmFor(d); return md !== undefined ? memb.get(md) : undefined; }, mmDates };
 }
 export { SLIPPAGE_PCT_PER_SIDE };
+
+/**
+ * 저평가(PBR) 시험 보정 후보 A: ZERO_SUSPECT=1이면 loadK200P 뒤에 호출해, 전 종목 중 "연속 거래일(공백 없음) ∧ 상장 직후 아님 ∧ 정리매매(소멸 직전 7행) 아님 ∧ 조정 이벤트 없음 ∧ |수정 수익률| > 제한폭 + 허용"이고
+ * 제외 규칙(우선주·ETF·SPAC·리츠)에 걸리지 않은 종목-일의 수정 수익률을 0%로 둔다(그날 이전 수정 시세에 계수를 곱함. 원 종가·거래량·시총은 그대로). 앞선 전 종목 점검(data-quality-fullmarket.md)의 "실질적 의심 집단"과 같은 규칙이다.
+ */
+export function zeroSuspects(h: Harness, excluded: ReadonlySet<string>): number {
+  const dataEnd = h.CAL[h.nCal - 1];
+  for (const s of h.stocks) {
+    if (excluded.has(s.code)) continue;
+    const n = s.dates.length, vanished = s.last < dataEnd, evs = (h.adjustments.get(s.code) ?? []).map((e) => e.eventDate);
+    for (let i = 1; i < n; i++) {
+      if (i <= DQ_LISTING_MAX_ROW || (vanished && i >= n - DQ_LIQUIDATION_ROWS)) continue;
+      const gap = (h.calIdx.get(s.dates[i]) as number) - (h.calIdx.get(s.dates[i - 1]) as number);
+      if (gap >= DQ_RESUME_MIN_GAP || !(s.close[i] > 0 && s.close[i - 1] > 0)) continue;
+      const adjR = s.close[i] / s.close[i - 1] - 1, lim = s.dates[i] <= DQ_LIMIT_CHANGE_DATE ? DQ_LIMIT_BEFORE : DQ_LIMIT_AFTER;
+      if (Math.abs(adjR) <= lim + DQ_LIMIT_TOL || evs.some((d) => d > s.dates[i - 1] && d <= s.dates[i])) continue;
+      const f = s.close[i] / s.close[i - 1];
+      for (let k = 0; k < i; k++) { s.close[k] *= f; s.open[k] *= f; s.high[k] *= f; s.low[k] *= f; }
+      suspectLog.push({ code: s.code, date: s.dates[i], adjR });
+    }
+  }
+  console.log(`의심 종목-일 0% 처리(ZERO_SUSPECT=1, 보정 후보 A): ${suspectLog.length}건(연속 거래일 ∧ 상장 직후·정리매매 아님 ∧ 조정 이벤트 없음 ∧ 제한폭 초과, 제외 규칙 종목 제외; ${DQ_LIMIT_BEFORE * 100}%→${DQ_LIMIT_AFTER * 100}% ${DQ_LIMIT_CHANGE_DATE} 기준, 허용 ${DQ_LIMIT_TOL * 100}%p)`);
+  return suspectLog.length;
+}

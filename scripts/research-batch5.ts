@@ -26,6 +26,9 @@ import { capWeights } from "@/lib/coreCapWeights";
 import { DS89_DS6_REF, DS8_SMOOTH_WIN, DS89_CORE_W } from "@/lib/ds89Config";
 import { CS_MOVE_COST } from "@/lib/coreSatelliteConfig";
 import { makeDs13Engine, type Sl, type CoreRun, type Strat, type FCfg } from "@/lib/ds13Engine";
+import { downloadBuf, decodeTable } from "@/lib/nBookStore";
+import { R_STORE_PREFIX } from "@/lib/kodexSectorSatConfig";
+import { selectAll } from "./researchHarness";
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, NEUTRALIZE_ON, type S, type Win } from "./researchHarness";
 import { evaluate, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 
@@ -36,10 +39,10 @@ const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").up
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata 필요");
   const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
   if (NEUTRALIZE_ON) console.log(`*** 정보용 중립화 모드(NEUTRALIZE_CODES=${process.env.NEUTRALIZE_CODES}): 해당 종목의 수정 수익률을 전 기간 0으로 둔다(시험 아님) ***`);
-  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob") console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
+  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob" && MODE !== "vdata") console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -1096,6 +1099,103 @@ async function main(): Promise<void> {
     console.log(`\nDS13 사전 점검 종료: 날짜 축·합성 회계(독립 재계산 포함)·비중 이탈 ${fails.length === 0 ? "통과" : `— 실패 ${fails.length}건`}. DS13M·DS13L 성과는 계산·출력하지 않았다 | ${storageLine()} | Supabase 쓴 행 0 | Storage 쓰기 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     for (const f of fails) console.log(`  실패: ${f}`);
     if (fails.length) throw new Error("DS13 사전 점검 실패 — 시험을 시작하지 않고 중단해 보고한다");
+    return;
+  }
+  if (MODE === "vdata") {
+    // 정보용 데이터 확인(시험 아님, 시험 번호·게이트 없음, 외부 호출 0, 성과 미계산): 이미 받아 둔 재무·공시일 자료의 항목·기간·종목 수·접수일·정정 처리·폐지 종목 포함 여부와 PBR용 자본 커버리지.
+    const iso = (d: unknown): string => { const x = String(d ?? ""); return /^\d{8}$/.test(x) ? `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6)}` : x.slice(0, 10); };
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    interface ER { rcept: string; eq: number; src: string }
+    const bySrc = new Map<string, Map<string, ER[]>>();
+    const addRec = (src: string, stock: string, rcept: string, eq: number | null): void => { if (eq === null || !rcept) return; let m = bySrc.get(src); if (!m) { m = new Map(); bySrc.set(src, m); } const a = m.get(stock) ?? []; a.push({ rcept, eq, src }); m.set(stock, a); };
+    const tableLine = (label: string, rows: { fy: string; has: boolean; stock: string; extra?: string }[]): void => {
+      const by = new Map<string, { n: number; has: number; st: Set<string> }>();
+      for (const r of rows) { const x = by.get(r.fy) ?? { n: 0, has: 0, st: new Set<string>() }; x.n++; if (r.has) { x.has++; x.st.add(r.stock); } by.set(r.fy, x); }
+      console.log(`${label}: ` + [...by].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([fy, x]) => `${fy} ${x.n}행/자본 있음 ${x.has}행/종목 ${x.st.size}`).join(" | "));
+    };
+    console.log(`\n=== V1. research/r_allcap/fin.parquet (연구 R, DART 주요계정 다중회사 API 전 종목) ===`);
+    const finBuf = await downloadBuf(`${R_STORE_PREFIX}/fin.parquet`), filBuf = await downloadBuf(`${R_STORE_PREFIX}/filings.parquet`);
+    if (!finBuf || !filBuf) throw new Error("fin.parquet 또는 filings.parquet이 Storage에 없다 — 중단");
+    const fin = await decodeTable(finBuf), fil = await decodeTable(filBuf);
+    console.log(`fin 행 ${fin.length} | 열: ${Object.keys(fin[0] ?? {}).join(",")}`);
+    const stC = new Map<string, number>(), fsC = new Map<string, number>();
+    for (const r of fin) { stC.set(String(r.status), (stC.get(String(r.status)) ?? 0) + 1); fsC.set(String(r.fs_div), (fsC.get(String(r.fs_div)) ?? 0) + 1); }
+    console.log(`상태별(orig=최초 접수본 값, corr=정정본 값, unk=판정불가): ${[...stC].map(([k, v]) => `${k} ${v}`).join(", ")} | 연결/별도: ${[...fsC].map(([k, v]) => `${k} ${v}`).join(", ")}`);
+    tableLine("사업연도별 행·자본(eq_c) 있음·종목", fin.map((r) => ({ fy: `${String(r.bsns_year)}`, has: num(r.eq_c) !== null, stock: String(r.stock_code) })));
+    const repC = new Map<string, number>();
+    for (const r of fin) if (num(r.eq_c) !== null) { const k = `${String(r.bsns_year)}-${String(r.reprt_code)}`; repC.set(k, (repC.get(k) ?? 0) + 1); }
+    console.log(`사업연도·보고서(11013 1분기·11012 반기·11014 3분기·11011 사업)별 자본 있는 행: ${[...repC].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, v]) => `${k} ${v}`).join(" | ")}`);
+    const eqRows = fin.filter((r) => num(r.eq_c) !== null);
+    const rd = eqRows.map((r) => iso(r.rcept_dt)).filter(Boolean).sort();
+    console.log(`자본 있는 행 ${eqRows.length}/${fin.length}, 접수일 범위 ${rd[0] ?? "-"}~${rd[rd.length - 1] ?? "-"} | 접수번호 앞 8자리와 접수일 불일치 ${fin.filter((r) => String(r.rcept_no).length >= 8 && String(r.rcept_no).slice(0, 8) !== String(r.rcept_dt).replace(/-/g, "").slice(0, 8)).length}행`);
+    console.log(`계정: 매출액(rev_*)·영업이익(oi_*)·당기순이익(ni_*; 당기·누적·전기·전기누적)·자산총계(assets_c)·부채총계(liab_c)·자본총계(eq_c 당기, eq_p 전기). **지배주주지분 항목 없음**(자본총계만; 비지배지분 포함).`);
+    for (const r of fin) addRec("R", String(r.stock_code), iso(r.rcept_dt), num(r.eq_c));
+    const fyC = new Map<string, number>(), corrC = { y: 0, n: 0 };
+    for (const r of fil) { const y = iso(r.rcept_dt).slice(0, 4); fyC.set(y, (fyC.get(y) ?? 0) + 1); if (String(r.correction) === "Y") corrC.y++; else corrC.n++; }
+    const frd = fil.map((r) => iso(r.rcept_dt)).filter(Boolean).sort();
+    console.log(`\nfilings.parquet(정기공시 목록): ${fil.length}건(정정 ${corrC.y}), 접수일 ${frd[0]}~${frd[frd.length - 1]} | 연도별 ${[...fyC].sort().map(([y, n]) => `${y} ${n}`).join(" ")}`);
+
+    console.log(`\n=== V2. Supabase 표(읽기만) ===`);
+    const xb = await selectAll<Record<string, unknown>>("dart_xbrl_fundamentals", (f, t) => supabaseAdmin.from("dart_xbrl_fundamentals").select("stock_code, fiscal_year, source, rcept_dt, equity_parent, status").range(f, t));
+    tableLine("dart_xbrl_fundamentals(FY2010~2014, 지배주주 자본, 사업보고서)", xb.map((r) => ({ fy: String(r.fiscal_year), has: num(r.equity_parent) !== null, stock: String(r.stock_code) })));
+    const xbSt = new Map<string, number>(); for (const r of xb) xbSt.set(String(r.status), (xbSt.get(String(r.status)) ?? 0) + 1);
+    console.log(`  상태별: ${[...xbSt].map(([k, v]) => `${k} ${v}`).join(", ")} (amended_only = 정정본만 있어 값 없음)`);
+    for (const r of xb) addRec("DB", String(r.stock_code), iso(r.rcept_dt), num(r.equity_parent));
+    const af = await selectAll<Record<string, unknown>>("stock_annual_fundamentals", (f, t) => supabaseAdmin.from("stock_annual_fundamentals").select("stock_code, fiscal_year, rcept_date, equity_parent").range(f, t));
+    tableLine("stock_annual_fundamentals(FY2015~, 사업보고서)", af.map((r) => ({ fy: String(r.fiscal_year), has: num(r.equity_parent) !== null, stock: String(r.stock_code) })));
+    for (const r of af) addRec("DB", String(r.stock_code), iso(r.rcept_date), num(r.equity_parent));
+    const aff = await selectAll<Record<string, unknown>>("stock_annual_fundamentals_fill", (f, t) => supabaseAdmin.from("stock_annual_fundamentals_fill").select("stock_code, fiscal_year, rcept_date, equity_parent, status").range(f, t));
+    tableLine("stock_annual_fundamentals_fill(보완)", aff.map((r) => ({ fy: String(r.fiscal_year), has: num(r.equity_parent) !== null, stock: String(r.stock_code) })));
+    for (const r of aff) addRec("DB", String(r.stock_code), iso(r.rcept_date), num(r.equity_parent));
+    const qf = await selectAll<Record<string, unknown>>("dart_quarterly_fundamentals", (f, t) => supabaseAdmin.from("dart_quarterly_fundamentals").select("stock_code, fiscal_year, quarter, rcept_date, equity_parent, status").range(f, t));
+    tableLine("dart_quarterly_fundamentals(1~3분기, 지배주주 자본)", qf.map((r) => ({ fy: String(r.fiscal_year), has: num(r.equity_parent) !== null, stock: String(r.stock_code) })));
+    for (const r of qf) addRec("DB", String(r.stock_code), iso(r.rcept_date), num(r.equity_parent));
+
+    console.log(`\n=== V3. 월말 신호일 기준 PBR용 자본 커버리지(보고서 접수일 < 신호일, 접수 후 400일 이내, 정보용) — 연도별 월말 평균 % ===`);
+    const latest = (m: Map<string, ER[]> | undefined, code: string, d: string): ER | undefined => { const a = m?.get(code); if (!a) return undefined; let best: ER | undefined; for (const x of a) if (x.rcept < d && (!best || x.rcept > best.rcept)) best = x; return best; };
+    const allMap = new Map<string, ER[]>();
+    for (const m of bySrc.values()) for (const [c, a] of m) allMap.set(c, [...(allMap.get(c) ?? []), ...a]);
+    const dayDiffS = (a: string, b: string): number => (Date.parse(b) - Date.parse(a)) / 86_400_000;
+    type Acc = { n: number; mc: number; rN: number; rMc: number; dN: number; dMc: number; aN: number; aMc: number; neg: number; months: number };
+    const accA = new Map<string, Acc>(), accB = new Map<string, Acc>();
+    const mk = (): Acc => ({ n: 0, mc: 0, rN: 0, rMc: 0, dN: 0, dMc: 0, aN: 0, aMc: 0, neg: 0, months: 0 });
+    const firstOver: Record<string, string> = {};
+    for (const d of h.monthEnds) {
+      if (d < "2010-01-01") continue;
+      const m = membAt(d), y = d.slice(0, 4);
+      const cur = { A: { n: 0, mc: 0, r: 0, rm: 0, db: 0, dm: 0, al: 0, am: 0, neg: 0 }, B: { n: 0, mc: 0, r: 0, rm: 0, db: 0, dm: 0, al: 0, am: 0, neg: 0 } };
+      for (const s of h.stocks) {
+        const i = s.idx.get(d);
+        if (i === undefined || excluded.has(s.code) || !m || !m.has(s.code) || !(s.mcapRow[i] > 0)) continue;
+        const mc = s.mcapRow[i], liquid = s.avgTvRow[i] >= 3e8 && s.raw[i] >= 1000;
+        const ok = (e: ER | undefined): boolean => !!e && dayDiffS(e.rcept, d) <= 400;
+        const eR = latest(bySrc.get("R"), s.code, d), eD = latest(bySrc.get("DB"), s.code, d), eA = latest(allMap, s.code, d);
+        for (const [k, on] of [["A", true], ["B", liquid]] as const) {
+          if (!on) continue;
+          const c = cur[k]; c.n++; c.mc += mc;
+          if (ok(eR)) { c.r++; c.rm += mc; }
+          if (ok(eD)) { c.db++; c.dm += mc; }
+          if (ok(eA)) { c.al++; c.am += mc; if ((eA as ER).eq <= 0) c.neg++; }
+        }
+      }
+      for (const [k, acc] of [["A", accA], ["B", accB]] as const) {
+        const c = cur[k], a = acc.get(y) ?? mk();
+        if (c.n > 0) { a.n += c.n; a.mc += c.mc; a.rN += c.r; a.rMc += c.rm; a.dN += c.db; a.dMc += c.dm; a.aN += c.al; a.aMc += c.am; a.neg += c.neg; a.months++; acc.set(y, a); if (k === "A" && !firstOver.all && c.al / c.n >= 0.7) firstOver.all = d; if (k === "A" && !firstOver.r && c.r / c.n >= 0.7) firstOver.r = d; if (k === "A" && !firstOver.db && c.db / c.n >= 0.7) firstOver.db = d; }
+      }
+    }
+    for (const [lbl, acc] of [["A. 전 종목(코스피·코스닥, 제외 규칙 적용, 월말 시총>0)", accA], ["B. BS1 적격(20일 평균 거래대금 ≥3억·종가 ≥1,000원)", accB]] as const) {
+      console.log(`\n${lbl}\n| 연도 | 월수 | 월평균 종목 수 | R 전체시장 재무(자본총계) 종목% / 시총% | Supabase 표(지배주주) 종목% / 시총% | 합집합 종목% / 시총% | 합집합 중 자본≤0 % |\n|---|---|---|---|---|---|---|`);
+      for (const [y, a] of [...acc].sort()) console.log(`| ${y} | ${a.months} | ${(a.n / a.months).toFixed(0)} | ${f2((a.rN / a.n) * 100)} / ${f2((a.rMc / a.mc) * 100)} | ${f2((a.dN / a.n) * 100)} / ${f2((a.dMc / a.mc) * 100)} | ${f2((a.aN / a.n) * 100)} / ${f2((a.aMc / a.mc) * 100)} | ${f2(a.aN ? (a.neg / a.aN) * 100 : 0)} |`);
+    }
+    console.log(`\n전 종목 기준 월말 커버리지(종목 수) 70% 이상이 처음 되는 월말: R ${firstOver.r ?? "없음"} | Supabase 표 ${firstOver.db ?? "없음"} | 합집합 ${firstOver.all ?? "없음"}`);
+
+    console.log(`\n=== V4. 상장폐지 종목 포함 여부 ===`);
+    const endD = CAL[nCal - 1], gone = h.stocks.filter((s) => s.last < endD && dayDiffS(s.last, endD) > 20);
+    const gy = new Map<string, { n: number; r: number; any: number }>();
+    for (const s of gone) { const y = s.last.slice(0, 4), g = gy.get(y) ?? { n: 0, r: 0, any: 0 }; g.n++; if (bySrc.get("R")?.has(s.code)) g.r++; if (allMap.has(s.code)) g.any++; gy.set(y, g); }
+    console.log(`가격 Parquet의 소멸 종목 ${gone.length}개 중 R 재무 있음 ${gone.filter((s) => bySrc.get("R")?.has(s.code)).length}, 어느 표든 있음 ${gone.filter((s) => allMap.has(s.code)).length}`);
+    console.log(`소멸 연도별(종목 수 / R 재무 있음 / 어느 표든): ${[...gy].sort().map(([y, g]) => `${y} ${g.n}/${g.r}/${g.any}`).join(" | ")}`);
+    console.log(`\n읽기: fin·filings 파일 ${((finBuf.byteLength + filBuf.byteLength) / 1048576).toFixed(2)} MiB | ${storageLine()} | Supabase 쓴 행 0 | 외부 요청 0 | DART 호출 0 | 소요 ${((Date.now() - T0) / 60000).toFixed(1)}분`);
     return;
   }
   if (MODE === "ds13rob") {

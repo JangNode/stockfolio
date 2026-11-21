@@ -13,3 +13,5 @@ export const V2_NB_W: [string, Alloc3][] = [["위성 배분 20/40 (모멘텀/가
 export const V2_WATCH = ["005930", "000660"] as const;
 /** 정보용: VB1 손실 업종 분해 창(2025-01-01 ~ 데이터 끝). */
 export const V2_LOSS_FROM = "2025-01-01";
+/** 시험 시작 월말(VB 시험과 같다, value-data-check.md에서 확정). */
+export const V2_START = "2011-05-31";

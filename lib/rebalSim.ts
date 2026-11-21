@@ -31,6 +31,8 @@ export interface RebalRun extends SimRun {
   contrib: Map<string, { pct: number; days: number }>;
   /** 마지막 날 보유 종목 수·현금 비중. */
   endCash: number;
+  /** 보고용(detail일 때만 채움, 시뮬레이션에 영향 없음): 연도별 → 종목별 일 수익 기여(%p) 합. */
+  contribY: Map<string, Map<string, number>>;
 }
 
 interface Pos { code: string; s: SimS; shares: number; lastPx: number; entryC: number; entryAdj: number; entryRaw: number; peak: number; spend: number; vAtEntry: number; rep: boolean; repVal: number; realized: number; held: number }
@@ -41,7 +43,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
   const pend = new Map<number, Map<string, number>>();
   const deferExit = new Map<number, Set<string>>();
   let cash = 1, prevV = 1;
-  const out: RebalRun = { dates: [], ret: [], costFrac: [], nPos: [], inv: [], turn: [], trades: [], entryCs: [], wMax: [], haltSkip: 0, exitDefer: 0, nDefer: [], open: [], contrib: new Map(), endCash: 0 };
+  const out: RebalRun = { dates: [], ret: [], costFrac: [], nPos: [], inv: [], turn: [], trades: [], entryCs: [], wMax: [], haltSkip: 0, exitDefer: 0, nDefer: [], open: [], contrib: new Map(), endCash: 0, contribY: new Map() };
   const buyMultOf = (slip: number): number => (env.stockBuyMult * (1 + slip)) / (1 + env.baseSlip);
   const sellRateOf = (d: string, slip: number): number => 1 - ((1 - env.sellRate(d)) * (1 - slip)) / (1 - env.baseSlip);
   const val = (p: Pos): number => (p.rep ? p.repVal : p.shares * p.lastPx);
@@ -58,7 +60,10 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
       if (i !== undefined) {
         const px = p.s.close[i];
         if (p.rep) p.repVal *= 1 + (env.bhRet.get(d) ?? 0);
-        else if (c > cS) { const e = out.contrib.get(p.code) ?? { pct: 0, days: 0 }; e.pct += (p.shares * (px - p.lastPx) / prevV) * 100; e.days++; out.contrib.set(p.code, e); }
+        else if (c > cS) {
+          const e = out.contrib.get(p.code) ?? { pct: 0, days: 0 }, dp = (p.shares * (px - p.lastPx) / prevV) * 100; e.pct += dp; e.days++; out.contrib.set(p.code, e);
+          if (o.detail) { const y = d.slice(0, 4), my = out.contribY.get(y) ?? new Map<string, number>(); my.set(p.code, (my.get(p.code) ?? 0) + dp); out.contribY.set(y, my); }
+        }
         p.lastPx = px; p.peak = Math.max(p.peak, px);
       } else if (p.s.last < d && p.s.last < env.endedBefore) {
         const v = val(p);

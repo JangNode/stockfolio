@@ -22,7 +22,7 @@ export interface RebalHooks {
   /** 코드 → 종목 시계열. */
   stockOf: (code: string) => SimS | undefined;
 }
-export interface RebalOpts { lag: number; replace?: Set<string>; detail?: boolean }
+export interface RebalOpts { lag: number; replace?: Set<string>; detail?: boolean; /** 보고용(시뮬레이션에 영향 없음): 종목-일 가격 손익 기여(%p)를 받는다. */ onContrib?: (d: string, code: string, pct: number) => void }
 export interface RebalRun extends SimRun {
   open: SimTrade[];
   /** 날짜별로 거래정지 때문에 청산이 다음 거래일로 순연돼 아직 들고 있는 종목 수(보유 종목 수 상한 점검용). */
@@ -62,6 +62,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
         if (p.rep) p.repVal *= 1 + (env.bhRet.get(d) ?? 0);
         else if (c > cS) {
           const e = out.contrib.get(p.code) ?? { pct: 0, days: 0 }, dp = (p.shares * (px - p.lastPx) / prevV) * 100; e.pct += dp; e.days++; out.contrib.set(p.code, e);
+          o.onContrib?.(d, p.code, dp);
           if (o.detail) { const y = d.slice(0, 4), my = out.contribY.get(y) ?? new Map<string, number>(); my.set(p.code, (my.get(p.code) ?? 0) + dp); out.contribY.set(y, my); }
         }
         p.lastPx = px; p.peak = Math.max(p.peak, px);

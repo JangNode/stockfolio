@@ -483,7 +483,7 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     for (const c of sigDays(def, F)) { if (c < 253) continue; if (def.targets(c, new Set(), def.P0, 1, true).size > 0) return c; }
     throw new Error(`${def.id}: 유효한 신호일이 없다`);
   };
-  const runS = <P,>(def: Strat<P>, P: P, cS: number, F: FCfg | null, o: { lag: number; replace?: Set<string>; detail?: boolean }): RebalRun => {
+  const runS = <P,>(def: Strat<P>, P: P, cS: number, F: FCfg | null, o: { lag: number; replace?: Set<string>; detail?: boolean; onContrib?: (d: string, code: string, pct: number) => void }): RebalRun => {
     const sd = new Set(sigDays(def, F !== null).filter((c) => c >= cS));
     return rebalSim(env(cS), { slipOf: (code, c) => def.slip(code, c, o.lag), vanish: def.vanish, vanishLoss: def.vanishLoss }, {
       isSignal: (c) => sd.has(c),

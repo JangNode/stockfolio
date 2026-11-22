@@ -33,6 +33,7 @@ import { FLOW_TILT_ENDED_GRACE_DAYS } from "@/lib/foreignFlowTiltConfig";
 import { SAT_SPAC_NAME_KEYWORDS, SAT_REIT_NAME_SUFFIX, SAT_REIT_KSIC_PREFIXES, SAT_REIT_EXPLICIT_CODES } from "@/lib/satelliteV1Config";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { parquetCacheStats } from "@/lib/parquetDiskCache";
+import { cachedBytes, researchCacheStats, researchCacheLine } from "@/lib/researchFileCache";
 import { BENCH_AUX_FILE, BENCH_AUX_SHA256 } from "@/lib/benchmarkAuxConfig";
 
 export interface S { code: string; dates: string[]; idx: Map<string, number>; close: Float64Array; raw: Float64Array; mcapRow: Float64Array; avgTvRow: Float64Array; vol: Float64Array; last: string; /** 연구 D·T(시도 242~): 수정 시가·고가·저가(종가와 같은 수정 계수), 거래대금(원, 수정 불필요). 기존 연구는 쓰지 않는다. */ open: Float64Array; high: Float64Array; low: Float64Array; tv: Float64Array }
@@ -54,8 +55,8 @@ export const xfer = { bytes: 0 };
 /** 연구용 데이터 종료일(연구 LE~). 있으면 Parquet은 고정 스냅샷(PARQUET_CACHE_FROZEN=1)에서만 읽고, 이 날짜 뒤의 DB 행·조정 이벤트는 쓰지 않는다. */
 export const SNAP_END: string | undefined = process.env.RESEARCH_DATA_END?.trim() || undefined;
 /** 이번 실행의 Storage 내려받기 합계(바이트) = 월말 시장 목록 등 직접 내려받은 것 + 가격 Parquet 재다운로드(캐시 적중은 0). */
-export const storageBytes = (): number => xfer.bytes + parquetCacheStats.downloadBytes;
-export const storageLine = (): string => `Storage 내려받기 합계 ${(storageBytes() / 1048576).toFixed(2)} MiB(월말 시장 목록 ${(xfer.bytes / 1048576).toFixed(2)} + 가격 Parquet 다운로드 ${(parquetCacheStats.downloadBytes / 1048576).toFixed(2)}, 캐시 적중 ${parquetCacheStats.hits}건 ${(parquetCacheStats.hitBytes / 1048576).toFixed(2)} MiB는 전송 0)`;
+export const storageBytes = (): number => xfer.bytes + parquetCacheStats.downloadBytes + researchCacheStats.missBytes;
+export const storageLine = (): string => `Storage 내려받기 합계 ${(storageBytes() / 1048576).toFixed(2)} MiB(직접 내려받은 것 ${(xfer.bytes / 1048576).toFixed(2)} + 가격 Parquet 다운로드 ${(parquetCacheStats.downloadBytes / 1048576).toFixed(2)} + 연구 자료 파일 다운로드 ${(researchCacheStats.missBytes / 1048576).toFixed(2)}, 가격 Parquet 캐시 적중 ${parquetCacheStats.hits}건 ${(parquetCacheStats.hitBytes / 1048576).toFixed(2)} MiB는 전송 0) | ${researchCacheLine()}`;
 export async function selectAll<T>(label: string, build: (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
@@ -241,9 +242,14 @@ export async function loadK200P(h: Harness): Promise<{ kAt: (d: string) => S[]; 
     const b = await fs.readFile(path.join(subDir, "month_end.parquet"));
     mmFile = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer; mmSize = 0;
   } else {
-    const mmDl = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(MM_PARQUET_PATH);
-    if (mmDl.error || !mmDl.data) throw new Error(`${MM_PARQUET_PATH} 없음`);
-    mmFile = await mmDl.data.arrayBuffer(); mmSize = (mmDl.data as Blob).size;
+    // RESEARCH_CACHE_DIR(Actions 캐시)가 있으면 월말 목록도 그 폴더에서 읽고, 없으면 Storage에서 받아 저장한다(받은 바이트만 xfer에 더함).
+    const mmBuf = await cachedBytes(MM_PARQUET_PATH, async () => {
+      const mmDl = await supabaseAdmin.storage.from(INVESTOR_FLOW_STOCK_STORE_BUCKET).download(MM_PARQUET_PATH);
+      if (mmDl.error || !mmDl.data) throw new Error(`${MM_PARQUET_PATH} 없음`);
+      return mmDl.data.arrayBuffer();
+    });
+    if (!mmBuf) throw new Error(`${MM_PARQUET_PATH} 없음`);
+    mmFile = mmBuf; mmSize = 0; // 받은 바이트는 researchCacheStats에서 센다
   }
   const mmRows = (await parquetReadObjects({ file: mmFile })) as { trade_date: string; stock_code: string; market: string }[];
   const memb = new Map<string, Map<string, string>>();

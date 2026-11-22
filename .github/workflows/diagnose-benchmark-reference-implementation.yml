@@ -110,6 +110,23 @@ jobs:
       - name: Reset Parquet cache dirty marker
         run: rm -f .parquet-cache/.dirty
 
+      # 연구 자료 파일 캐시(batch5 시험·점검). ds12(7일 키퍼얼라이브)도 복원만 해서 7일 미사용 만료를 막는다. 캐시가 없으면(첫 실행·만료) 시험이 Storage에서 읽고 끝에 저장한다.
+      - name: Restore 연구 자료 파일 캐시 (research-files-v1)
+        id: research_files_restore
+        if: ${{ inputs.which == 'batch5' || inputs.which == 'ds12' }}
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: .research-cache
+          key: research-files-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            research-files-v1-
+
+      - name: Reset research cache dirty marker
+        run: |
+          echo "research-files cache-matched-key=${{ steps.research_files_restore.outputs.cache-matched-key || '없음' }}"
+          rm -f .research-cache/.dirty
+
       - name: Parquet cache gate (캐시 적중이 아니면 연구를 실행하지 않는다)
         id: parquet_gate
         env:
@@ -1308,6 +1325,8 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"
+          # 불변 연구 자료 파일(재무 fin.parquet·월말 목록 등)은 Actions 캐시에서 읽어 Storage 읽기를 줄인다(lib/researchFileCache.ts). 포워드 실행(ds6fwd)에는 쓰지 않는다.
+          RESEARCH_CACHE_DIR: ${{ github.workspace }}/.research-cache
           BENCH_AUX_069500: "1"
           ALLOC_MODE: ${{ inputs.only }}
           B5_TRIAL: ${{ inputs.before != '0' && inputs.before || '294' }}
@@ -1699,6 +1718,20 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Check research files cache changes
+        id: research_cache_state
+        if: ${{ always() }}
+        run: |
+          if [ -f .research-cache/.dirty ]; then echo "dirty=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save 연구 자료 파일 캐시 (새로 내려받은 파일이 있을 때만)
+        if: ${{ always() && steps.research_cache_state.outputs.dirty == 'true' && inputs.which == 'batch5' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .research-cache
+          key: research-files-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Check Parquet cache changes
         id: parquet_cache_state

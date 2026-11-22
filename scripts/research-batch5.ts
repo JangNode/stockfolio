@@ -27,6 +27,7 @@ import { DS89_DS6_REF, DS8_SMOOTH_WIN, DS89_CORE_W } from "@/lib/ds89Config";
 import { CS_MOVE_COST } from "@/lib/coreSatelliteConfig";
 import { makeDs13Engine, type Sl, type CoreRun, type Strat, type FCfg } from "@/lib/ds13Engine";
 import { downloadBuf, decodeTable } from "@/lib/nBookStore";
+import { cachedBytes } from "@/lib/researchFileCache";
 import { R_STORE_PREFIX } from "@/lib/kodexSectorSatConfig";
 import { selectAll } from "./researchHarness";
 import { ZERO_SUSPECT_ON, suspectLog, zeroSuspects } from "./researchHarness";
@@ -945,10 +946,10 @@ async function main(): Promise<void> {
   const loadEqTables = async (): Promise<void> => {
     const isoD = (d: unknown): string => { const x = String(d ?? ""); return /^\d{8}$/.test(x) ? `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6)}` : x.slice(0, 10); };
     const push = (stock: string, rcept: string, eq: number, cfs: boolean): void => { if (!rcept) return; const a = eqBy.get(stock) ?? []; a.push({ rcept, eq, cfs }); eqBy.set(stock, a); };
-    const finBuf = await downloadBuf(`${R_STORE_PREFIX}/fin.parquet`);
+    const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`));
     if (!finBuf) throw new Error("research/r_allcap/fin.parquet이 없다 — 중단");
     for (const r of await decodeTable(finBuf)) { const eq = typeof r.eq_c === "number" && Number.isFinite(r.eq_c) ? r.eq_c : null; if (eq === null) continue; push(String(r.stock_code), isoD(r.rcept_dt), eq, String(r.fs_div) === "CFS"); eqSrc.r++; }
-    const pre = await downloadBuf(VEQ_DATA_FILE);
+    const pre = await cachedBytes(VEQ_DATA_FILE, () => downloadBuf(VEQ_DATA_FILE));
     if (pre) for (const r of await decodeTable(pre)) { const eq = typeof r.eq_total === "number" && Number.isFinite(r.eq_total) ? r.eq_total : null; if (eq === null) continue; push(String(r.stock_code), isoD(r.rcept_dt), eq, String(r.eq_total_basis) === "cons"); eqSrc.pre++; }
     // 접수일 오름차순, 같은 접수일이면 별도 → 연결 순(마지막 = 연결 우선)
     for (const a of eqBy.values()) a.sort((x, y) => (x.rcept < y.rcept ? -1 : x.rcept > y.rcept ? 1 : 0) || Number(x.cfs) - Number(y.cfs));
@@ -1291,7 +1292,7 @@ async function main(): Promise<void> {
       console.log(`${label}: ` + [...by].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([fy, x]) => `${fy} ${x.n}행/자본 있음 ${x.has}행/종목 ${x.st.size}`).join(" | "));
     };
     console.log(`\n=== V1. research/r_allcap/fin.parquet (연구 R, DART 주요계정 다중회사 API 전 종목) ===`);
-    const finBuf = await downloadBuf(`${R_STORE_PREFIX}/fin.parquet`), filBuf = await downloadBuf(`${R_STORE_PREFIX}/filings.parquet`);
+    const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`)), filBuf = await cachedBytes(`${R_STORE_PREFIX}/filings.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/filings.parquet`));
     if (!finBuf || !filBuf) throw new Error("fin.parquet 또는 filings.parquet이 Storage에 없다 — 중단");
     const fin = await decodeTable(finBuf), fil = await decodeTable(filBuf);
     console.log(`fin 행 ${fin.length} | 열: ${Object.keys(fin[0] ?? {}).join(",")}`);

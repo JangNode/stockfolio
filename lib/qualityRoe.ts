@@ -6,6 +6,15 @@
 export interface FinRep { code: string; year: number; rc: string; fs: string; rcept: string; rceptNo: string; status: string; niC: number | null; niA: number | null; niP: number | null; niPA: number | null; eqC: number | null }
 export type RoeWhy = "ok" | "no_report" | "stale" | "no_annual" | "null_ni" | "null_eq" | "eq_nonpos" | "ttm_nonpos";
 export interface RoeOut { why: RoeWhy; ttm?: number; eq?: number; roe?: number; repKey?: string }
+/** 2011~2015 백필(fin_pre2016.parquet) 한 행 → FinRep. 보고서 종류는 기말 월로 정한다(3월 1분기·6월 반기·9월 3분기·12월 사업). 순이익은 같은 보고서 XBRL에서 파싱한 당기 누적(ni_ytd)·전년 같은 기간 누적(ni_prev_ytd)이며, 누적 개월 수가 그 보고서의 기대 개월 수(3/6/9/12)와 다르면(예: 3분기 보고서에 9개월 누적이 없고 3개월만 있는 경우) 값이 없는 것으로 본다. 대체·보정 없음. */
+export interface PreRow { code: string; kind: string; year: number; periodEnd: string; rceptNo: string; rcept: string; basis: string | null; eqTotal: number | null; niYtd: number | null; niPrev: number | null; niMonths: number | null }
+export function preRowToRep(r: PreRow): FinRep | null {
+  const m = Number(r.periodEnd.slice(5, 7)), rc = m === 12 ? "11011" : m === 6 ? "11012" : m === 3 ? "11013" : m === 9 ? "11014" : null;
+  if (!rc) return null;
+  const okMonths = r.niMonths !== null && Math.abs(r.niMonths - m) <= 1;
+  const ytd = okMonths ? r.niYtd : null, prev = okMonths ? r.niPrev : null;
+  return { code: r.code, year: r.year, rc, fs: r.basis === "sep" ? "OFS" : "CFS", rcept: r.rcept, rceptNo: r.rceptNo, status: "pre", niC: ytd, niA: ytd, niP: prev, niPA: prev, eqC: r.eqTotal };
+}
 const PERIOD_ORDER: Record<string, number> = { "11013": 1, "11012": 2, "11014": 3, "11011": 4 };
 const dayDiff = (a: string, b: string): number => (Date.parse(b) - Date.parse(a)) / 86_400_000;
 

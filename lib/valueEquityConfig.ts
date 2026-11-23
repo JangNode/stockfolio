@@ -45,3 +45,5 @@ export const VEQ_NI_MAX_DAYS = 380;
 /** 전년 같은 기간 누적의 길이가 당기와 이 일수 이내로 같아야 쓴다. */
 export const VEQ_NI_PREV_DAY_TOL = 7;
 export const VEQ_NI_FLUSH_EVERY_REPORTS = 1500;
+/** 순이익 열이 추가된 뒤의 fin_pre2016.parquet을 Actions 캐시에 둘 때 쓰는 이름(수집 전 옛 사본이 캐시에 남아 있어도 쓰지 않게 이름을 바꾼다). */
+export const VEQ_DATA_CACHE_NAME = `${VEQ_DATA_FILE}#ni`;

@@ -31,14 +31,14 @@ import { cachedBytes } from "@/lib/researchFileCache";
 import { intradayInspect } from "./intradayInspect";
 import { intradayStats } from "./intradayStats";
 import { intradayPre, intradayTest } from "./intradayTest";
-import { makeRoeIndex, type FinRep, type RoeWhy } from "@/lib/qualityRoe";
+import { makeRoeIndex, preRowToRep, type FinRep, type RoeWhy } from "@/lib/qualityRoe";
 import { R_STORE_PREFIX } from "@/lib/kodexSectorSatConfig";
 import { selectAll } from "./researchHarness";
 import { ZERO_SUSPECT_ON, suspectLog, zeroSuspects } from "./researchHarness";
 import { VB1_P0, VB2_P0, VB1_NB, VB2_NB, VB_FIRST_TRIAL, VB_PRIOR_TESTS, VB_F_DENOMINATOR, VB_COVERAGE_MIN, VB_C2_START, VB_C2_WINDOW1_TO, VB_C2_WINDOW2_FROM, VB_EQ_AGE_NB, type VbP } from "@/lib/valueConfig";
 import { V2_W, V2_NB_W, V2_F_DENOMINATOR, V2_START, V2_WATCH, V2_LOSS_FROM } from "@/lib/value2Config";
 import { V3_F_DENOMINATOR, V3_TOP_N, V3_MDD_WINDOW, V3_TERCILES, V3_WATCH, VL1_P0, VL1_NB, type VlP, type VlUniv } from "@/lib/value3Config";
-import { VEQ_DATA_FILE } from "@/lib/valueEquityConfig";
+import { VEQ_DATA_FILE, VEQ_DATA_CACHE_NAME } from "@/lib/valueEquityConfig";
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, NEUTRALIZE_ON, type S, type Win } from "./researchHarness";
 import { evaluate, summaryReport, type CandSpec, type Verdict, type Windows } from "./researchGates";
 
@@ -954,7 +954,7 @@ async function main(): Promise<void> {
     const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`));
     if (!finBuf) throw new Error("research/r_allcap/fin.parquet이 없다 — 중단");
     for (const r of await decodeTable(finBuf)) { const eq = typeof r.eq_c === "number" && Number.isFinite(r.eq_c) ? r.eq_c : null; if (eq === null) continue; push(String(r.stock_code), isoD(r.rcept_dt), eq, String(r.fs_div) === "CFS"); eqSrc.r++; }
-    const pre = await cachedBytes(VEQ_DATA_FILE, () => downloadBuf(VEQ_DATA_FILE));
+    const pre = await cachedBytes(VEQ_DATA_CACHE_NAME, () => downloadBuf(VEQ_DATA_FILE));
     if (pre) for (const r of await decodeTable(pre)) { const eq = typeof r.eq_total === "number" && Number.isFinite(r.eq_total) ? r.eq_total : null; if (eq === null) continue; push(String(r.stock_code), isoD(r.rcept_dt), eq, String(r.eq_total_basis) === "cons"); eqSrc.pre++; }
     // 접수일 오름차순, 같은 접수일이면 별도 → 연결 순(마지막 = 연결 우선)
     for (const a of eqBy.values()) a.sort((x, y) => (x.rcept < y.rcept ? -1 : x.rcept > y.rcept ? 1 : 0) || Number(x.cfs) - Number(y.cfs));
@@ -1645,34 +1645,45 @@ async function main(): Promise<void> {
   if (MODE === "qdata") {
     // 재무 품질(ROE) 데이터 확인(집계만, 수익·신호 계산 없음): docs/research/quality-data-check.md. 연구 R fin.parquet(2015~)과 2011~2015 백필(fin_pre2016.parquet)의 당기순이익·자본총계 확보율.
     await loadEqTables();
-    const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`)), preBuf = await cachedBytes(VEQ_DATA_FILE, () => downloadBuf(VEQ_DATA_FILE));
+    const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`)), preBuf = await cachedBytes(VEQ_DATA_CACHE_NAME, () => downloadBuf(VEQ_DATA_FILE));
     if (!finBuf || !preBuf) throw new Error("재무 파일이 없다 — 중단");
     const fin = await decodeTable(finBuf), pre = await decodeTable(preBuf);
     const isoD = (d: unknown): string => { const x = String(d ?? ""); return /^\d{8}$/.test(x) ? `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6)}` : x.slice(0, 10); };
     const nn = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-    const reps: FinRep[] = fin.map((r) => ({ code: String(r.stock_code), year: Number(r.bsns_year), rc: String(r.reprt_code), fs: String(r.fs_div), rcept: isoD(r.rcept_dt), rceptNo: String(r.rcept_no), status: String(r.status), niC: nn(r.ni_c), niA: nn(r.ni_a), niP: nn(r.ni_p), niPA: nn(r.ni_pa), eqC: nn(r.eq_c) }));
+    const repsR: FinRep[] = fin.map((r) => ({ code: String(r.stock_code), year: Number(r.bsns_year), rc: String(r.reprt_code), fs: String(r.fs_div), rcept: isoD(r.rcept_dt), rceptNo: String(r.rcept_no), status: String(r.status), niC: nn(r.ni_c), niA: nn(r.ni_a), niP: nn(r.ni_p), niPA: nn(r.ni_pa), eqC: nn(r.eq_c) }));
+    // 백필 행은 R fin에 같은 (종목, 사업연도, 보고서)가 있으면 R을 우선한다(겹침은 R 우선, 같은 보고서를 두 번 세지 않는다).
+    const repsPre: FinRep[] = [];
+    {
+      const have = new Set(repsR.map((r) => `${r.code}|${r.year}|${r.rc}`));
+      for (const r of pre) {
+        const x = preRowToRep({ code: String(r.stock_code), kind: String(r.kind), year: Number(r.bsns_year), periodEnd: String(r.period_end), rceptNo: String(r.rcept_no), rcept: isoD(r.rcept_dt), basis: r.eq_total_basis === null || r.eq_total_basis === undefined ? null : String(r.eq_total_basis), eqTotal: nn(r.eq_total), niYtd: nn(r.ni_ytd), niPrev: nn(r.ni_prev_ytd), niMonths: nn(r.ni_months) });
+        if (x && !have.has(`${x.code}|${x.year}|${x.rc}`)) repsPre.push(x);
+      }
+    }
+    const reps: FinRep[] = [...repsR, ...repsPre];
+    const useBoth = process.env.Q_PRE !== "0";
     console.log(`\n=== [Q0] 재무 자료 구성 ===\nR fin.parquet(2015~): ${fin.length}행, 열 ${Object.keys(fin[0]).join(",")}`);
     console.log(`2011~2015 백필 fin_pre2016.parquet: ${pre.length}행, 열 ${Object.keys(pre[0]).join(",")} → **당기순이익 열 ${Object.keys(pre[0]).some((k) => /^ni|net/i.test(k)) ? "있음" : "없음(자본총계·지배주주지분만 수집)"}**`);
-    const cnt = (f: (r: FinRep) => boolean): number => reps.filter(f).length;
+    const cnt = (f: (r: FinRep) => boolean): number => repsR.filter(f).length;
     console.log(`R fin 보고서 종류: ${["11013", "11012", "11014", "11011"].map((rc) => `${rc} ${cnt((r) => r.rc === rc)}`).join(" · ")} | 연결 ${cnt((r) => r.fs === "CFS")} · 별도 ${cnt((r) => r.fs === "OFS")} | 상태 orig ${cnt((r) => r.status === "orig")} · 정정 ${cnt((r) => r.status !== "orig")} | 사업연도 ${[...new Set(reps.map((r) => r.year))].sort().join(",")}`);
     console.log(`백필 보고서 종류(kind): ${[...pre.reduce((m2, r) => m2.set(String(r.kind), (m2.get(String(r.kind)) ?? 0) + 1), new Map<string, number>()).entries()].map(([k, v]) => `${k} ${v}`).join(" · ")} | 백필 기준일 범위 ${pre.map((r) => isoD(r.rcept_dt)).sort()[0]}~${pre.map((r) => isoD(r.rcept_dt)).sort().pop()}`);
     // 누적치 확인: 반기·3분기의 당기누적(ni_a)이 (당기 3개월 + 직전 분기 누적)과 일치하는가
     {
       const byK = new Map<string, FinRep>();
-      for (const r of reps) byK.set(`${r.code}|${r.year}|${r.rc}|${r.fs}`, r);
+      for (const r of repsR) byK.set(`${r.code}|${r.year}|${r.rc}|${r.fs}`, r);
       let nQ2 = 0, okQ2 = 0, nQ3 = 0, okQ3 = 0, nA = 0, nC = 0, q1same = 0, nQ1 = 0;
-      for (const r of reps) {
+      for (const r of repsR) {
         if (r.rc === "11012" && r.niA !== null && r.niC !== null) { const q1 = byK.get(`${r.code}|${r.year}|11013|${r.fs}`); if (q1 && q1.niC !== null) { nQ2++; if (Math.abs(r.niA - (r.niC + q1.niC)) <= 1e-6 * Math.max(Math.abs(r.niA), 1)) okQ2++; } if (r.niA !== r.niC) nA++; nC++; }
         if (r.rc === "11014" && r.niA !== null && r.niC !== null) { const q2 = byK.get(`${r.code}|${r.year}|11012|${r.fs}`); if (q2 && q2.niA !== null) { nQ3++; if (Math.abs(r.niA - (q2.niA + r.niC)) <= 1e-6 * Math.max(Math.abs(r.niA), 1)) okQ3++; } if (r.niA !== r.niC) nA++; nC++; }
         if (r.rc === "11013" && r.niA !== null && r.niC !== null) { nQ1++; if (r.niA === r.niC) q1same++; }
       }
-      const have = (rc: string, f: (r: FinRep) => number | null): string => `${f2((reps.filter((r) => r.rc === rc && f(r) !== null).length / Math.max(cnt((r) => r.rc === rc), 1)) * 100)}%`;
+      const have = (rc: string, f: (r: FinRep) => number | null): string => `${f2((repsR.filter((r) => r.rc === rc && f(r) !== null).length / Math.max(cnt((r) => r.rc === rc), 1)) * 100)}%`;
       console.log(`\n=== [Q1] 분기 보고서 누적치 확인 ===`);
       console.log(`반기(11012): 당기누적 ≠ 당기(3개월)인 비율 ${f2((nA / Math.max(nC, 1)) * 100)}%(반기·3분기 합산 ${nC}건) | 반기 누적 = 당기 + 1분기 당기: ${okQ2}/${nQ2} 일치 | 3분기(11014) 누적 = 당기 + 반기 누적: ${okQ3}/${nQ3} 일치 | 1분기(11013) 당기 = 당기누적: ${q1same}/${nQ1}`);
-      console.log(`값 확보율(그 보고서 종류 안): 당기순이익 당기 ni_c — 1분기 ${have("11013", (r) => r.niC)} 반기 ${have("11012", (r) => r.niC)} 3분기 ${have("11014", (r) => r.niC)} 사업 ${have("11011", (r) => r.niC)} | 당기누적 ni_a — 반기 ${have("11012", (r) => r.niA)} 3분기 ${have("11014", (r) => r.niA)} | 전기 ni_p — 1분기 ${have("11013", (r) => r.niP)} 사업 ${have("11011", (r) => r.niP)} | 전기누적 ni_pa — 반기 ${have("11012", (r) => r.niPA)} 3분기 ${have("11014", (r) => r.niPA)} | 자본총계 eq_c — 전체 ${f2((reps.filter((r) => r.eqC !== null).length / reps.length) * 100)}%`);
+      console.log(`값 확보율(그 보고서 종류 안): 당기순이익 당기 ni_c — 1분기 ${have("11013", (r) => r.niC)} 반기 ${have("11012", (r) => r.niC)} 3분기 ${have("11014", (r) => r.niC)} 사업 ${have("11011", (r) => r.niC)} | 당기누적 ni_a — 반기 ${have("11012", (r) => r.niA)} 3분기 ${have("11014", (r) => r.niA)} | 전기 ni_p — 1분기 ${have("11013", (r) => r.niP)} 사업 ${have("11011", (r) => r.niP)} | 전기누적 ni_pa — 반기 ${have("11012", (r) => r.niPA)} 3분기 ${have("11014", (r) => r.niPA)} | 자본총계 eq_c — 전체 ${f2((repsR.filter((r) => r.eqC !== null).length / repsR.length) * 100)}%`);
     }
     // 월말 커버리지(BS1 적격 종목 기준 종목 수): 자본(PBR 가능) · 당기순이익 TTM 계산 가능 · ROE 대상(자본>0 ∧ TTM>0)
-    const idx = makeRoeIndex(reps), cV0 = monthEndIdx.find((c) => CAL[c] >= "2011-05-31") as number, mes = monthEndIdx.filter((c) => c >= cV0);
+    const idx = makeRoeIndex(useBoth ? reps : repsR), cV0 = monthEndIdx.find((c) => CAL[c] >= "2011-05-31") as number, mes = monthEndIdx.filter((c) => c >= cV0);
     const per = new Map<string, { n: number; el: number; pbr: number; ttm: number; roe: number; why: Map<RoeWhy, number> }>(), monthly: string[] = [];
     let firstOk = "", okRun = true;
     const covByMonth: { d: string; c: number }[] = [];

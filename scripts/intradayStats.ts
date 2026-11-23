@@ -18,7 +18,7 @@ const sdOf = (a: number[]): number => { const m = avg(a); return Math.sqrt(a.red
 const qn = (a: number[], q: number): number => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * (b.length - 1)))] : Number.NaN; };
 
 /** 묶음 규칙: 봉 시가 = 첫 행 시가, 고저 = 최고·최저, 종가 = 마지막 행 종가, 거래량 = 합, 거래대금 = 누적대금 행 간 차분의 합(첫 행은 그 행 누적대금). 60분은 마지막 봉(15:00~15:30)에 종가 단일가 행을 포함, 10분은 종가 단일가 행을 39번째 별도 봉으로 둔다. */
-function barsOf(rows: Row[], unit: number): Bar[] {
+export function barsOf(rows: Row[], unit: number): Bar[] {
   const m = new Map<number, Bar>();
   let prevA = 0;
   for (const r of rows) {

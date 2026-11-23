@@ -1302,6 +1302,7 @@ jobs:
         run: npx tsx --conditions=react-server scripts/collect-v-equity.ts
         env:
           V_MODE: ${{ inputs.only }}
+          V_NI_LIMIT: ${{ inputs.before }}
           NODE_OPTIONS: --max-old-space-size=12288
           PARQUET_CACHE_FROZEN: "1"
           RESEARCH_DATA_END: "2026-10-26"

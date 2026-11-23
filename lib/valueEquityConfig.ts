@@ -35,3 +35,13 @@ export const VEQ_SOFT_DEADLINE_MINUTES = 170;
 export const VEQ_FLUSH_EVERY_CORPS = 100;
 export const VEQ_USER_EQUITY_LOCAL = "Equity";
 export const VEQ_PARENT_EQUITY_LOCAL = "EquityAttributableToOwnersOfParent";
+// ---- 재무 품질(ROE) 시험용 순이익 추가 수집(사용자 승인 2026-11-23, docs/research/quality-data-check.md §4) ----
+/** 순이익 수집 진행 파일(날짜·보고서별 기록). 데이터는 같은 fin_pre2016.parquet에 열로 추가한다. */
+export const VEQ_NI_PROGRESS_FILE = `${VEQ_STORE_PREFIX}/_progress_ni.json`;
+export const VEQ_NI_LOCAL = "ProfitLoss";
+/** 당기 누적 기간 길이 허용 범위(일): 1분기 약 90, 반기 약 181, 3분기 약 273, 사업 약 365. */
+export const VEQ_NI_MIN_DAYS = 80;
+export const VEQ_NI_MAX_DAYS = 380;
+/** 전년 같은 기간 누적의 길이가 당기와 이 일수 이내로 같아야 쓴다. */
+export const VEQ_NI_PREV_DAY_TOL = 7;
+export const VEQ_NI_FLUSH_EVERY_REPORTS = 1500;

@@ -11,6 +11,7 @@ import {
   VEQ_DATA_FILE, VEQ_PROGRESS_FILE, VEQ_SIGNAL_FROM, VEQ_SIGNAL_TO, VEQ_LIST_FROM, VEQ_LIST_TO, VEQ_LIST_PAGE_COUNT, VEQ_PILOT,
   VEQ_ANNUAL_DUE_MMDD, VEQ_QUARTER_DUE_DAYS, VEQ_KEY_ENVS, VEQ_KEY_DAILY_CAP, VEQ_TOTAL_CALL_CAP, VEQ_GAP_MS, VEQ_CONCURRENCY, VEQ_MAX_RETRIES,
   VEQ_RETRY_BASE_MS, VEQ_FETCH_TIMEOUT_MS, VEQ_SOFT_DEADLINE_MINUTES, VEQ_FLUSH_EVERY_CORPS, VEQ_USER_EQUITY_LOCAL, VEQ_PARENT_EQUITY_LOCAL,
+  VEQ_NI_PROGRESS_FILE, VEQ_NI_LOCAL, VEQ_NI_MIN_DAYS, VEQ_NI_MAX_DAYS, VEQ_NI_PREV_DAY_TOL, VEQ_NI_FLUSH_EVERY_REPORTS,
 } from "@/lib/valueEquityConfig";
 import { DartKeyPool, type PoolKey } from "./dartKeyPool";
 import { loadHarness, loadK200P, verifySnapshotManifest, selectAll, mulberry32, SNAP_END, storageLine } from "./researchHarness";
@@ -127,13 +128,14 @@ type St = Harn["stocks"][number];
 interface Cand { code: string; corp: string; mcap: number; last: string; first: string }
 async function main(): Promise<void> {
   const MODE = (process.env.V_MODE ?? "").trim();
-  if (MODE !== "pilot" && MODE !== "collect") throw new Error("V_MODE=pilot|collect 필요");
+  if (MODE !== "pilot" && MODE !== "collect" && MODE !== "ni") throw new Error("V_MODE=pilot|collect|ni 필요");
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   console.log(`저평가(PBR) 자본 수집(${MODE}) 시작: ${new Date().toISOString()} | DART는 정기 재무→PBR 용도(list.json·fnlttXbrl.xml만), 키 비출력, DB 쓰기 0`);
   console.log(await verifySnapshotManifest());
   const keys: PoolKey[] = [];
   for (const e of VEQ_KEY_ENVS) { const v = process.env[e]; if (v) keys.push({ name: e, value: v }); }
   if (!keys.length) throw new Error("연구용 DART 키(DART_API_KEY_3 또는 _2)가 없다");
+  if (MODE === "ni") { await collectNi(keys); return; }
   const h = await loadHarness();
   const { CAL, nCal } = h;
   const { excluded, membAt } = await loadK200P(h);
@@ -297,6 +299,95 @@ async function collectAll(all: Cand[], keys: PoolKey[]): Promise<void> {
   for (const r of rows) { const k = `${String(r.kind)}`; const x = byK.get(k) ?? { n: 0, ok: 0 }; x.n++; if (r.eq_total !== null) x.ok++; byK.set(k, x); }
   console.log(`보고서 종류별 누적(자본 있음/전체): ${[...byK].map(([k, x]) => `${k} ${x.ok}/${x.n}`).join(" | ")}`);
   console.log(`Storage 총량 ${(usage.total / MiB).toFixed(2)} MiB(가드 800 MiB) | 데이터 파일 한 사본 research/v_equity/ | 연구 DB 쓰기 0 | ${storageLine()}`);
+}
+
+// ---- 순이익 추가 수집(재무 품질 ROE): 같은 보고서(XBRL)에서 당기 누적·전년 같은 기간 누적 당기순이익(ProfitLoss, 비지배 포함)만 파싱 ----
+const NI_COLS: ColDef[] = [["ni_ytd", "DOUBLE"], ["ni_prev_ytd", "DOUBLE"], ["ni_basis", "STRING"], ["ni_months", "DOUBLE"], ["ni_status", "STRING"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));
+const BASIS_KIND: Record<string, (typeof KIND_ORDER)[number]> = { cons: "연결", nodim: "없음", sep: "별도" };
+interface NiOut { ytd: number | null; prev: number | null; basis: string | null; months: number | null; status: "ok" | "no_prev" | "no_ni" }
+const daysBetween = (a: string, b: string): number => (Date.parse(b) - Date.parse(a)) / 86_400_000;
+/** 당기 누적 = 기말이 보고서 기말이고 길이가 VEQ_NI_MIN_DAYS~MAX_DAYS인 ProfitLoss 중 가장 긴 기간(3분기 보고서는 9개월 누적), 전년 같은 기간 = 기말이 전년 같은 월말이고 길이가 당기와 같은 것. 자본과 같은 기준(연결 > 차원 없음 > 별도)을 우선 쓴다. */
+function pickNi(facts: RFact[], periodEnd: string, eqBasis: string | null): NiOut {
+  const dur = facts.filter((f) => f.local === VEQ_NI_LOCAL && f.start !== undefined);
+  const prevEnd = lastDayOfMonth(Number(periodEnd.slice(0, 4)) - 1, Number(periodEnd.slice(5, 7)));
+  const kinds = eqBasis && BASIS_KIND[eqBasis] ? [BASIS_KIND[eqBasis]] : [...KIND_ORDER];
+  for (const kind of kinds) {
+    const cur = dur.filter((f) => ctxKind(f.dims) === kind && f.end === periodEnd && daysBetween(f.start as string, f.end) >= VEQ_NI_MIN_DAYS && daysBetween(f.start as string, f.end) <= VEQ_NI_MAX_DAYS).sort((a, b) => daysBetween(b.start as string, b.end) - daysBetween(a.start as string, a.end));
+    if (!cur.length) continue;
+    const c = cur[0], len = daysBetween(c.start as string, c.end), v = Number(c.value.replace(/,/g, ""));
+    if (!Number.isFinite(v)) continue;
+    const pv = dur.filter((f) => ctxKind(f.dims) === kind && f.end === prevEnd && Math.abs(daysBetween(f.start as string, f.end) - len) <= VEQ_NI_PREV_DAY_TOL)[0];
+    const pvv = pv ? Number(pv.value.replace(/,/g, "")) : Number.NaN;
+    return { ytd: v, prev: Number.isFinite(pvv) ? pvv : null, basis: BASIS[kind], months: Math.round(len / 30.4), status: Number.isFinite(pvv) ? "ok" : "no_prev" };
+  }
+  return { ytd: null, prev: null, basis: null, months: null, status: "no_ni" };
+}
+async function collectNi(keys: PoolKey[]): Promise<void> {
+  const today = kstDate();
+  const dataBuf = await downloadBuf(VEQ_DATA_FILE);
+  if (!dataBuf) throw new Error("fin_pre2016.parquet이 없다 — 중단");
+  const rows = await decodeTable(dataBuf);
+  const progBuf = await downloadBuf(VEQ_NI_PROGRESS_FILE), oldProgBuf = await downloadBuf(VEQ_PROGRESS_FILE);
+  interface NiProg { version: 1; daily: Record<string, Record<string, number>>; byDay: Record<string, Record<string, number>>; runs: { at: string; reports: number; calls: number; stop: string }[] }
+  const prog: NiProg = progBuf ? JSON.parse(Buffer.from(progBuf).toString("utf8")) : { version: 1, daily: {}, byDay: {}, runs: [] };
+  const oldDaily = oldProgBuf ? ((JSON.parse(Buffer.from(oldProgBuf).toString("utf8")) as { daily?: Record<string, Record<string, number>> }).daily?.[today] ?? {}) : {};
+  const used = prog.daily[today] ?? {};
+  const capped: PoolKey[] = keys.map((k) => ({ ...k, cap: Math.max(VEQ_KEY_DAILY_CAP - (used[k.name] ?? 0) - (oldDaily[k.name] ?? 0), 0) }));
+  pool = new DailyKeyPool(capped.filter((k) => (k.cap ?? 0) > 0), VEQ_TOTAL_CALL_CAP);
+  const isDone = (r: Row): boolean => r.ni_status !== undefined && r.ni_status !== null;
+  const prio = (r: Row): number => (r.status === "ok" ? 0 : r.status === "no_equity" ? 1 : 2);
+  const limit = Number(process.env.V_NI_LIMIT ?? "0");
+  let todo = rows.filter((r) => !isDone(r) && r.status !== "xbrl_014" && prio(r) < 2).sort((a, b) => prio(a) - prio(b) || (String(a.rcept_no) < String(b.rcept_no) ? -1 : 1));
+  if (limit > 0) { const step = Math.max(Math.floor(todo.length / limit), 1); todo = todo.filter((_, i) => i % step === 0).slice(0, limit); console.log(`시범 실행: 균등 간격으로 ${todo.length}건만`); }
+  const total = rows.filter((r) => r.status !== "xbrl_014").length, doneBefore = rows.filter((r) => isDone(r)).length;
+  console.log(`순이익 추가 수집(ni) 시작: 보고서 ${rows.length}건(XBRL 있음 ${total}건) 중 이미 처리 ${doneBefore}건, 이번 대상 ${todo.length}건(자본 파싱 ${todo.filter((r) => prio(r) === 0).length} → 자본 항목 없음 ${todo.filter((r) => prio(r) === 1).length}) | 오늘(${today}) 키별 남은 한도 ${capped.map((k) => `${k.name} ${k.cap}`).join(", ")} | list.json 호출 없음(접수번호 저장분 사용)`);
+  let cursor = 0, doneNow = 0, fetchFail = 0, stop = "전체 처리 완료", sinceFlush = 0;
+  const deadline = T0 + VEQ_SOFT_DEADLINE_MINUTES * 60_000, st = { ok: 0, no_prev: 0, no_ni: 0, xbrl_014: 0 } as Record<string, number>;
+  const byKind = new Map<string, { n: number; ok: number }>();
+  const cols = [...DATA_COLS, ...NI_COLS];
+  const flush = async (): Promise<void> => {
+    const t = await storageUsage();
+    if (t.total + 5 * MiB > 800 * MiB) throw new Error(`Storage 총량 ${(t.total / MiB).toFixed(2)} MiB — 800 MiB 가드(여유 5 MiB 미만)라 쓰지 않는다`);
+    await uploadBuf(VEQ_DATA_FILE, encodeTable(cols, rows));
+    prog.daily[today] = Object.fromEntries([...pool.used].map(([k, v]) => [k, (used[k] ?? 0) + v]));
+    await uploadBuf(VEQ_NI_PROGRESS_FILE, new TextEncoder().encode(JSON.stringify(prog)));
+  };
+  async function worker(): Promise<void> {
+    while (!pool.stopReason) {
+      if (Date.now() > deadline) { stop = `소프트 데드라인 ${VEQ_SOFT_DEADLINE_MINUTES}분 도달`; return; }
+      const i = cursor++;
+      if (i >= todo.length) return;
+      const r = todo[i], pe = String(r.period_end), k = String(r.kind) as Kind, m = Number(pe.slice(5, 7));
+      const resp = await dartGet((key) => `${DART}/fnlttXbrl.xml?crtfc_key=${key}&rcept_no=${r.rcept_no}&reprt_code=${reprtOf(k, m)}`);
+      if (!resp) { fetchFail++; if (pool.stopReason) return; continue; }
+      let out: NiOut;
+      if (!resp.zip) { if (resp.status === "014" || resp.status === "013") { out = { ytd: null, prev: null, basis: null, months: null, status: "no_ni" }; r.ni_status = "xbrl_014"; st.xbrl_014++; } else { fetchFail++; continue; } }
+      else {
+        const p = parseInst(resp.buf);
+        if ("error" in p) { fetchFail++; continue; }
+        out = pickNi(p.facts, pe, r.eq_total_basis === null || r.eq_total_basis === undefined ? null : String(r.eq_total_basis));
+        r.ni_status = out.status; st[out.status]++;
+      }
+      r.ni_ytd = out.ytd; r.ni_prev_ytd = out.prev; r.ni_basis = out.basis; r.ni_months = out.months;
+      const bk = byKind.get(k) ?? { n: 0, ok: 0 }; bk.n++; if (out.ytd !== null && out.prev !== null) bk.ok++; byKind.set(k, bk);
+      doneNow++; sinceFlush++;
+      const dayKey = String(r.rcept_dt).slice(0, 4); (prog.byDay[today] = prog.byDay[today] ?? {})[dayKey] = ((prog.byDay[today] ?? {})[dayKey] ?? 0) + 1;
+      if (doneNow % 2000 === 0) console.log(`진행 ${doneNow}/${todo.length}건 | DART ${pool.total}건 | 실패 ${fetchFail}`);
+      if (sinceFlush >= VEQ_NI_FLUSH_EVERY_REPORTS) { sinceFlush = 0; await flush(); }
+    }
+  }
+  const t0 = Date.now();
+  await Promise.all(Array.from({ length: VEQ_CONCURRENCY }, () => worker()));
+  if (pool.stopReason) stop = pool.stopReason;
+  await flush();
+  prog.runs.push({ at: new Date().toISOString(), reports: doneNow, calls: pool.total, stop });
+  await uploadBuf(VEQ_NI_PROGRESS_FILE, new TextEncoder().encode(JSON.stringify(prog)));
+  const usage = await storageUsage(), left = rows.filter((r) => !isDone(r) && r.status !== "xbrl_014" && prio(r) < 2).length;
+  const nOk = rows.filter((r) => r.ni_ytd !== null && r.ni_ytd !== undefined).length, nBoth = rows.filter((r) => r.ni_ytd !== null && r.ni_ytd !== undefined && r.ni_prev_ytd !== null && r.ni_prev_ytd !== undefined).length;
+  console.log(`\n=== 순이익 수집 종료: ${stop} ===\n이번 실행 ${doneNow}건 처리 / 남은 ${left}건 | DART ${pool.total}건(키별 ${[...pool.used].map(([k, v]) => `${k} ${v}`).join(", ")}, status 020 ${[...pool.got020].reduce((a, [, v]) => a + v, 0)}회) | 호출 실패 ${fetchFail}건(해당 보고서는 다음 회차에 다시 시도) | 소요 ${((Date.now() - t0) / 60000).toFixed(1)}분`);
+  console.log(`이번 실행 결과: 당기·전기 누적 순이익 모두 ${st.ok} · 당기만(전기 누적 없음) ${st.no_prev} · 순이익 없음 ${st.no_ni} · XBRL 없음 ${st.xbrl_014} | 누적: 당기 순이익 있음 ${nOk}건, 당기·전기 모두 있음 ${nBoth}건 / 전체 ${rows.length}건`);
+  console.log(`종류별(이번 실행, 당기·전기 모두 있음/처리): ${[...byKind].map(([k, x]) => `${k} ${x.ok}/${x.n}`).join(" | ")}`);
+  console.log(`Storage 총량 ${(usage.total / MiB).toFixed(2)} MiB(가드 800 MiB) | 데이터 파일 한 사본 ${VEQ_DATA_FILE} | 연구 DB 쓰기 0 | ${storageLine()}`);
 }
 
 main().catch((e) => { console.error(e instanceof Error ? e.stack : e); process.exit(1); });

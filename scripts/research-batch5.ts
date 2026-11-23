@@ -31,6 +31,7 @@ import { cachedBytes } from "@/lib/researchFileCache";
 import { intradayInspect } from "./intradayInspect";
 import { intradayStats } from "./intradayStats";
 import { intradayPre, intradayTest } from "./intradayTest";
+import { makeRoeIndex, type FinRep, type RoeWhy } from "@/lib/qualityRoe";
 import { R_STORE_PREFIX } from "@/lib/kodexSectorSatConfig";
 import { selectAll } from "./researchHarness";
 import { ZERO_SUSPECT_ON, suspectLog, zeroSuspects } from "./researchHarness";
@@ -48,7 +49,7 @@ const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").up
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest", "qdata"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest|qdata 필요");
   const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
   if (NEUTRALIZE_ON) console.log(`*** 정보용 중립화 모드(NEUTRALIZE_CODES=${process.env.NEUTRALIZE_CODES}): 해당 종목의 수정 수익률을 전 기간 0으로 둔다(시험 아님) ***`);
   if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob" && MODE !== "vdata" && MODE !== "vcov" && MODE !== "vpre" && MODE !== "vinfo" && MODE !== "vtest" && !/^v[23]/.test(MODE)) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
@@ -1638,6 +1639,72 @@ async function main(): Promise<void> {
   }
   if (MODE === "inttest") {
     await intradayTest(h, label, { dates: h.bhP.dates, ret: h.bhP.ret }, Number(process.env.B5_TRIAL ?? "318"));
+    console.log(`\n${storageLine()} | 연구 DB 쓰기 0 | 외부 요청 0 | DART·KIS 호출 0`);
+    return;
+  }
+  if (MODE === "qdata") {
+    // 재무 품질(ROE) 데이터 확인(집계만, 수익·신호 계산 없음): docs/research/quality-data-check.md. 연구 R fin.parquet(2015~)과 2011~2015 백필(fin_pre2016.parquet)의 당기순이익·자본총계 확보율.
+    await loadEqTables();
+    const finBuf = await cachedBytes(`${R_STORE_PREFIX}/fin.parquet`, () => downloadBuf(`${R_STORE_PREFIX}/fin.parquet`)), preBuf = await cachedBytes(VEQ_DATA_FILE, () => downloadBuf(VEQ_DATA_FILE));
+    if (!finBuf || !preBuf) throw new Error("재무 파일이 없다 — 중단");
+    const fin = await decodeTable(finBuf), pre = await decodeTable(preBuf);
+    const isoD = (d: unknown): string => { const x = String(d ?? ""); return /^\d{8}$/.test(x) ? `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6)}` : x.slice(0, 10); };
+    const nn = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const reps: FinRep[] = fin.map((r) => ({ code: String(r.stock_code), year: Number(r.bsns_year), rc: String(r.reprt_code), fs: String(r.fs_div), rcept: isoD(r.rcept_dt), rceptNo: String(r.rcept_no), status: String(r.status), niC: nn(r.ni_c), niA: nn(r.ni_a), niP: nn(r.ni_p), niPA: nn(r.ni_pa), eqC: nn(r.eq_c) }));
+    console.log(`\n=== [Q0] 재무 자료 구성 ===\nR fin.parquet(2015~): ${fin.length}행, 열 ${Object.keys(fin[0]).join(",")}`);
+    console.log(`2011~2015 백필 fin_pre2016.parquet: ${pre.length}행, 열 ${Object.keys(pre[0]).join(",")} → **당기순이익 열 ${Object.keys(pre[0]).some((k) => /^ni|net/i.test(k)) ? "있음" : "없음(자본총계·지배주주지분만 수집)"}**`);
+    const cnt = (f: (r: FinRep) => boolean): number => reps.filter(f).length;
+    console.log(`R fin 보고서 종류: ${["11013", "11012", "11014", "11011"].map((rc) => `${rc} ${cnt((r) => r.rc === rc)}`).join(" · ")} | 연결 ${cnt((r) => r.fs === "CFS")} · 별도 ${cnt((r) => r.fs === "OFS")} | 상태 orig ${cnt((r) => r.status === "orig")} · 정정 ${cnt((r) => r.status !== "orig")} | 사업연도 ${[...new Set(reps.map((r) => r.year))].sort().join(",")}`);
+    console.log(`백필 보고서 종류(kind): ${[...pre.reduce((m2, r) => m2.set(String(r.kind), (m2.get(String(r.kind)) ?? 0) + 1), new Map<string, number>()).entries()].map(([k, v]) => `${k} ${v}`).join(" · ")} | 백필 기준일 범위 ${pre.map((r) => isoD(r.rcept_dt)).sort()[0]}~${pre.map((r) => isoD(r.rcept_dt)).sort().pop()}`);
+    // 누적치 확인: 반기·3분기의 당기누적(ni_a)이 (당기 3개월 + 직전 분기 누적)과 일치하는가
+    {
+      const byK = new Map<string, FinRep>();
+      for (const r of reps) byK.set(`${r.code}|${r.year}|${r.rc}|${r.fs}`, r);
+      let nQ2 = 0, okQ2 = 0, nQ3 = 0, okQ3 = 0, nA = 0, nC = 0, q1same = 0, nQ1 = 0;
+      for (const r of reps) {
+        if (r.rc === "11012" && r.niA !== null && r.niC !== null) { const q1 = byK.get(`${r.code}|${r.year}|11013|${r.fs}`); if (q1 && q1.niC !== null) { nQ2++; if (Math.abs(r.niA - (r.niC + q1.niC)) <= 1e-6 * Math.max(Math.abs(r.niA), 1)) okQ2++; } if (r.niA !== r.niC) nA++; nC++; }
+        if (r.rc === "11014" && r.niA !== null && r.niC !== null) { const q2 = byK.get(`${r.code}|${r.year}|11012|${r.fs}`); if (q2 && q2.niA !== null) { nQ3++; if (Math.abs(r.niA - (q2.niA + r.niC)) <= 1e-6 * Math.max(Math.abs(r.niA), 1)) okQ3++; } if (r.niA !== r.niC) nA++; nC++; }
+        if (r.rc === "11013" && r.niA !== null && r.niC !== null) { nQ1++; if (r.niA === r.niC) q1same++; }
+      }
+      const have = (rc: string, f: (r: FinRep) => number | null): string => `${f2((reps.filter((r) => r.rc === rc && f(r) !== null).length / Math.max(cnt((r) => r.rc === rc), 1)) * 100)}%`;
+      console.log(`\n=== [Q1] 분기 보고서 누적치 확인 ===`);
+      console.log(`반기(11012): 당기누적 ≠ 당기(3개월)인 비율 ${f2((nA / Math.max(nC, 1)) * 100)}%(반기·3분기 합산 ${nC}건) | 반기 누적 = 당기 + 1분기 당기: ${okQ2}/${nQ2} 일치 | 3분기(11014) 누적 = 당기 + 반기 누적: ${okQ3}/${nQ3} 일치 | 1분기(11013) 당기 = 당기누적: ${q1same}/${nQ1}`);
+      console.log(`값 확보율(그 보고서 종류 안): 당기순이익 당기 ni_c — 1분기 ${have("11013", (r) => r.niC)} 반기 ${have("11012", (r) => r.niC)} 3분기 ${have("11014", (r) => r.niC)} 사업 ${have("11011", (r) => r.niC)} | 당기누적 ni_a — 반기 ${have("11012", (r) => r.niA)} 3분기 ${have("11014", (r) => r.niA)} | 전기 ni_p — 1분기 ${have("11013", (r) => r.niP)} 사업 ${have("11011", (r) => r.niP)} | 전기누적 ni_pa — 반기 ${have("11012", (r) => r.niPA)} 3분기 ${have("11014", (r) => r.niPA)} | 자본총계 eq_c — 전체 ${f2((reps.filter((r) => r.eqC !== null).length / reps.length) * 100)}%`);
+    }
+    // 월말 커버리지(BS1 적격 종목 기준 종목 수): 자본(PBR 가능) · 당기순이익 TTM 계산 가능 · ROE 대상(자본>0 ∧ TTM>0)
+    const idx = makeRoeIndex(reps), cV0 = monthEndIdx.find((c) => CAL[c] >= "2011-05-31") as number, mes = monthEndIdx.filter((c) => c >= cV0);
+    const per = new Map<string, { n: number; el: number; pbr: number; ttm: number; roe: number; why: Map<RoeWhy, number> }>(), monthly: string[] = [];
+    let firstOk = "", okRun = true;
+    const covByMonth: { d: string; c: number }[] = [];
+    for (const c of mes) {
+      const d = CAL[c], el = bsElig(c, B5_BS_P0), w = new Map<RoeWhy, number>();
+      let pbrN = 0, ttmN = 0, roeN = 0;
+      for (const code of el) {
+        const s = h.byCode.get(code) as S;
+        if (pbrAt(c, s, 400).why === "ok") pbrN++;
+        const r = idx.roeAt(code, d, 400);
+        w.set(r.why, (w.get(r.why) ?? 0) + 1);
+        if (r.why === "ok" || r.why === "ttm_nonpos" || r.why === "eq_nonpos") { if (r.ttm !== undefined) ttmN++; }
+        if (r.why === "ok") roeN++;
+      }
+      const y = d.slice(0, 4), e = per.get(y) ?? { n: 0, el: 0, pbr: 0, ttm: 0, roe: 0, why: new Map<RoeWhy, number>() };
+      e.n++; e.el += el.length; e.pbr += pbrN; e.ttm += ttmN; e.roe += roeN; for (const [k, v] of w) e.why.set(k, (e.why.get(k) ?? 0) + v);
+      per.set(y, e);
+      covByMonth.push({ d, c: ttmN / Math.max(el.length, 1) });
+      if (y >= "2016" && y <= "2017") monthly.push(`${d} 적격 ${el.length} 자본 ${f2((pbrN / el.length) * 100)}% TTM 가능 ${f2((ttmN / el.length) * 100)}% ROE 대상 ${f2((roeN / el.length) * 100)}%`);
+    }
+    for (let i = 0; i < covByMonth.length; i++) if (covByMonth.slice(i).every((x) => x.c >= 0.6)) { firstOk = covByMonth[i].d; break; }
+    void okRun;
+    console.log(`\n=== [Q2] 월말 커버리지(BS1 적격 종목 수 기준, 연도별 월말 평균 %): 자본총계(PBR 가능) · 당기순이익 TTM 계산 가능(자본·TTM 부호 무관) · ROE 대상(자본 > 0 ∧ TTM > 0) ===\n| 연도 | 월수 | 월평균 적격 종목 | 자본 확보 % | TTM 계산 가능 % | ROE 대상 % | 제외 사유 %(보고서 없음 / 경과 400일 초과 / 직전 사업보고서 없음 / 순이익 값 없음 / 자본 값 없음 / 자본 ≤ 0 / TTM ≤ 0) |\n|---|---|---|---|---|---|---|`);
+    for (const [y, e] of [...per.entries()].sort()) {
+      const w = (k: RoeWhy): string => f2(((e.why.get(k) ?? 0) / Math.max(e.el, 1)) * 100);
+      console.log(`| ${y} | ${e.n} | ${f2(e.el / e.n)} | ${f2((e.pbr / e.el) * 100)} | ${f2((e.ttm / e.el) * 100)} | ${f2((e.roe / e.el) * 100)} | ${w("no_report")} / ${w("stale")} / ${w("no_annual")} / ${w("null_ni")} / ${w("null_eq")} / ${w("eq_nonpos")} / ${w("ttm_nonpos")} |`);
+    }
+    console.log(`\n2016~2017 월별: ${monthly.join(" | ")}`);
+    const at0 = covByMonth[0];
+    console.log(`\n=== [Q3] 중단 조건 판정(TTM 계산 가능 종목이 월말 종목 수의 60% 미만이면 시험하지 않는다) ===\n사전 시작일 ${at0.d} 월말 TTM 계산 가능 ${f2(at0.c * 100)}% (< 60%) | 60% 이상이 처음 되고 이후 계속 유지되는 첫 월말: ${firstOk || "없음"} | 2011~2015 월말 중 60% 이상인 달 ${covByMonth.filter((x) => x.d < "2016-01-01" && x.c >= 0.6).length}/${covByMonth.filter((x) => x.d < "2016-01-01").length}개`);
+    const nPre = pre.length, nPreKind = pre.reduce((m2, r) => m2.set(String(r.kind), (m2.get(String(r.kind)) ?? 0) + 1), new Map<string, number>());
+    console.log(`\n=== [Q4] 필요한 수집(보고만) ===\n백필 보고서 ${nPre}건(자본 있음 ${pre.filter((r) => typeof r.eq_total === "number").length}건) 종류별 ${[...nPreKind.entries()].map(([k, v]) => `${k} ${v}`).join(" · ")}. 당기순이익은 수집하지 않았으므로 2011~2015 TTM 계산에는 같은 보고서(XBRL 재무제표)에서 당기순이익·분기·반기 당기누적·전년 같은 기간 값을 다시 파싱해야 한다(원문은 저장하지 않았다).`);
     console.log(`\n${storageLine()} | 연구 DB 쓰기 0 | 외부 요청 0 | DART·KIS 호출 0`);
     return;
   }

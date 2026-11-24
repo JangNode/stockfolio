@@ -1322,6 +1322,8 @@ jobs:
           B5_IDS: ${{ inputs.ids }}
           ZERO_SUSPECT: ${{ inputs.zero }}
           V_START: ${{ inputs.vstart }}
+          # 재무 품질(ROE) 시험(only=q*)에서 시작일이 2016-05-31 이전이면 구간 2개(C-2) 규칙을 쓴다(사전등록 완화: quality-prereg.md §6).
+          V_FORCE_C2: ${{ startsWith(inputs.only, 'q') && inputs.vstart != '' && inputs.vstart < '2016-05-31' && '1' || '' }}
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           NODE_OPTIONS: --max-old-space-size=14336
           PARQUET_CACHE_FROZEN: "1"

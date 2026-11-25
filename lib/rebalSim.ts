@@ -86,6 +86,7 @@ export function rebalSim(env: SimEnv, cfg: RebalCfg, hooks: RebalHooks, o: Rebal
         const w = want.get(p.code);
         if (w === undefined && tgt) { want.set(p.code, 0); }
         if (!want.has(p.code)) continue;
+        if ((want.get(p.code) as number) < 0) continue; // 목표 비중 −1 = 유지 표지: 조정하지 않는다(일별 신호 전략 TC2용, 다른 시험은 쓰지 않음)
         const targetV = (want.get(p.code) as number) * V, cur = val(p);
         if (!(cur > targetV + 1e-12)) continue;
         const full = targetV <= 1e-12;

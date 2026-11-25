@@ -11,5 +11,7 @@ export const TC2_P0: TcP = { n: 5, ma: 200, minValidFrac: 0.8 };
 /** 게이트 D 이웃값(사용자 지정): TC1 상위 3종목·상위 10종목, TC2 이동평균 150일·250일. */
 export const TC1_NB: [string, Partial<TcP>][] = [["상위 3종목", { n: 3 }], ["상위 10종목", { n: 10 }]];
 export const TC2_NB: [string, Partial<TcP>][] = [["이동평균 150일", { ma: 150 }], ["이동평균 250일", { ma: 250 }]];
-/** 비교 기준 "K200P 시총 비중"(RT0, 종목당 상한 30%, 월말 재조정, 앞선 RT 시험): 사용자 지정 참고값 연속 CAGR / MDD(%), 사전 점검에서 재현을 확인한다. */
-export const M_REF_CAPW = { cagr: 6.07, mdd: 43.99 } as const;
+/** 비교 기준 "K200P 시총 비중"(RT0, 종목당 상한 30%, 월말 재조정, 앞선 RT 시험). 사용자 참고값 연속 CAGR / MDD(%) — 가격 보정 17건 적용 전 기록으로 추정(미확인). */
+export const M_REF_CAPW_USER = { cagr: 6.07, mdd: 43.99 } as const;
+/** 시험과 같은 데이터 기준(K200P 17건 보정 + 의심 종목-일 0% 처리, 처리를 꺼도 같은 값) 재현값. 사전 점검 mpre run 45641963648·minfo run 45642681208에서 측정. 사전 점검 기준과 비교표 RT0 값은 이것이다(사용자 승인 2026-11-26, megacap-prereg.md §5). */
+export const M_REF_CAPW = { cagr: 6.14, mdd: 43.91 } as const;

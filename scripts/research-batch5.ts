@@ -39,7 +39,7 @@ import { VB1_P0, VB2_P0, VB1_NB, VB2_NB, VB_FIRST_TRIAL, VB_PRIOR_TESTS, VB_F_DE
 import { V2_W, V2_NB_W, V2_F_DENOMINATOR, V2_START, V2_WATCH, V2_LOSS_FROM } from "@/lib/value2Config";
 import { V3_F_DENOMINATOR, V3_TOP_N, V3_MDD_WINDOW, V3_TERCILES, V3_WATCH, VL1_P0, VL1_NB, type VlP, type VlUniv } from "@/lib/value3Config";
 import { VEQ_DATA_FILE, VEQ_DATA_CACHE_NAME } from "@/lib/valueEquityConfig";
-import { M_F_DENOMINATOR, M_REF_CAPW, TC1_P0, TC1_NB, TC2_P0, TC2_NB, type TcP } from "@/lib/megacapConfig";
+import { M_F_DENOMINATOR, M_REF_CAPW, M_REF_CAPW_USER, TC1_P0, TC1_NB, TC2_P0, TC2_NB, type TcP } from "@/lib/megacapConfig";
 import { H_F_DENOMINATOR, HM1_P0, HM1_NB, type HmP } from "@/lib/high52Config";
 import { Q_FIRST_TRIAL, Q_PRIOR_TESTS, Q_F_DENOMINATOR, Q1_P0, QV1_P0, Q1_NB, QV1_NB, Q_PLANNED_START, Q_FIN_KSIC, type QP } from "@/lib/qualityConfig";
 import { loadHarness, loadK200P, verifySnapshotManifest, dbRead, storageLine, mulberry32, SNAP_END, f2, avg, median, PRICE_CORRECTION_ON, NEUTRALIZE_ON, type S, type Win } from "./researchHarness";
@@ -2182,7 +2182,7 @@ async function main(): Promise<void> {
     {
       const r0 = runS(RT0, RT0.P0, cT1, null, { lag: 1 }), s0 = h.st(r0, Wd.FULL);
       const ok = f2(s0.cagr) === f2(M_REF_CAPW.cagr) && f2(s0.mdd) === f2(M_REF_CAPW.mdd);
-      console.log(`[점검 6] K200P 시총 비중(RT0, 종목당 상한 ${RT1_P0.cap * 100}%) 재현: 연속 ${f2(s0.cagr)} / ${f2(s0.mdd)} (기준 ${M_REF_CAPW.cagr} / ${M_REF_CAPW.mdd}) → ${ok ? "일치" : "불일치"}`);
+      console.log(`[점검 6] K200P 시총 비중(RT0, 종목당 상한 ${RT1_P0.cap * 100}%) 재현: 연속 ${f2(s0.cagr)} / ${f2(s0.mdd)} (시험과 같은 데이터 기준 기록 ${M_REF_CAPW.cagr} / ${M_REF_CAPW.mdd}; 사용자 참고값 ${M_REF_CAPW_USER.cagr} / ${M_REF_CAPW_USER.mdd}와 차이 있음 — 보정 적용 전 기록으로 추정) → ${ok ? "일치" : "불일치"}`);
       if (!ok) fails.push(`RT0 재현 ${f2(s0.cagr)} / ${f2(s0.mdd)} ≠ ${M_REF_CAPW.cagr} / ${M_REF_CAPW.mdd}`);
     }
     console.log(`\n정보용 항목 구현 목록(시험 출력에서 이 머리표로 대조): [R3] 연도별 069500·DS6·DS13L 대비 승패 · [R4] 승률·손익비·기대값 · [R5] 나란히 비교 표(DS6·DS13L·K200P 시총 비중) · [R6] 연 회전율·비용 · [R7] 상위 10개 거래 손익 비중 · [M1] 삼성전자·SK하이닉스 평균 목표 비중 · [M2] 현금 비중 평균(평가 출력의 "평균 투자 비중" 줄, TC2) · [M3] VB1 MDD 구간 수익 · [M4] 하루 지연(C) · [M5] 삼성전자·SK하이닉스 수익을 0으로 한 경우(mneut) · [M6] 의심 종목-일 처리 없음 비교(minfo) · [M7] 누적 시험·우연 통과 기대(요약)`);
@@ -3221,7 +3221,7 @@ async function main(): Promise<void> {
     const t1Run = verdicts.find((v) => v.id === "TC1")?.run as SimRun, t2Run = verdicts.find((v) => v.id === "TC2")?.run as SimRun;
     // ---- [R5] 나란히 비교 ----
     const cmpRows: { nm: string; run: { dates: string[]; ret: number[] } }[] = [{ nm: "069500", run: { dates: h.bhP.dates, ret: h.bhP.ret } }, { nm: "DS6", run: b6.res.run }, { nm: "DS13L", run: d13l }, { nm: "K200P 시총 비중", run: rt0Run }, { nm: "TC1", run: t1Run }, { nm: "TC2", run: t2Run }];
-    console.log(`\n=== [R5] 같은 데이터(보정 적용 + 의심 종목-일 0% 처리) 기준 나란히 비교 (CAGR % / MDD %; 같은 구간 ${from}~; DS6는 일별 재조정, DS13L은 월 1회 재조정, K200P 시총 비중 = RT0 종목당 상한 30% 월말 재조정, 사용자 참고값 ${M_REF_CAPW.cagr} / ${M_REF_CAPW.mdd}) ===`);
+    console.log(`\n=== [R5] 같은 데이터(보정 적용 + 의심 종목-일 0% 처리) 기준 나란히 비교 (CAGR % / MDD %; 같은 구간 ${from}~; DS6는 일별 재조정, DS13L은 월 1회 재조정, K200P 시총 비중 = RT0 종목당 상한 30% 월말 재조정; 시험과 같은 데이터 기준 값이며 사용자 참고값 ${M_REF_CAPW_USER.cagr} / ${M_REF_CAPW_USER.mdd}와 차이가 있다 — 참고값은 가격 보정 적용 전 기록으로 추정) ===`);
     console.log(`| 구간 | ${cmpRows.map((r) => r.nm).join(" | ")} |\n|---|${cmpRows.map(() => "---").join("|")}|`);
     for (const [nm, w] of Wx.ALL) console.log(`| ${nm} | ${cmpRows.map((r) => `${f2(h.st(r.run, w).cagr)} / ${f2(h.st(r.run, w).mdd)}`).join(" | ")} |`);
     const fl = cmpRows.map((r) => ({ nm: r.nm, s: h.st(r.run, Wx.FULL) }));

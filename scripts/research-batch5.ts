@@ -2425,6 +2425,13 @@ async function main(): Promise<void> {
       console.log(`[점검 4] 손절 없는 RM1S(손절 100%) ↔ RM1 일수익률 최대 차이 ${mx.toExponential(2)}%p, 손절 발동 ${rmsLog.length}건, 체결 있는 날 ${never.turn.length} vs ${rm1.turn.length}일`);
       if (!(mx < 1e-9)) fails.push(`RM1S(손절 없음) ≠ RM1 (최대 차이 ${mx})`);
       if (rmsLog.length) fails.push(`손절 100%인데 발동 ${rmsLog.length}건`);
+      // 하루 지연(lag 2)에서도 손절 없는 RM1S는 지연된 RM1과 같아야 한다(월 중 신호·유지 표지가 지연 경로에서 RM1을 바꾸지 않는지)
+      const never2 = runS(rms, { ...RM1S_P0, stop: 1 }, cS, null, { lag: 2, detail: true }), rm1d = runS(RM1, RM1.P0, cS, null, { lag: 2, detail: true });
+      let mx2 = 0;
+      if (never2.dates.length !== rm1d.dates.length) fails.push("지연 RM1S(손절 없음)와 지연 RM1의 날짜 축이 다르다");
+      else for (let k = 0; k < never2.ret.length; k++) mx2 = Math.max(mx2, Math.abs(never2.ret[k] - rm1d.ret[k]));
+      console.log(`[점검 4b] 하루 지연(lag 2): 손절 없는 RM1S ↔ RM1 일수익률 최대 차이 ${mx2.toExponential(2)}%p, 진입 ${never2.entryCs.length} vs ${rm1d.entryCs.length}건, 닫힌 거래 ${never2.trades.length} vs ${rm1d.trades.length}건, 보유일 1일 거래 ${never2.trades.filter((x) => x.exitC - x.entryC <= 1).length} vs ${rm1d.trades.filter((x) => x.exitC - x.entryC <= 1).length}건`);
+      if (!(mx2 < 1e-9)) fails.push(`지연(lag 2) RM1S(손절 없음) ≠ RM1 (최대 차이 ${mx2})`);
     }
     // [점검 5] 손절 조건 독립 재계산 + 구조
     {

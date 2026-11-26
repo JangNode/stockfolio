@@ -94,7 +94,7 @@ export async function rm1scPhase(a: Rm1scArgs): Promise<void> {
   let sigAdded = 0, sigChanged = 0;
   const finalSig: string[] = [...oldGroups.values()].flat();
   for (const [k, g] of sigNew) { const o = oldGroups.get(k); if (!o) { finalSig.push(...g); sigAdded++; } else if ([...o].sort().join("\n") !== [...g].sort().join("\n")) sigChanged++; }
-  finalSig.sort();
+  finalSig.sort((x, y) => { const a = x.split(","), b = y.split(","); return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (Number(a[2]) || 999) - (Number(b[2]) || 999) || (a[3] < b[3] ? -1 : 1); }); // 신호일 → 순위 순
   await fs.writeFile(P(RM1SCF_SIGNALS_CSV), [RM1SCF_SIGNALS_HEADER, ...finalSig].join("\n") + "\n");
 
   // ---- 손절 사후 점검(추가만): 발동 행(trigger)과 21거래일 경과 행(after21)을 따로 추가 ----

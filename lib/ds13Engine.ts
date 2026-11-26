@@ -447,44 +447,54 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
 
   // ---- RM1S: RM1 + 손절(사전등록 docs/research/stop-prereg.md, 동결 docs/research/rm1sc-forward-freeze.md). 시험 코드(research-batch5.ts)와 포워드 도구가 함께 쓴다. ----
   const meSet = new Set(monthEndIdx), cFirstME = monthEndIdx.find((x) => x >= 253) as number;
-  /** 보고용: 가장 최근에 돌린 RM1S 실행의 손절 발동 기록(신호일 c, 매도 체결일 c + 1). 새 실행이 시작되면 비워진다(같은 배열 객체를 유지). */
-  const rmsLog: { code: string; c: number }[] = [];
-  let rmsLastC = -1;
-  const rmsPeak = new Map<string, number>(), rmsStopped = new Set<string>();
-  /** 가장 최근 월말 신호의 선정 종목(하루 지연 lag 2에서 아직 체결 전인 종목도 월 중 "유지" 표지를 받게 한다: 구현 결함 수정, stop-prereg.md §7). */
-  let rmsSel = new Set<string>();
-  const mkRMS = (id: string, P0: RmsP, nbs: [string, Partial<RmsP>][], o: { shift?: number; onDay?: RmsHook } = {}): Strat<RmsP> => {
-    const shift = o.shift ?? 0, meS = shift === 0 ? meSet : new Set(monthEndIdx.map((c) => (c > cFirstME ? c - shift : c)));
-    return {
-      ...RM1, id, P0, nbs,
-      signalDays: Array.from({ length: CAL.length - cFirstME }, (_, k) => cFirstME + k), isSwap: () => true,
-      targets: (c, held, P) => {
-        if (c <= rmsLastC) { rmsPeak.clear(); rmsStopped.clear(); rmsSel = new Set(); rmsLog.length = 0; } // 새 실행 시작
-        rmsLastC = c;
-        for (const code of [...rmsPeak.keys()]) if (!held.has(code)) rmsPeak.delete(code);
-        for (const code of [...rmsStopped]) if (!held.has(code)) rmsStopped.delete(code);
-        for (const code of held) {
-          const s = h.byCode.get(code) as S, ic = rowAt(s, c);
-          if (ic === undefined) continue;
-          const px = s.close[ic], pk = Math.max(rmsPeak.get(code) ?? px, px);
-          rmsPeak.set(code, pk);
-          if (!rmsStopped.has(code) && px <= pk * (1 - P.stop)) { rmsStopped.add(code); rmsLog.push({ code, c }); }
-        }
-        let out: Map<string, number>, sel: Set<string> | null = null;
-        if (meS.has(c)) {
-          const sorted = rmSorted(c, P).map((x) => x.code).filter((code) => !rmsStopped.has(code)), heldOk = new Set([...held].filter((code) => !rmsStopped.has(code)));
-          sel = new Set(pickKeep(sorted, heldOk, P.n, P.n * P.keepMult));
-          rmsSel = new Set(sel);
-          out = equalW([...sel], 1 / P.n, 1);
-        } else {
-          out = new Map<string, number>();
-          for (const code of new Set([...held, ...rmsSel])) if (!rmsStopped.has(code)) out.set(code, -1);
-        }
-        o.onDay?.(c, { held, peak: rmsPeak, stopped: rmsStopped, sel, table: out });
-        return out;
-      },
+  /**
+   * 손절 구현(일반): 기본 전략(base)의 월말 선정 규칙(sortedCodes: 신호일 순위순 종목코드)에 일별 손절(진입 후 최고 종가 대비 −stop 이하 → 다음 거래일 종가 전량 매도, 현금, 다음 월말까지 재진입·재배분 없음)을 더한다.
+   * RM1S(329)와 VB1S(331)가 같은 코드를 쓴다. 인스턴스마다 상태·손절 기록(log: 가장 최근 실행의 발동 기록, 신호일 c·매도 체결일 c + 1, 새 실행이 시작되면 같은 배열 객체를 비운다)이 따로다.
+   * firstC = 첫 월말 신호일(이후 매일 신호). shift > 0은 정보용 견고성 점검(첫 신호일 뒤 월말 신호일을 shift 거래일 앞당김).
+   */
+  const makeStopper = () => {
+    const log: { code: string; c: number }[] = [];
+    let lastC = -1;
+    const peak = new Map<string, number>(), stopped = new Set<string>();
+    /** 가장 최근 월말 신호의 선정 종목(하루 지연 lag 2에서 아직 체결 전인 종목도 월 중 "유지" 표지를 받게 한다: 구현 결함 수정, stop-prereg.md §7). */
+    let selPrev = new Set<string>();
+    const mk = <P extends { n: number; keepMult: number; stop: number }>(id: string, base: Strat<P>, sortedCodes: (c: number, P: P) => string[], P0: P, nbs: [string, Partial<P>][], o: { firstC: number; shift?: number; onDay?: RmsHook }): Strat<P> => {
+      const shift = o.shift ?? 0, meS = shift === 0 ? new Set(base.signalDays) : new Set(base.signalDays.map((c) => (c > o.firstC ? c - shift : c)));
+      return {
+        ...base, id, P0, nbs,
+        signalDays: Array.from({ length: CAL.length - o.firstC }, (_, k) => o.firstC + k), isSwap: () => true,
+        targets: (c, held, P) => {
+          if (c <= lastC) { peak.clear(); stopped.clear(); selPrev = new Set(); log.length = 0; } // 새 실행 시작
+          lastC = c;
+          for (const code of [...peak.keys()]) if (!held.has(code)) peak.delete(code);
+          for (const code of [...stopped]) if (!held.has(code)) stopped.delete(code);
+          for (const code of held) {
+            const s = h.byCode.get(code) as S, ic = rowAt(s, c);
+            if (ic === undefined) continue;
+            const px = s.close[ic], pk = Math.max(peak.get(code) ?? px, px);
+            peak.set(code, pk);
+            if (!stopped.has(code) && px <= pk * (1 - P.stop)) { stopped.add(code); log.push({ code, c }); }
+          }
+          let out: Map<string, number>, sel: Set<string> | null = null;
+          if (meS.has(c)) {
+            const sorted = sortedCodes(c, P).filter((code) => !stopped.has(code)), heldOk = new Set([...held].filter((code) => !stopped.has(code)));
+            sel = new Set(pickKeep(sorted, heldOk, P.n, P.n * P.keepMult));
+            selPrev = new Set(sel);
+            out = equalW([...sel], 1 / P.n, 1);
+          } else {
+            out = new Map<string, number>();
+            for (const code of new Set([...held, ...selPrev])) if (!stopped.has(code)) out.set(code, -1);
+          }
+          o.onDay?.(c, { held, peak, stopped, sel, table: out });
+          return out;
+        },
+      };
     };
+    return { log, mk };
   };
+  const rmsStopper = makeStopper(), rmsLog = rmsStopper.log;
+  const mkRMS = (id: string, P0: RmsP, nbs: [string, Partial<RmsP>][], o: { shift?: number; onDay?: RmsHook } = {}): Strat<RmsP> =>
+    rmsStopper.mk<RmsP>(id, RM1 as unknown as Strat<RmsP>, (c, P) => rmSorted(c, P).map((x) => x.code), P0, nbs, { firstC: cFirstME, shift: o.shift, onDay: o.onDay });
   /** 손절 발동 뒤 다음 달 수익: 매도 체결일(c + 1) 종가 → 그 뒤 S_NEXT_MONTH_DAYS거래일 종가(수정 종가, 달력 앞채움 값). 기간이 모자라면 NaN. */
   const stopNext = (ev: { code: string; c: number }): number => {
     const a = al(h.byCode.get(ev.code) as S), f = ev.c + 1, g = f + S_NEXT_MONTH_DAYS;
@@ -642,5 +652,5 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     return { res: combineN(sls, [B5_CORE_W, 1 - B5_CORE_W], CS_MOVE_COST, sigSet), sat, core: cx.run, sls, rms, sigSet, from };
   };
 
-  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of, mkRMS, rmsLog, stopNext, rm1scOf, meSet, cFirstME };
+  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of, mkRMS, rmsLog, stopNext, rm1scOf, meSet, cFirstME, makeStopper };
 }

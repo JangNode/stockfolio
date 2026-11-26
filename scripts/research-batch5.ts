@@ -1225,11 +1225,13 @@ async function main(): Promise<void> {
   const rmsLog: { code: string; c: number }[] = [];
   let rmsLastC = -1;
   const rmsPeak = new Map<string, number>(), rmsStopped = new Set<string>();
+  /** 가장 최근 월말 신호일의 선정 종목(하루 지연 lag 2에서 아직 체결 전인 종목도 월 중 "유지" 표지를 받게 한다: 구현 결함 수정, stop-prereg.md §7). */
+  let rmsSel = new Set<string>();
   const mkRMS = (id: string, P0: RmsP, nbs: [string, Partial<RmsP>][]): Strat<RmsP> => ({
     ...RM1, id, P0, nbs,
     signalDays: Array.from({ length: CAL.length - cFirstME }, (_, k) => cFirstME + k), isSwap: () => true,
     targets: (c, held, P) => {
-      if (c <= rmsLastC) { rmsPeak.clear(); rmsStopped.clear(); rmsLog.length = 0; } // 새 실행 시작
+      if (c <= rmsLastC) { rmsPeak.clear(); rmsStopped.clear(); rmsSel = new Set(); rmsLog.length = 0; } // 새 실행 시작
       rmsLastC = c;
       for (const code of [...rmsPeak.keys()]) if (!held.has(code)) rmsPeak.delete(code);
       for (const code of [...rmsStopped]) if (!held.has(code)) rmsStopped.delete(code);
@@ -1242,10 +1244,12 @@ async function main(): Promise<void> {
       }
       if (meSet.has(c)) {
         const sorted = rmSorted(c, P).map((x) => x.code).filter((code) => !rmsStopped.has(code)), heldOk = new Set([...held].filter((code) => !rmsStopped.has(code)));
-        return equalW(pickKeep(sorted, heldOk, P.n, P.n * P.keepMult), 1 / P.n, 1);
+        const sel = pickKeep(sorted, heldOk, P.n, P.n * P.keepMult);
+        rmsSel = new Set(sel);
+        return equalW(sel, 1 / P.n, 1);
       }
       const out = new Map<string, number>();
-      for (const code of held) if (!rmsStopped.has(code)) out.set(code, -1);
+      for (const code of new Set([...held, ...rmsSel])) if (!rmsStopped.has(code)) out.set(code, -1);
       return out;
     },
   });

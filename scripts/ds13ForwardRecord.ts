@@ -12,6 +12,7 @@ import { DS13F_FREEZE_COMMIT, DS13F_START_AFTER, DS13F_REC_FULL, DS13F_REC_W1, D
 import { DQ_LIMIT_CHANGE_DATE, DQ_LIMIT_BEFORE, DQ_LIMIT_AFTER, DQ_LIMIT_TOL } from "@/lib/dataQualityConfig";
 import { f2, type Harness, type Win } from "./researchHarness";
 import type { Windows } from "./researchGates";
+import { rm1scPhase } from "./rm1scForwardRecord";
 
 export interface Ds13Args { h: Harness; k200p: K200PInfo; fixedDate: string; forward: boolean; /** 날짜 → 069500 원주가 종가·출처(관찰 단계) */ closes: Map<string, { px: number; src: string }>; /** 이 도구의 DS6(기존 계산) 일수익(%): 정보 대조용 */ ds6ToolRet: Map<string, number>; /** 시작 기준일(기본 DS13F_START_AFTER). 테스트 모드에서만 바꾼다. */ startAfter?: string; /** 테스트 모드: 이 폴더에 쓴다(docs/research 에 쓰지 않음). */ outDir?: string }
 type Rec = { cagr: string; mdd: string };
@@ -55,6 +56,7 @@ export async function ds13Phase(a: Ds13Args): Promise<void> {
     await fs.mkdir(path.dirname(DS13F_VERIFY_FILE), { recursive: true });
     await fs.writeFile(DS13F_VERIFY_FILE, JSON.stringify({ fixedDate, from, runs: Object.fromEntries(runs.map(([id, r]) => [id, preOf(r)])) }));
     console.log(`\nDS13 검증 단계 통과: DS13L·DS13M·DS6 고정 구간 재계산이 기록값과 일치, 고정 구간 일별 ${preOf(dL.base.res.run).d.length}일 저장 | 소요 ${((Date.now() - T) / 1000).toFixed(0)}초`);
+    await rm1scPhase({ h, E, W13, cS13, from, fixedDate, forward: false, dL, dM, ds6, closes: a.closes, nameOf, startAfter: a.startAfter, outDir: a.outDir });
     return;
   }
 
@@ -213,4 +215,5 @@ ${fmtL(lvHeld)}
   console.log(`\n${summary}\n이전 로그와 일수익이 달라진 행 ${nChanged}개 | 로그 ${DS13F_LOG_CSV} ${out.length}행 | 신호 기록 ${DS13F_SIGNALS_CSV} | 보유 ${DS13F_HOLDINGS_MD} | DQ ${DS13F_DQ_CSV}(신규 ${dqNew.length}건) | 소요 ${((Date.now() - T) / 1000).toFixed(0)}초`);
   if (a.outDir) for (const f of [DS13F_LOG_CSV, DS13F_SIGNALS_CSV, DS13F_DQ_CSV, DS13F_HOLDINGS_MD]) { const t = (await fs.readFile(P(f), "utf8")).split("\n"); console.log(`\n[테스트 모드 출력] ${path.basename(f)} (${t.length - 1}줄, 앞 14줄 + 마지막 4줄)\n${[...t.slice(0, 14), ...(t.length > 18 ? ["..."] : []), ...t.slice(-5)].join("\n").slice(0, 6000)}`); }
   if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, `### DS13 포워드 관찰\n\n${summary}\n`);
+  await rm1scPhase({ h, E, W13, cS13, from, fixedDate, forward: true, dL, dM, ds6, closes: a.closes, nameOf, startAfter: a.startAfter, outDir: a.outDir });
 }

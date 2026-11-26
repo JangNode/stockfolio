@@ -1673,7 +1673,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: DS6·DS13 포워드 로그 업로드 (커밋 작업과 보관용; 일별 수익·신호·보유·경고 요약 5개 파일, 가격 데이터 아님)
+      - name: DS6·DS13·RM1SC 포워드 로그 업로드 (커밋 작업과 보관용; 일별 수익·신호·보유·경고·상태·손절 점검 요약 9개 파일, 가격 데이터 아님)
         if: ${{ steps.ds6fwd_run.conclusion == 'success' && inputs.which == 'ds6fwd' && inputs.only == '' }}
         uses: actions/upload-artifact@v4
         with:
@@ -1684,6 +1684,10 @@ jobs:
             docs/research/ds13-forward-signals.csv
             docs/research/ds13-forward-dq.csv
             docs/research/ds13-forward-holdings.md
+            docs/research/rm1sc-forward-log.csv
+            docs/research/rm1sc-forward-state.csv
+            docs/research/rm1sc-forward-signals.csv
+            docs/research/rm1sc-forward-stops.csv
           retention-days: 90
 
       - name: 연구 진단 MDD 해부 (시험 아님, 읽기 전용, 고정 스냅샷, 외부 요청 0건)
@@ -1777,15 +1781,15 @@ jobs:
           name: ds6-forward-log
           path: .ds6fwd-artifact
 
-      - name: 포워드 로그 5개 파일만 커밋·푸시
+      - name: 포워드 로그 9개 파일만 커밋·푸시(DS6·DS13 5개 + RM1SC 4개)
         run: |
           set -e
-          for f in ds6-forward-log.csv ds13-forward-log.csv ds13-forward-signals.csv ds13-forward-dq.csv ds13-forward-holdings.md; do
+          for f in ds6-forward-log.csv ds13-forward-log.csv ds13-forward-signals.csv ds13-forward-dq.csv ds13-forward-holdings.md rm1sc-forward-log.csv rm1sc-forward-state.csv rm1sc-forward-signals.csv rm1sc-forward-stops.csv; do
             cp ".ds6fwd-artifact/$f" "docs/research/$f"
           done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/research/ds6-forward-log.csv docs/research/ds13-forward-log.csv docs/research/ds13-forward-signals.csv docs/research/ds13-forward-dq.csv docs/research/ds13-forward-holdings.md
+          git add docs/research/ds6-forward-log.csv docs/research/ds13-forward-log.csv docs/research/ds13-forward-signals.csv docs/research/ds13-forward-dq.csv docs/research/ds13-forward-holdings.md docs/research/rm1sc-forward-log.csv docs/research/rm1sc-forward-state.csv docs/research/rm1sc-forward-signals.csv docs/research/rm1sc-forward-stops.csv
           if git diff --cached --quiet; then echo "로그 변경 없음 — 커밋하지 않음"; exit 0; fi
           git diff --cached --stat
           rows=$(($(wc -l < docs/research/ds6-forward-log.csv) - 1))

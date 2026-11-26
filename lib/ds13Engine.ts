@@ -15,10 +15,11 @@ import { rebalSim, type RebalRun } from "@/lib/rebalSim";
 import { solveMinVar } from "@/lib/minVar";
 import { capWeights } from "@/lib/coreCapWeights";
 import { DS13_W, type Alloc3 } from "@/lib/ds13Config";
-import { B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, type RmP, type MvP } from "@/lib/batch5Config";
+import { B5_CORE_W, B5_FILTER_LOW, B5_RM_P0, B5_RM_NB, B5_MV_P0, B5_MV_NB, B5_MV_KKT_TOL, B5_MV_MAX_ITER, type RmP, type MvP } from "@/lib/batch5Config";
 import { DS89_RUN_START, DS89_WINDOWS, DS89_CORE_W } from "@/lib/ds89Config";
 import { SLIPPAGE_PCT_PER_SIDE } from "@/lib/transactionCostConfig";
 import { CS_SWAP_CONFIRM_DAYS, CS_RANK_DEPTH, CS_MOVE_COST } from "@/lib/coreSatelliteConfig";
+import { RM1S_P0, RM1S_NB, S_NEXT_MONTH_DAYS, type RmsP } from "@/lib/stopConfig";
 import type { Harness, S, Win, loadK200P } from "@/scripts/researchHarness";
 import type { Windows } from "@/scripts/researchGates";
 
@@ -55,6 +56,8 @@ export interface D13Parts { res: CombineNOut; rm: RebalRun; low: SimRun; core: C
 /** 공통 평가 시작 이후로 자른 일별 계열(구성요소 하나의 계좌 기준). */
 export interface Sl { dates: string[]; ret: number[]; costFrac: number[]; nPos: number[]; inv: number[]; turn: number[]; wMax: number[] }
 export type LvOpts = { lag: number; smooth?: number; replace?: Set<string>; /** 보고용(시뮬레이션에 영향 없음): 포워드 도구가 보유 종목표를 읽는 데 쓴다. */ onDay?: (c: number, V: number, held: [string, number][]) => void };
+/** RM1S 일별 상태 보고용 훅(시뮬레이션에 영향 없음): 신호일 c의 보유·진입 후 최고 종가·손절 플래그·월말 선정 종목(월말 아니면 null)·그날 목표표. */
+export type RmsHook = (c: number, info: { held: ReadonlySet<string>; peak: ReadonlyMap<string, number>; stopped: ReadonlySet<string>; sel: ReadonlySet<string> | null; table: Map<string, number> }) => void;
 export interface CombineNOut { run: SimRun; moved: number[]; cost: number[]; contribDaily: number[][]; wEnd: number[][] }
 
 export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
@@ -442,6 +445,52 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     slip: () => L_SLIPPAGE, vanish: "last", wOf: (P) => 1 / P.n,
   };
 
+  // ---- RM1S: RM1 + 손절(사전등록 docs/research/stop-prereg.md, 동결 docs/research/rm1sc-forward-freeze.md). 시험 코드(research-batch5.ts)와 포워드 도구가 함께 쓴다. ----
+  const meSet = new Set(monthEndIdx), cFirstME = monthEndIdx.find((x) => x >= 253) as number;
+  /** 보고용: 가장 최근에 돌린 RM1S 실행의 손절 발동 기록(신호일 c, 매도 체결일 c + 1). 새 실행이 시작되면 비워진다(같은 배열 객체를 유지). */
+  const rmsLog: { code: string; c: number }[] = [];
+  let rmsLastC = -1;
+  const rmsPeak = new Map<string, number>(), rmsStopped = new Set<string>();
+  /** 가장 최근 월말 신호의 선정 종목(하루 지연 lag 2에서 아직 체결 전인 종목도 월 중 "유지" 표지를 받게 한다: 구현 결함 수정, stop-prereg.md §7). */
+  let rmsSel = new Set<string>();
+  const mkRMS = (id: string, P0: RmsP, nbs: [string, Partial<RmsP>][], o: { shift?: number; onDay?: RmsHook } = {}): Strat<RmsP> => {
+    const shift = o.shift ?? 0, meS = shift === 0 ? meSet : new Set(monthEndIdx.map((c) => (c > cFirstME ? c - shift : c)));
+    return {
+      ...RM1, id, P0, nbs,
+      signalDays: Array.from({ length: CAL.length - cFirstME }, (_, k) => cFirstME + k), isSwap: () => true,
+      targets: (c, held, P) => {
+        if (c <= rmsLastC) { rmsPeak.clear(); rmsStopped.clear(); rmsSel = new Set(); rmsLog.length = 0; } // 새 실행 시작
+        rmsLastC = c;
+        for (const code of [...rmsPeak.keys()]) if (!held.has(code)) rmsPeak.delete(code);
+        for (const code of [...rmsStopped]) if (!held.has(code)) rmsStopped.delete(code);
+        for (const code of held) {
+          const s = h.byCode.get(code) as S, ic = rowAt(s, c);
+          if (ic === undefined) continue;
+          const px = s.close[ic], pk = Math.max(rmsPeak.get(code) ?? px, px);
+          rmsPeak.set(code, pk);
+          if (!rmsStopped.has(code) && px <= pk * (1 - P.stop)) { rmsStopped.add(code); rmsLog.push({ code, c }); }
+        }
+        let out: Map<string, number>, sel: Set<string> | null = null;
+        if (meS.has(c)) {
+          const sorted = rmSorted(c, P).map((x) => x.code).filter((code) => !rmsStopped.has(code)), heldOk = new Set([...held].filter((code) => !rmsStopped.has(code)));
+          sel = new Set(pickKeep(sorted, heldOk, P.n, P.n * P.keepMult));
+          rmsSel = new Set(sel);
+          out = equalW([...sel], 1 / P.n, 1);
+        } else {
+          out = new Map<string, number>();
+          for (const code of new Set([...held, ...rmsSel])) if (!rmsStopped.has(code)) out.set(code, -1);
+        }
+        o.onDay?.(c, { held, peak: rmsPeak, stopped: rmsStopped, sel, table: out });
+        return out;
+      },
+    };
+  };
+  /** 손절 발동 뒤 다음 달 수익: 매도 체결일(c + 1) 종가 → 그 뒤 S_NEXT_MONTH_DAYS거래일 종가(수정 종가, 달력 앞채움 값). 기간이 모자라면 NaN. */
+  const stopNext = (ev: { code: string; c: number }): number => {
+    const a = al(h.byCode.get(ev.code) as S), f = ev.c + 1, g = f + S_NEXT_MONTH_DAYS;
+    return g < CAL.length && a[f] > 0 && a[g] > 0 ? a[g] / a[f] - 1 : Number.NaN;
+  };
+
   // ---- MV1 ----
   const mvCov = (c: number, P: MvP): MvPick => {
     const rk = rank200(c), codes: string[] = [], rets: Float64Array[] = [];
@@ -583,5 +632,15 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     return { from, W0, rmP0, sigSet, coreSlOf, lowOf, build, merge, base };
   };
 
-  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of };
+  /** RM1SC = 코어 40% + RM1S 60%, 월 리밸런스(combineN). shift > 0은 정보용 견고성 점검(첫 신호일 뒤 월 신호일과 하위 계좌 간 재조정 신호를 shift 거래일 앞당김). */
+  const rm1scOf = (cS: number, Wx: Windows, o: { lag?: number; shift?: number; stopP?: Partial<RmsP>; replace?: Set<string>; onDay?: RmsHook } = {}) => {
+    const lag = o.lag ?? 1, shift = o.shift ?? 0, from = Wx.FULL.from;
+    const rms = mkRMS("RM1S", RM1S_P0, RM1S_NB, { shift, onDay: o.onDay });
+    const sigSet = new Set(monthEndIdx.filter((c) => c > cS).map((c) => CAL[c - shift]));
+    const sat = runS(rms, { ...RM1S_P0, ...o.stopP }, cS, null, { lag, detail: true, replace: o.replace });
+    const cx = coreOf(2, undefined, lag, {}), core = sliceSl(cx.sl, from), sls = [core, slFromRun(sat)];
+    return { res: combineN(sls, [B5_CORE_W, 1 - B5_CORE_W], CS_MOVE_COST, sigSet), sat, core: cx.run, sls, rms, sigSet, from };
+  };
+
+  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of, mkRMS, rmsLog, stopNext, rm1scOf, meSet, cFirstME };
 }

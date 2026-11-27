@@ -19,7 +19,7 @@ export const EG_NB: [string, Partial<EgP>][] = [["종목 수 20", { n: 20 }], ["
 export const EG_LAG_MONTHS = 12;
 /** 시작일 규칙(사전 승인 완화): BS1 적격 월말 종목 중 ROE(지금)·ROE(1년 전)가 모두 계산되는 비율이 이 값 이상이 처음 되는 월말. 못 넘으면 멈추고 보고. */
 export const EG_COVERAGE_MIN = 0.6;
-/** 시작일: 위 규칙을 데이터 점검(egcov)으로 적용한 결과. 점검 전에는 빈 문자열(= 미확정)이며 결과를 보기 전에 사전등록 §6에 기록한다. */
-export const EG_START = "";
+/** 시작일: 위 규칙을 데이터 점검(egcov, run 45939941455)으로 적용한 결과(사전등록 §6, 시험 전 기록). */
+export const EG_START = "2014-04-30";
 /** 사전 점검 재현 기록(ROE 시험 quality-summary.md, 시작 2012-04-30, 연속 CAGR / MDD, 보정 + 0% 처리 데이터). */
 export const EG_REF = { qStart: "2012-04-30", q1: [-1.17, 66.0], qv1: [5.68, 56.79] } as const;

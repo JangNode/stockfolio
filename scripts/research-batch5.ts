@@ -2637,6 +2637,8 @@ async function main(): Promise<void> {
         return sd > 0 ? sumRes / (sd * Math.sqrt(n)) : Number.NaN;
       };
       let nOkAll = 0, nSetBad = 0, nRankBad = 0, nTopBad = 0, minC = 1e9, maxC = 0, sumC = 0, nLt = 0;
+      let nCandChk = 0, nDupDiff = 0;
+      const dupEx: string[] = [];
       const rows: string[] = [];
       for (const c of picks) {
         const d = CAL[c], el = bruteBs(c, B5_BS_P0).map((x) => x.code), br: { code: string; pbr: number; sc: number }[] = [];
@@ -2644,8 +2646,10 @@ async function main(): Promise<void> {
         for (const code of el) {
           const s = h.byCode.get(code) as S, i = bsExact(s, c);
           if (i < 0) continue;
+          // 접수일 < 신호일 중 가장 늦은 접수일, 같은 접수일이면 연결 우선, 접수일·구분이 같은 중복 행은 자료 파일 순서상 마지막 행(VB1 모듈 latestEq와 같은 규칙; 첫 실행의 독립 계산은 이 마지막 규칙이 없어 불일치했다)
           let best: EqRec | undefined;
-          for (const e of eqBy.get(code) ?? []) if (e.rcept < d && (!best || e.rcept > best.rcept || (e.rcept === best.rcept && e.cfs))) best = e;
+          for (const e of eqBy.get(code) ?? []) if (e.rcept < d && (!best || e.rcept > best.rcept || (e.rcept === best.rcept && Number(e.cfs) >= Number(best.cfs)))) best = e;
+          if (best) { const dp = (eqBy.get(code) ?? []).filter((e) => e.rcept === best?.rcept && e.cfs === best?.cfs && e.eq !== best?.eq); nCandChk++; if (dp.length) { nDupDiff++; if (dupEx.length < 6) dupEx.push(`${code} 접수일 ${best.rcept} ${best.cfs ? "연결" : "별도"} 선택 ${best.eq} · 같은 접수일·구분 다른 자본값 ${dp.map((x) => x.eq).join("/")}`); } }
           const pbr = !best ? Number.NaN : dayDiffV(best.rcept, d) > CM1_P0.maxAge || !(best.eq > 0) ? Number.NaN : (s.mcapRow[i] * 1e8) / best.eq;
           if (Number.isFinite(pbr)) nPbr++;
           const sc = brRm(s, c, CM1_P0.rm);
@@ -2676,6 +2680,7 @@ async function main(): Promise<void> {
         rows.push(`${d} 적격 ${el.length} → PBR 있음 ${nPbr} → 모멘텀 점수 있음 ${nRm} → 후보 ${bAvg.length}(모듈 ${md.length}) | 상위 3 ${md.slice(0, 3).map((x) => `${label(x.code)}(${x.rP}·${x.rM})`).join(", ")}`);
       }
       console.log(`[점검 5] 후보 집합·PBR 순위·RM1 순위·평균 순위 상위 30 독립 재계산(전 종목 직접 훑기) 월말 ${picks.length}개: 전부 일치 ${nOkAll}개 | 후보 집합 불일치 ${nSetBad} · 순위 불일치 ${nRankBad} · 상위 30 불일치 ${nTopBad}\n${rows.map((x) => `  ${x}`).join("\n")}`);
+      console.log(`[점검 5] 참고: 독립 재계산 대상 적격 종목-월 ${nCandChk}건 중 접수일·구분이 같은데 자본값이 다른 중복 행이 있는 경우 ${nDupDiff}건(VB1과 같은 규칙: 자료 파일 순서상 마지막 행 사용)${dupEx.length ? ` | 예: ${dupEx.join(" ; ")}` : ""}`);
       if (nOkAll !== picks.length) fails.push(`독립 재계산 불일치(집합 ${nSetBad}·순위 ${nRankBad}·상위 30 ${nTopBad})`);
       const all = mes.map((c) => cmRows(c).length);
       console.log(`[점검 5] 후보 집합 크기(월말 ${mes.length}개 전체): 최소 ${Math.min(...all)} · 평균 ${f2(avg(all))} · 최대 ${Math.max(...all)} | 30개 미만 월 ${all.filter((x) => x < CM1_P0.n).length}개 | 첫 신호일 후보 ${all[0]}개`);

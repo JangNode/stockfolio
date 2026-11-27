@@ -652,5 +652,5 @@ export function makeDs13Engine(h: Harness, k200p: K200PInfo) {
     return { res: combineN(sls, [B5_CORE_W, 1 - B5_CORE_W], CS_MOVE_COST, sigSet), sat, core: cx.run, sls, rms, sigSet, from };
   };
 
-  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of, mkRMS, rmsLog, stopNext, rm1scOf, meSet, cFirstME, makeStopper };
+  return { runLV1, simCore, megaAt, cPE, NW, FULL, W, env, label, randLV1, mcapNear, slice, lv1Of, nDays, zeroSl, bhRet, coreOf, coreReplSet, combineCS, DS6D, build, rank200, al, nRows, rowAt, bL, filterMult, retFill, medianOf, sdOf, monthEndIdx, isQuarterEnd, pickKeep, equalW, rmSorted, rmScore, RM1, mvCov, mvStats, MV1, sigDays, startOf, runS, sliceSl, slFromRun, combine2, combineN, d13Of, mkRMS, rmsLog, stopNext, rm1scOf, meSet, cFirstME, makeStopper };
 }

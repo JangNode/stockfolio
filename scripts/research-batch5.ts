@@ -2659,6 +2659,15 @@ async function main(): Promise<void> {
         const setOk = md.length === bAvg.length && new Set(md.map((x) => x.code)).size === new Set(bAvg.map((x) => x.code)).size && md.every((x) => mP.has(x.code));
         const rankOk = md.length === bAvg.length && md.every((x, k) => x.rP === bAvg[k].rP && x.rM === bAvg[k].rM && x.code === bAvg[k].code && Math.abs(x.avg - bAvg[k].avg) < 1e-12);
         const topOk = md.slice(0, 30).map((x) => x.code).join() === bAvg.slice(0, 30).map((x) => x.code).join();
+        if (!rankOk) {
+          // 진단 출력(성과 아님): 어느 순위가 어떻게 다른지
+          const bSc = new Map(br.map((x) => [x.code, x.sc] as [string, number])), bPb = new Map(br.map((x) => [x.code, x.pbr] as [string, number]));
+          const rPbad = md.filter((x) => mP.get(x.code) !== x.rP).length, rMbad = md.filter((x) => mM.get(x.code) !== x.rM).length, ordBad = md.filter((x, k) => x.code !== bAvg[k]?.code).length;
+          let dSc = 0, dPb = 0;
+          for (const x of md) { dSc = Math.max(dSc, Math.abs(x.sc - (bSc.get(x.code) as number))); dPb = Math.max(dPb, Math.abs(x.pbr - (bPb.get(x.code) as number)) / Math.abs(x.pbr)); }
+          const firstBad = md.map((x, k) => ({ x, k })).filter(({ x, k }) => x.code !== bAvg[k]?.code || x.rP !== bAvg[k]?.rP || x.rM !== bAvg[k]?.rM).slice(0, 3);
+          console.log(`  [진단] ${d}: PBR 순위 다른 종목 ${rPbad}개 · 모멘텀 순위 다른 종목 ${rMbad}개 · 평균 순위 순서 다른 위치 ${ordBad}개 | 점수 최대 차이 ${dSc.toExponential(2)} · PBR 최대 상대 차이 ${dPb.toExponential(2)} | 처음 다른 위치 ${firstBad.map(({ x, k }) => `#${k + 1} 모듈 ${x.code}(${x.rP}·${x.rM}·${x.avg}) vs 독립 ${bAvg[k]?.code}(${bAvg[k]?.rP}·${bAvg[k]?.rM}·${bAvg[k]?.avg})`).join(" ; ")}`);
+        }
         if (!setOk) nSetBad++;
         if (!rankOk) nRankBad++;
         if (!topOk) nTopBad++;

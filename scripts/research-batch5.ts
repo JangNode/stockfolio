@@ -41,6 +41,7 @@ import { V3_F_DENOMINATOR, V3_TOP_N, V3_MDD_WINDOW, V3_TERCILES, V3_WATCH, VL1_P
 import { VEQ_DATA_FILE, VEQ_DATA_CACHE_NAME } from "@/lib/valueEquityConfig";
 import { VS_F_DENOMINATOR, VS_START, VS_REF, VB1S_P0, VB1S_NB, type VbsP } from "@/lib/vbStopConfig";
 import { CM_F_DENOMINATOR, CM_START, CM_REF, CM1_P0, CM1S_P0, CM1_NB, CM1S_NB, type CmP } from "@/lib/compositeConfig";
+import { EG_F_DENOMINATOR, EG_LAG_MONTHS, EG_COVERAGE_MIN, EG_START, EG_REF, EG1_P0, EGM1_P0, EG_NB, type EgP } from "@/lib/roeChgConfig";
 import { S_F_DENOMINATOR, S_NEXT_MONTH_DAYS, S_REF, RM1S_P0, RM1S_NB, type RmsP } from "@/lib/stopConfig";
 import { E_F_DENOMINATOR, E_PLANNED_START, EY1_P0, EY1_NB, type EyP } from "@/lib/eyConfig";
 import { M_F_DENOMINATOR, M_REF_CAPW, M_REF_CAPW_USER, TC1_P0, TC1_NB, TC2_P0, TC2_NB, type TcP } from "@/lib/megacapConfig";
@@ -56,7 +57,7 @@ const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").up
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest", "qdata", "qpre", "qinfo", "qtest", "hpre", "htest", "hinfo", "mpre", "mtest", "minfo", "epre", "etest", "einfo", "spre", "stest", "sinfo", "sinfo2", "vbspre", "vbstest", "vbsinfo", "vbsinfo2", "cmpre", "cmtest", "cminfo", "cminfo2"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest|qdata 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest", "qdata", "qpre", "qinfo", "qtest", "hpre", "htest", "hinfo", "mpre", "mtest", "minfo", "epre", "etest", "einfo", "spre", "stest", "sinfo", "sinfo2", "vbspre", "vbstest", "vbsinfo", "vbsinfo2", "cmpre", "cmtest", "cminfo", "cminfo2", "egcov", "egpre", "egtest", "eginfo", "eginfo2"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest|qdata 필요");
   const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
   if (NEUTRALIZE_ON) console.log(`*** 정보용 중립화 모드(NEUTRALIZE_CODES=${process.env.NEUTRALIZE_CODES}): 해당 종목의 수정 수익률을 전 기간 0으로 둔다(시험 아님) ***`);
   if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob" && MODE !== "vdata" && MODE !== "vcov" && MODE !== "vpre" && MODE !== "vinfo" && MODE !== "vtest" && !/^v[23]/.test(MODE) && !(/^(q|h|m|e|s)(pre|info|test)$/.test(MODE) || /^(vbs|cm)(pre|info|test)$/.test(MODE)) && !((MODE === "minfo" || MODE === "sinfo" || MODE === "vbsinfo" || MODE === "cminfo") && NEUTRALIZE_ON)) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
@@ -1116,6 +1117,61 @@ async function main(): Promise<void> {
     pool: (c, P) => qSorted(c, P),
     slip: (code, c, lag) => (rank200(Math.max(c - lag, 0)).rank.has(code) ? B5_BS_SLIP_K200 : B5_BS_SLIP_OTHER), vanish: "rule", vanishLoss: vbVanishLoss, wOf: (P) => 1 / P.n,
   });
+  // =====================================================================================================================
+  // ROE 변화 EG1(335)·EGM1(336): 사전등록 docs/research/roechg-prereg.md, 기준값 lib/roeChgConfig.ts (ROE는 lib/qualityRoe.ts의 TTM 정의 그대로, 유니버스·체결·비용은 VB1·Q1과 같음, 모멘텀 점수는 RM1 rmScore)
+  // =====================================================================================================================
+  const egPrevMap = new Map<number, number>();
+  /** 신호일(월말) c보다 EG_LAG_MONTHS개월 앞선 월말 인덱스(없으면 −1). */
+  const egPrevC = (c: number): number => {
+    if (!egPrevMap.size) monthEndIdx.forEach((x, j) => { if (j >= EG_LAG_MONTHS) egPrevMap.set(x, monthEndIdx[j - EG_LAG_MONTHS]); });
+    return egPrevMap.get(c) ?? -1;
+  };
+  type EgRow = { code: string; roe: number; prev: number; chg: number };
+  const egMemo = new Map<string, EgRow[]>();
+  /** 신호일 c(ROE 기준일 CAL[c])와 1년 전 기준 인덱스 cp(ROE 기준일 CAL[cp])로: BS1 적격 ∩ ROE(지금)·ROE(1년 전) 둘 다 "계산됨"인 종목을 ROE 변화 내림차순(동점은 종목코드)으로. */
+  const egRowsAt = (c: number, cp: number): EgRow[] => {
+    if (cp < 0) return [];
+    const key = `${c}|${cp}`, hit = egMemo.get(key);
+    if (hit) return hit;
+    const out: EgRow[] = [], d = CAL[c], dp = CAL[cp];
+    for (const code of bsElig(c, B5_BS_P0)) {
+      const a = roeOf(code, d, EG1_P0.maxAge);
+      if (a.why !== "ok") continue;
+      const b = roeOf(code, dp, EG1_P0.maxAge);
+      if (b.why !== "ok") continue;
+      out.push({ code, roe: a.roe as number, prev: b.roe as number, chg: (a.roe as number) - (b.roe as number) });
+    }
+    out.sort((x, y) => y.chg - x.chg || (x.code < y.code ? -1 : 1));
+    egMemo.set(key, out);
+    return out;
+  };
+  type EgmRow = EgRow & { sc: number; rC: number; rM: number; avg: number };
+  const egmMemo = new Map<string, EgmRow[]>();
+  /** EGM1: EG1 후보 ∩ RM1 점수 계산 가능, (ROE 변화 순위 + 모멘텀 순위) ÷ 2 오름차순(동점은 ROE 변화 순위 → 종목코드). */
+  const egmRowsAt = (c: number, cp: number): EgmRow[] => {
+    const key = `${c}|${cp}`, hit = egmMemo.get(key);
+    if (hit) return hit;
+    const base = egRowsAt(c, cp).map((x) => ({ ...x, sc: rmScore(h.byCode.get(x.code) as S, c, EGM1_P0.rm) })).filter((x) => Number.isFinite(x.sc));
+    const rC = new Map(base.map((x, k) => [x.code, k + 1] as [string, number])), rM = new Map([...base].sort((a, b) => b.sc - a.sc || (a.code < b.code ? -1 : 1)).map((x, k) => [x.code, k + 1] as [string, number]));
+    const out = base.map((x) => ({ ...x, rC: rC.get(x.code) as number, rM: rM.get(x.code) as number, avg: ((rC.get(x.code) as number) + (rM.get(x.code) as number)) / 2 })).sort((a, b) => a.avg - b.avg || a.rC - b.rC || (a.code < b.code ? -1 : 1));
+    egmMemo.set(key, out);
+    return out;
+  };
+  const egSorted = (c: number): string[] => egRowsAt(c, egPrevC(c)).map((x) => x.code);
+  const egmSorted = (c: number): string[] => egmRowsAt(c, egPrevC(c)).map((x) => x.code);
+  /** shift > 0(정보용 견고성 점검): 첫 신호일 뒤 월 신호일을 shift 거래일 앞당기고, 1년 전 기준일도 같은 만큼 앞당긴다. */
+  const mkEG = (id: string, P0: EgP, nbs: [string, Partial<EgP>][], withMom: boolean, o: { shift?: number } = {}): Strat<EgP> => {
+    const shift = o.shift ?? 0, first = monthEndIdx.find((x) => x >= cStartV) as number;
+    const meOf = (c: number): number => (shift === 0 || c === first ? c : c + shift);
+    const cpOf = (c: number): number => { const cp = egPrevC(meOf(c)); return cp < 0 ? -1 : meOf(c) === c ? cp : cp - shift; };
+    const sorted = (c: number): string[] => (withMom ? egmRowsAt(c, cpOf(c)) : egRowsAt(c, cpOf(c))).map((x) => x.code);
+    return {
+      id, P0, nbs, signalDays: monthEndIdx.filter((c) => c >= cStartV).map((c) => (shift > 0 && c > first ? c - shift : c)), isSwap: () => true,
+      targets: (c, held, P, m) => equalW(pickKeep(sorted(c), held, P.n, P.n * P.keepMult), 1 / P.n, m),
+      pool: (c) => sorted(c),
+      slip: (code, c, lag) => (rank200(Math.max(c - lag, 0)).rank.has(code) ? B5_BS_SLIP_K200 : B5_BS_SLIP_OTHER), vanish: "rule", vanishLoss: vbVanishLoss, wOf: (P) => 1 / P.n,
+    };
+  };
   // =====================================================================================================================
   // 52주 신고가 근접 HM1(323)·HM1C(324): 사전등록 docs/research/high52-prereg.md, 기준값 lib/high52Config.ts
   // =====================================================================================================================
@@ -2569,6 +2625,40 @@ async function main(): Promise<void> {
       console.log(`합계 ${tot}건, 발동이 많았던 해 ${top.map(([y, n]) => `${y} ${n}건`).join(" · ")} | 평균 현금 비중(전체 평균) RM1S ${f2(avg([...cashS.values()].flat()))}% · RM1SC ${f2(avg([...cashC.values()].flat()))}%`);
     }
     console.log(`\n정보용 실행 종료(시험 아님, 판정 변경 없음) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
+    return;
+  }
+  if (MODE === "egcov") {
+    // ROE 변화 데이터 점검(집계만, 수익·신호 성과 계산 없음): 월말마다 BS1 적격 종목 중 ROE(지금)·ROE(1년 전)가 모두 "계산됨"인 비율 → 시작일 규칙(EG_COVERAGE_MIN) 적용.
+    await loadEqTables();
+    await loadRoe();
+    const mes = monthEndIdx.filter((c) => egPrevC(c) >= 0);
+    const rows = mes.map((c) => {
+      const d = CAL[c], dp = CAL[egPrevC(c)], el = bsElig(c, B5_BS_P0), whyNow = new Map<RoeWhy, number>(), whyPrev = new Map<RoeWhy, number>();
+      let nowOk = 0, prevOk = 0, both = 0;
+      for (const code of el) {
+        const a = roeOf(code, d, EG1_P0.maxAge), b = roeOf(code, dp, EG1_P0.maxAge);
+        if (a.why === "ok") nowOk++; else whyNow.set(a.why, (whyNow.get(a.why) ?? 0) + 1);
+        if (b.why === "ok") prevOk++; else whyPrev.set(b.why, (whyPrev.get(b.why) ?? 0) + 1);
+        if (a.why === "ok" && b.why === "ok") both++;
+      }
+      const n = Math.max(el.length, 1);
+      return { d, dp, n: el.length, nowOk, prevOk, both, rNow: nowOk / n, rPrev: prevOk / n, rBoth: both / n, whyNow, whyPrev };
+    });
+    console.log(`\n=== [E0] 월말별 ROE(지금)·ROE(1년 전) 계산 비율(BS1 적격 종목 수 기준; 계산됨 = Q1 roeAt "ok": 경과 ${EG1_P0.maxAge}일 이내 ∧ TTM 계산 가능 ∧ 자본 > 0 ∧ 순이익 TTM > 0) — 연도별 월평균과 처음 60% 근처 월 ===`);
+    const byY = new Map<string, typeof rows>();
+    for (const r of rows) { const y = r.d.slice(0, 4), a = byY.get(y) ?? []; a.push(r); byY.set(y, a); }
+    for (const [y, a] of [...byY.entries()].sort()) console.log(`${y}: 월말 ${a.length}개 | 지금 ${f2(avg(a.map((x) => x.rNow)) * 100)}% · 1년 전 ${f2(avg(a.map((x) => x.rPrev)) * 100)}% · 둘 다 ${f2(avg(a.map((x) => x.rBoth)) * 100)}% | 둘 다 60% 이상 ${a.filter((x) => x.rBoth >= EG_COVERAGE_MIN).length}/${a.length}개월`);
+    const first = rows.find((r) => r.rBoth >= EG_COVERAGE_MIN);
+    console.log(`\n월별(2011~2014): 월말 | BS1 적격 | 지금 계산 | 1년 전 계산 | 둘 다 | 둘 다 비율`);
+    for (const r of rows.filter((x) => x.d < "2014-01-01")) console.log(`${r.d} | ${r.n} | ${r.nowOk} | ${r.prevOk} | ${r.both} | ${f2(r.rBoth * 100)}%${first && r.d === first.d ? "  ← 처음 60% 이상" : ""}`);
+    if (!first) { console.log(`\n시작일 규칙(둘 다 계산 비율 ≥ ${EG_COVERAGE_MIN * 100}%인 첫 월말) 충족 월 없음 — 시험하지 않고 멈춰 보고한다`); throw new Error("ROE 변화 시작일 규칙 충족 월 없음 — 중단"); }
+    const after = rows.filter((x) => x.d >= first.d), dips = after.filter((x) => x.rBoth < EG_COVERAGE_MIN);
+    const fmtWhy = (m: Map<RoeWhy, number>): string => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(" · ");
+    console.log(`\n시작일(규칙 적용 결과): **${first.d}**(1년 전 기준일 ${first.dp}) | BS1 적격 ${first.n}, 지금 계산 ${first.nowOk}, 1년 전 계산 ${first.prevOk}, 둘 다 ${first.both}(${f2(first.rBoth * 100)}%) | 지금 불가 사유 ${fmtWhy(first.whyNow)} | 1년 전 불가 사유 ${fmtWhy(first.whyPrev)}`);
+    console.log(`시작일 이후 월말 ${after.length}개: 둘 다 비율 최소 ${f2(Math.min(...after.map((x) => x.rBoth)) * 100)}% 평균 ${f2(avg(after.map((x) => x.rBoth)) * 100)}% | 60% 미만으로 다시 떨어진 월 ${dips.length}개${dips.length ? `(${dips.slice(0, 12).map((x) => `${x.d} ${f2(x.rBoth * 100)}%`).join(", ")})` : ""}`);
+    const cands = after.map((x) => egRowsAt(monthEndIdx.find((c) => CAL[c] === x.d) as number, egPrevC(monthEndIdx.find((c) => CAL[c] === x.d) as number)).length);
+    console.log(`EG1 후보 수(시작일 이후 월말): 최소 ${Math.min(...cands)} · 평균 ${f2(avg(cands))} · 최대 ${Math.max(...cands)} | 30개 미만 월 ${cands.filter((x) => x < EG1_P0.n).length}개`);
+    console.log(`\nROE 변화 데이터 점검 종료(성과 미계산) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
     return;
   }
   if (MODE === "cmpre") {

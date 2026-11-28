@@ -1186,29 +1186,36 @@ async function main(): Promise<void> {
   const divBy = new Map<string, DivRec[]>();
   const divStat = { rows: 0, s000: 0, s013: 0, num: 0, dash: 0, nocommon: 0, none: 0, amended: 0 };
   const divRaw: { code: string; fy: number; status: string; rcept: string; raw: string; rows: string; d0: number | null; d1: number | null; d2: number | null }[] = [];
+  /** 보통주 행 판별(사전등록 div-prereg.md §데이터 해석): "보통" 표기 행이 있으면 그 첫 행, 없으면 첫 행이 우선·종류 표기가 아닐 때 첫 행(원행 점검 dvraw: 보통·우선 표기가 같이 있는 12,468행에서 보통주가 첫 행인 경우 98.85%). */
+  const divParse = (rows: string): { knd: string; tok: string[] }[] => rows.split(";").filter((x) => x !== "").map((x) => { const a = x.split("|"); return { knd: (a[0] ?? "").trim(), tok: [(a[1] ?? "").trim(), (a[2] ?? "").trim(), (a[3] ?? "").trim()] }; });
+  const divNum = (t: string): number | null => { const u = t.replace(/,/g, ""); if (u === "" || u === "-") return null; const v = Number(u); return Number.isFinite(v) ? v : null; };
+  const divPick = (ps: { knd: string; tok: string[] }[]): { knd: string; tok: string[] } | undefined => ps.find((x) => /보통/.test(x.knd)) ?? (ps.length > 0 && !ps.some((x) => /보통/.test(x.knd)) && !/우선|종류/.test(ps[0].knd) ? ps[0] : undefined);
   const loadDiv = async (): Promise<void> => {
     const buf = await cachedBytes("div_dividend.parquet", () => downloadBuf(DIV_DATA_FILE));
     if (!buf) throw new Error("research/dividend/dividend.parquet가 없다 — 중단");
     const nz = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    let nStoredDiff = 0, nStoredSame = 0;
     for (const r of await decodeTable(buf)) {
       divStat.rows++;
-      const status = String(r.status), code = String(r.stock_code), fy = Number(r.bsns_year), rcept = String(r.rcept_dt ?? ""), raw = String(r.dps_common_raw ?? "").trim(), rows = String(r.dps_rows ?? "");
-      divRaw.push({ code, fy, status, rcept, raw, rows, d0: nz(r.dps_common), d1: nz(r.frmtrm_common), d2: nz(r.lwfr_common) });
+      const status = String(r.status), code = String(r.stock_code), fy = Number(r.bsns_year), rcept = String(r.rcept_dt ?? ""), rows = String(r.dps_rows ?? "");
+      const com = divPick(divParse(rows)), raw = com ? com.tok[0] : "", d0 = com ? divNum(com.tok[0]) : null, d1 = com ? divNum(com.tok[1]) : null, d2 = com ? divNum(com.tok[2]) : null;
+      divRaw.push({ code, fy, status, rcept, raw, rows, d0, d1, d2 });
       if (status === "013") { divStat.s013++; continue; }
       if (status !== "000") continue;
       divStat.s000++;
       if (!rcept) continue;
-      const d0 = nz(r.dps_common);
+      const sd = nz(r.dps_common); // 수집 시점 파서 값(보통 표기 행 또는 단일 행)과의 일관성 점검
+      if (sd !== null) { if (sd === d0) nStoredSame++; else nStoredDiff++; }
       let kind: DivRec["kind"];
       if (d0 !== null) { kind = "num"; divStat.num++; }
       else if (raw === "-") { kind = "dash"; divStat.dash++; }
       else if (rows === "") { kind = "none"; divStat.none++; }
       else { kind = "nocommon"; divStat.nocommon++; }
       const am = String(r.amended ?? "") === "Y"; if (am) divStat.amended++;
-      const a = divBy.get(code) ?? []; a.push({ fy, rcept, d0, d1: nz(r.frmtrm_common), d2: nz(r.lwfr_common), kind, amended: am, no: String(r.rcept_no ?? "") }); divBy.set(code, a);
+      const a = divBy.get(code) ?? []; a.push({ fy, rcept, d0, d1, d2, kind, amended: am, no: String(r.rcept_no ?? "") }); divBy.set(code, a);
     }
     for (const a of divBy.values()) a.sort((x, y) => x.fy - y.fy || (x.rcept < y.rcept ? -1 : 1));
-    console.log(`배당 자료 적재: 행 ${divStat.rows}(status 000 ${divStat.s000} · 013 ${divStat.s013}), 접수일 있는 000 행: 숫자 ${divStat.num} · 대시("-") ${divStat.dash} · 보통주 행 판별 불가 ${divStat.nocommon} · 배당 항목 없음 ${divStat.none} | 정정본 ${divStat.amended} | 종목 ${divBy.size}개`);
+    console.log(`배당 자료 적재: 행 ${divStat.rows}(status 000 ${divStat.s000} · 013 ${divStat.s013}), 접수일 있는 000 행: 숫자 ${divStat.num} · 대시("-") ${divStat.dash} · 보통주 행 판별 불가 ${divStat.nocommon} · 배당 항목 없음 ${divStat.none} | 정정본 ${divStat.amended} | 종목 ${divBy.size}개 | 수집 시점 파서 값이 있던 행 ${nStoredSame + nStoredDiff}건 중 재해석과 같음 ${nStoredSame} · 다름 ${nStoredDiff}`);
   };
   type DivWhy = "ok" | "no_report" | "stale" | "no_common" | "no_value";
   interface DivOut { why: DivWhy; fy?: number; rcept?: string; dps?: number; d1?: number | null; d2?: number | null; age?: number }

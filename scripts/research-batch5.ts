@@ -5434,7 +5434,8 @@ async function main(): Promise<void> {
             if (/홀딩스|지주|Holdings/i.test(label(code))) nHold++;
           }
         }
-        console.log(`${nm}: 평균 배당수익률 ${f2(avg(yv) * 100)}%(중앙값 ${f2(median(yv) * 100)}%, 계산 ${yv.length}/${nAll}건) | 평균 PBR ${f2(avg(pv))}(중앙값 ${f2(median(pv))}, PBR 계산 ${pv.length}/${nAll}건) | 금융주 비중 ${f2((nFin / Math.max(nAll, 1)) * 100)}%(보유 종목-월 ${nAll}건 중 ${nFin}건) | 지주사 비중 ${f2((nHold / Math.max(nAll, 1)) * 100)}%(${nHold}건)`);
+        console.log(`${nm}: 배당수익률 30% 초과 보유 종목-월 ${yv.filter((x) => x > 0.3).length}건 · 100% 초과 ${yv.filter((x) => x > 1).length}건 · 최댓값 ${f2(Math.max(...yv, 0) * 100)}%(액면분할 직후 미보정·단위 오류 이상치 영향 확인용, 정의는 바꾸지 않음)
+${nm}: 평균 배당수익률 ${f2(avg(yv) * 100)}%(중앙값 ${f2(median(yv) * 100)}%, 계산 ${yv.length}/${nAll}건) | 평균 PBR ${f2(avg(pv))}(중앙값 ${f2(median(pv))}, PBR 계산 ${pv.length}/${nAll}건) | 금융주 비중 ${f2((nFin / Math.max(nAll, 1)) * 100)}%(보유 종목-월 ${nAll}건 중 ${nFin}건) | 지주사 비중 ${f2((nHold / Math.max(nAll, 1)) * 100)}%(${nHold}건)`);
       }
     }
     // ---- [D2] 후보 집합 크기 · [D3] 제외 종목-월 비율 ----

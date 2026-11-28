@@ -45,7 +45,7 @@ import { EG_F_DENOMINATOR, EG_LAG_MONTHS, EG_COVERAGE_MIN, EG_START, EG_REF, EG1
 import { RV_F_DENOMINATOR, RV_MIN_VALID_FRAC, RV_REF, RV1_P0, RV1_NB, type RvP } from "@/lib/rm1vConfig";
 import { DS15_F_DENOMINATOR, DS15_NB_W, DS15_REF } from "@/lib/ds15Config";
 import { DIV_DATA_FILE } from "@/lib/dividendConfig";
-import { DV_F_DENOMINATOR, DV_FIRST_TRIAL, DV_PRIOR_TESTS, DV1_P0, DV_NB, DV_COVERAGE_MIN, DV1C_W, DV_WIN1_TO, DV_WIN2_FROM, DV_DS6_REF, DV_RECALC_N, type DvP } from "@/lib/dividendTestConfig";
+import { DV_F_DENOMINATOR, DV_FIRST_TRIAL, DV_PRIOR_TESTS, DV1_P0, DV_NB, DV_COVERAGE_MIN, DV1C_W, DV_WIN1_TO, DV_WIN2_FROM, DV_DS6_REF, DV_RECALC_N, DV_START, DV_HIST_YEARS, type DvP } from "@/lib/dividendTestConfig";
 import { S_F_DENOMINATOR, S_NEXT_MONTH_DAYS, S_REF, RM1S_P0, RM1S_NB, type RmsP } from "@/lib/stopConfig";
 import { E_F_DENOMINATOR, E_PLANNED_START, EY1_P0, EY1_NB, type EyP } from "@/lib/eyConfig";
 import { M_F_DENOMINATOR, M_REF_CAPW, M_REF_CAPW_USER, TC1_P0, TC1_NB, TC2_P0, TC2_NB, type TcP } from "@/lib/megacapConfig";
@@ -61,10 +61,10 @@ const sha = (b: Uint8Array | Buffer | string): string => createHash("sha256").up
 
 async function main(): Promise<void> {
   const MODE = (process.env.ALLOC_MODE ?? "").trim().toLowerCase();
-  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest", "qdata", "qpre", "qinfo", "qtest", "hpre", "htest", "hinfo", "mpre", "mtest", "minfo", "epre", "etest", "einfo", "spre", "stest", "sinfo", "sinfo2", "vbspre", "vbstest", "vbsinfo", "vbsinfo2", "cmpre", "cmtest", "cminfo", "cminfo2", "egcov", "egpre", "egtest", "eginfo", "eginfo2", "rvpre", "rvtest", "rvinfo", "rvinfo2", "ds15pre", "ds15test", "ds15info", "ds15info2", "dvcov", "dvpre", "dvtest", "dvinfo", "dvinfo2"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest|qdata 필요");
+  if (!["repro", "a", "b1", "b2", "b3", "b4", "c", "info", "bsv", "dq", "rtpre", "rt", "kcorr", "kcov", "ds13pre", "ds13", "ds13ex", "ds13rob", "vdata", "vcov", "vpre", "vinfo", "vtest", "v2pre", "v2info", "v2test", "v3pre", "v3info", "v3test", "mininsp", "mininsp2", "intpre", "inttest", "qdata", "qpre", "qinfo", "qtest", "hpre", "htest", "hinfo", "mpre", "mtest", "minfo", "epre", "etest", "einfo", "spre", "stest", "sinfo", "sinfo2", "vbspre", "vbstest", "vbsinfo", "vbsinfo2", "cmpre", "cmtest", "cminfo", "cminfo2", "egcov", "egpre", "egtest", "eginfo", "eginfo2", "rvpre", "rvtest", "rvinfo", "rvinfo2", "ds15pre", "ds15test", "ds15info", "ds15info2", "dvcov", "dvraw", "dvpre", "dvtest", "dvinfo", "dvinfo2"].includes(MODE)) throw new Error("ALLOC_MODE=repro|a|b1|b2|b3|b4|c|info|bsv|dq|rtpre|rt|kcorr|kcov|ds13pre|ds13|ds13ex|ds13rob|vdata|vcov|vpre|vinfo|vtest|v2pre|v2info|v2test|v3pre|v3info|v3test|mininsp|mininsp2|intpre|inttest|qdata 필요");
   const IDS = (process.env.B5_IDS ?? "").trim() ? new Set((process.env.B5_IDS as string).split(",").map((x) => x.trim())) : null;
   if (NEUTRALIZE_ON) console.log(`*** 정보용 중립화 모드(NEUTRALIZE_CODES=${process.env.NEUTRALIZE_CODES}): 해당 종목의 수정 수익률을 전 기간 0으로 둔다(시험 아님) ***`);
-  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob" && MODE !== "vdata" && MODE !== "vcov" && MODE !== "vpre" && MODE !== "vinfo" && MODE !== "vtest" && !/^v[23]/.test(MODE) && !(/^(q|h|m|e|s)(pre|info|test)$/.test(MODE) || /^(vbs|cm|eg|rv|ds15|dv)(pre|info|test)$/.test(MODE)) && !((MODE === "minfo" || MODE === "sinfo" || MODE === "vbsinfo" || MODE === "cminfo" || MODE === "rvinfo" || MODE === "ds15info") && NEUTRALIZE_ON)) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
+  if (PRICE_CORRECTION_ON && MODE !== "ds13pre" && MODE !== "ds13" && MODE !== "ds13ex" && MODE !== "ds13rob" && MODE !== "vdata" && MODE !== "vcov" && MODE !== "vpre" && MODE !== "vinfo" && MODE !== "vtest" && !/^v[23]/.test(MODE) && !(/^(q|h|m|e|s)(pre|info|test)$/.test(MODE) || /^(vbs|cm|eg|rv|ds15|dv)(pre|info|test)$/.test(MODE)) && !((MODE === "minfo" || MODE === "sinfo" || MODE === "vbsinfo" || MODE === "cminfo" || MODE === "rvinfo" || MODE === "ds15info" || MODE === "dvinfo") && NEUTRALIZE_ON)) console.log(`*** 보정 재채점 모드(PRICE_CORRECTION=k200p17): 정의·관문·이웃값·난수 시드는 그대로, 가격 입력만 보정. 시험 번호는 원 시험 번호 표지이며 누적 시험 횟수에 더하지 않는다. 대상 ID: ${IDS ? [...IDS].join(",") : "전체"} ***`);
   console.log(`연구 묶음 5 ${MODE === "repro" ? "사전 점검(DS6 재현·신호 독립 대조·체결 타이밍, 성과 미계산)" : `블록 ${MODE} 시험`} 시작(읽기 전용): ${new Date().toISOString()}`);
   if (!SNAP_END || process.env.PARQUET_CACHE_FROZEN !== "1") throw new Error("고정 스냅샷 모드(RESEARCH_DATA_END, PARQUET_CACHE_FROZEN=1)가 아니면 실행하지 않는다");
   if (process.env.BENCH_AUX_069500 !== "1") throw new Error("069500 보조 파일 모드(BENCH_AUX_069500=1)가 아니면 실행하지 않는다");
@@ -412,7 +412,7 @@ async function main(): Promise<void> {
     const nbs: { label: string; run: () => SimRun }[] = def.nbs.map(([lb, ch]) => ({ label: lb, run: () => runS(def, { ...P0, ...ch }, cS, FC(B5_MA_DAYS), { lag: 1 }) }));
     if (F) for (const ma of B5_MA_NB) nbs.push({ label: `이동평균 ${ma}일`, run: () => runS(def, P0, cS, FC(ma), { lag: 1 }) });
     return {
-      id, trial, title, defense: false, capFrac: def.wOf(P0), fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
+      id, trial, title, defense: false, capFrac: def.wOf(P0), fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : MODE === "dvtest" ? DV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
       hRule: (full, rb) => { const a = hVs(full, rb); return { ok: a.ok, note: `[사전등록: 069500만 판정] 069500 ${f2(rb.cagr)} / ${f2(rb.mdd)} → ${a.ok ? "O" : "X"} (${a.text})` }; },
       run: (o) => runS(def, P0, cS, FC(B5_MA_DAYS), o),
       neighbors: nbs,
@@ -449,7 +449,7 @@ async function main(): Promise<void> {
     };
     const nbs: { label: string; run: () => SimRun }[] = def.nbs.map(([lb, ch]) => ({ label: lb, run: () => build({ ...P0, ...ch }, { lag: 1 }).res.run }));
     return {
-      id, trial, title, defense: false, capFrac: def.wOf(P0), fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
+      id, trial, title, defense: false, capFrac: def.wOf(P0), fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : MODE === "dvtest" ? DV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
       hRule: (full, rb) => { const a = hVs(full, rb); return { ok: a.ok, note: `[사전등록: 069500만 판정] 069500 ${f2(rb.cagr)} / ${f2(rb.mdd)} → ${a.ok ? "O" : "X"} (${a.text})` }; },
       run: (o) => (o.replace ? merge(build(P0, { lag: 1, replSat: true })) : merge(build(P0, { lag: o.lag }))),
       neighbors: nbs,
@@ -524,7 +524,7 @@ async function main(): Promise<void> {
     ];
     let kLv = 0;
     return {
-      id, trial, title, defense: false, capFrac: 0.015, fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
+      id, trial, title, defense: false, capFrac: 0.015, fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : MODE === "dvtest" ? DV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
       hRule: (full, rb) => { const a = hVs(full, rb); return { ok: a.ok, note: `[사전등록: 069500만 판정] 069500 ${f2(rb.cagr)} / ${f2(rb.mdd)} → ${a.ok ? "O" : "X"} (${a.text})` }; },
       run: (o) => (o.replace ? d.merge(d.build({ lag: 1, repl: topRepl2() })) : d.merge(d.build({ lag: o.lag }))),
       neighbors: nbs,
@@ -662,7 +662,7 @@ async function main(): Promise<void> {
     const sF = h.st(b6.res.run, FULL), s1 = h.st(b6.res.run, { from: FULL.from, to: "2016-12-30" });
     const ok = f2(sF.cagr) === f2(DS89_DS6_REF.전체[0]) && f2(sF.mdd) === f2(DS89_DS6_REF.전체[1]) && f2(s1.cagr) === f2(DS89_DS6_REF.구간1[0]) && f2(s1.mdd) === f2(DS89_DS6_REF.구간1[1]);
     console.log(`\nDS6 재현(환경 확인): 연속 전체 ${f2(sF.cagr)} / ${f2(sF.mdd)} (기록 ${DS89_DS6_REF.전체.join(" / ")}), 구간 1(CAGR 기간 ${FULL.from}~2016-12-30) ${f2(s1.cagr)} / ${f2(s1.mdd)} (기록 ${DS89_DS6_REF.구간1.join(" / ")}) → ${ok ? "일치" : "불일치"}`);
-    if (!ok && (MODE === "vpre" || MODE === "vtest" || MODE === "vinfo" || /^v[23]/.test(MODE) || (/^(q|h|m|e|s)(pre|info|test)$/.test(MODE) || /^(vbs|cm|eg|rv|ds15|dv)(pre|info|test)$/.test(MODE)) && !((MODE === "minfo" || MODE === "sinfo" || MODE === "vbsinfo" || MODE === "cminfo" || MODE === "rvinfo" || MODE === "ds15info") && NEUTRALIZE_ON) || (!PRICE_CORRECTION_ON && !NEUTRALIZE_ON))) throw new Error("DS6 기록과 다르다 — 시험을 시작하지 않고 중단해 보고한다");
+    if (!ok && (MODE === "vpre" || MODE === "vtest" || MODE === "vinfo" || /^v[23]/.test(MODE) || (/^(q|h|m|e|s)(pre|info|test)$/.test(MODE) || /^(vbs|cm|eg|rv|ds15|dv)(pre|info|test)$/.test(MODE)) && !((MODE === "minfo" || MODE === "sinfo" || MODE === "vbsinfo" || MODE === "cminfo" || MODE === "rvinfo" || MODE === "ds15info" || MODE === "dvinfo") && NEUTRALIZE_ON) || (!PRICE_CORRECTION_ON && !NEUTRALIZE_ON))) throw new Error("DS6 기록과 다르다 — 시험을 시작하지 않고 중단해 보고한다");
     if (!ok) console.log("  (보정 적용·중립화 모드: 기록값과 달라짐은 기대된 결과이며 중단하지 않는다)");
   }
   const ds6Lines = new Map<string, string>();
@@ -704,7 +704,7 @@ async function main(): Promise<void> {
     const P0 = B5_TS_P0;
     const nbs = B5_TS_NB.map(([lb, ch]) => ({ label: lb, run: () => runTS({ ...P0, ...ch }, { lag: 1 }) }));
     return {
-      id, trial, title: `${id}: K200P 종목이 252거래일 신고가(직전 251거래일 종가 최댓값 초과)를 내면 다음 거래일 종가에 평가액의 5% 매수(슬롯 20), 종가가 진입 후 최고 종가의 75% 이하이면 청산`, defense: false, capFrac: B5_TS_CAP, fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
+      id, trial, title: `${id}: K200P 종목이 252거래일 신고가(직전 251거래일 종가 최댓값 초과)를 내면 다음 거래일 종가에 평가액의 5% 매수(슬롯 20), 종가가 진입 후 최고 종가의 75% 이하이면 청산`, defense: false, capFrac: B5_TS_CAP, fDenominator: MODE === "vtest" ? VB_F_DENOMINATOR : MODE === "v2test" ? V2_F_DENOMINATOR : MODE === "v3test" ? V3_F_DENOMINATOR : MODE === "qtest" ? Q_F_DENOMINATOR : MODE === "htest" ? H_F_DENOMINATOR : MODE === "mtest" ? M_F_DENOMINATOR : MODE === "etest" ? E_F_DENOMINATOR : MODE === "stest" ? S_F_DENOMINATOR : MODE === "vbstest" ? VS_F_DENOMINATOR : MODE === "cmtest" ? CM_F_DENOMINATOR : MODE === "egtest" ? EG_F_DENOMINATOR : MODE === "rvtest" ? RV_F_DENOMINATOR : MODE === "dvtest" ? DV_F_DENOMINATOR : B5_F_DENOMINATOR, ref: { id: "069500", run: bhAll },
       hRule: (full, rb) => { const a = hVs(full, rb); return { ok: a.ok, note: `[사전등록: 069500만 판정] 069500 ${f2(rb.cagr)} / ${f2(rb.mdd)} → ${a.ok ? "O" : "X"} (${a.text})` }; },
       run: (o) => runTS(P0, o), neighbors: nbs, random: (rng, ob) => randomTS(P0, rng, ob),
       reasons: [`손절(고점 −${f2(P0.stop * 100)}%)`], label,
@@ -1306,6 +1306,42 @@ async function main(): Promise<void> {
       id, P0, nbs, signalDays: monthEndIdx.filter((c) => c >= cStartV).map((c) => (shift > 0 && c > first ? c - shift : c)), isSwap: () => true,
       targets: (c, held, P, m) => equalW(pickKeep(sorted(c), held, P.n, P.n * P.keepMult), 1 / P.n, m),
       pool: (c) => sorted(c),
+      slip: (code, c, lag) => (rank200(Math.max(c - lag, 0)).rank.has(code) ? B5_BS_SLIP_K200 : B5_BS_SLIP_OTHER), vanish: "rule", vanishLoss: vbVanishLoss, wOf: (P) => 1 / P.n,
+    };
+  };
+  // =====================================================================================================================
+  // 배당 DV1(341)·DV1C(342): 사전등록 docs/research/div-prereg.md, 기준값 lib/dividendTestConfig.ts (배당 자료 = research/dividend/dividend.parquet, 유니버스·체결·비용은 VB1·Q1·EG1과 같음)
+  // =====================================================================================================================
+  type DvRow = { code: string; yld: number; dps: number; fy: number; rcept: string };
+  const dvMemo = new Map<string, DvRow[]>();
+  /**
+   * 신호일 c: BS1 적격 ∩ 배당 계산됨(divAt "ok": 접수일 < 신호일, 경과 maxAge일 이내, 보통주 당기 값 숫자 또는 "-") ∩ 배당 연속성(직전 3개 사업연도 = 가장 최근 보고서의 당기·전기·전전기 보통주 주당 현금배당금이 모두 > 0)
+   * ∩ 순이익 TTM > 0 ∧ 자본 > 0(Q1 roeAt "ok") ∩ 원종가 > 0. 배당수익률 = 주당 현금배당금(당기) ÷ 신호일 원종가, 내림차순(동점은 종목코드).
+   */
+  const dvRowsAt = (c: number, P: DvP): DvRow[] => {
+    const key = `${c}|${P.maxAge}`, hit = dvMemo.get(key);
+    if (hit) return hit;
+    const out: DvRow[] = [], d = CAL[c];
+    for (const code of bsElig(c, B5_BS_P0)) {
+      const o = divAt(code, d, P.maxAge);
+      if (o.why !== "ok" || !((o.dps as number) > 0 && (o.d1 ?? 0) > 0 && (o.d2 ?? 0) > 0)) continue;
+      if (roeOf(code, d, P.maxAge).why !== "ok") continue;
+      const s = h.byCode.get(code) as S, px = s.raw[s.idx.get(d) as number];
+      if (!(px > 0)) continue;
+      out.push({ code, yld: (o.dps as number) / px, dps: o.dps as number, fy: o.fy as number, rcept: o.rcept as string });
+    }
+    out.sort((x, y) => y.yld - x.yld || (x.code < y.code ? -1 : 1));
+    dvMemo.set(key, out);
+    return out;
+  };
+  const dvSorted = (c: number, P: DvP): string[] => dvRowsAt(c, P).map((x) => x.code);
+  /** shift > 0(정보용 견고성 점검): 첫 신호일 뒤 월 신호일을 shift 거래일 앞당긴다(신호일의 배당·ROE는 그 신호일 기준으로 다시 계산한다). */
+  const mkDV = (id: string, P0: DvP, nbs: [string, Partial<DvP>][], o: { shift?: number } = {}): Strat<DvP> => {
+    const shift = o.shift ?? 0, first = monthEndIdx.find((x) => x >= cStartV) as number;
+    return {
+      id, P0, nbs, signalDays: monthEndIdx.filter((c) => c >= cStartV).map((c) => (shift > 0 && c > first ? c - shift : c)), isSwap: () => true,
+      targets: (c, held, P, m) => equalW(pickKeep(dvSorted(c, P), held, P.n, P.n * P.keepMult), 1 / P.n, m),
+      pool: (c, P) => dvSorted(c, P),
       slip: (code, c, lag) => (rank200(Math.max(c - lag, 0)).rank.has(code) ? B5_BS_SLIP_K200 : B5_BS_SLIP_OTHER), vanish: "rule", vanishLoss: vbVanishLoss, wOf: (P) => 1 / P.n,
     };
   };
@@ -2853,6 +2889,50 @@ async function main(): Promise<void> {
     console.log(`\nROE 변화 데이터 점검 종료(성과 미계산) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
     return;
   }
+  if (MODE === "dvraw") {
+    // 배당 원행 형태 점검(집계만, 성과·신호 계산 없음): 보통주 행 판별 불가 행의 원행 패턴을 세고, 우선주 표기가 있는 행에서 "첫 행 = 보통주" 관례를 검증한다. 파서 규칙을 사전등록에 적기 위한 자료 형식 확인.
+    await loadDiv();
+    type PR = { knd: string; v: (number | null)[]; raw: string[] };
+    const parse = (rows: string): PR[] => rows.split(";").filter((x) => x !== "").map((x) => { const a = x.split("|"), nm = (t: string | undefined): number | null => { const u = (t ?? "").trim().replace(/,/g, ""); if (u === "" || u === "-") return null; const v = Number(u); return Number.isFinite(v) ? v : null; }; return { knd: a[0], v: [nm(a[1]), nm(a[2]), nm(a[3])], raw: [a[1] ?? "", a[2] ?? "", a[3] ?? ""] }; });
+    const cls = (k: string): string => (/보통/.test(k) ? "C" : /우선|종류/.test(k) ? "P" : k === "-" ? "-" : "U");
+    const lab = new Map<string, number>(), pat = new Map<string, number>(), pat000 = new Map<string, number>();
+    let nAll = 0, nNo = 0, nBothLab = 0, cFirst = 0, cOther = 0;
+    for (const r of divRaw) {
+      if (r.status !== "000" || r.rows === "") continue;
+      const ps = parse(r.rows); nAll++;
+      for (const x of ps) lab.set(x.knd, (lab.get(x.knd) ?? 0) + 1);
+      const key = ps.map((x) => cls(x.knd)).join("");
+      pat.set(key, (pat.get(key) ?? 0) + 1);
+      if (r.d0 === null && r.raw !== "-") { nNo++; const k2 = `${key} | 첫 행 당기 ${ps[0] ? (ps[0].v[0] === null ? (ps[0].raw[0] === "-" ? "대시" : "빈값") : ps[0].v[0] > 0 ? "숫자>0" : "숫자0") : "없음"} · 둘째 행 당기 ${ps[1] ? (ps[1].v[0] === null ? (ps[1].raw[0] === "-" ? "대시" : "빈값") : ps[1].v[0] > 0 ? "숫자>0" : "숫자0") : "없음"}`; pat000.set(k2, (pat000.get(k2) ?? 0) + 1); }
+      const iC = ps.findIndex((x) => cls(x.knd) === "C"), hasP = ps.some((x) => cls(x.knd) === "P");
+      if (iC >= 0 && hasP) { nBothLab++; if (iC === 0) cFirst++; else cOther++; }
+    }
+    const top = (m: Map<string, number>, n: number): string => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${v}`).join(" · ");
+    console.log(`\n=== [W1] 배당 항목(주당 현금배당금 행)이 있는 status 000 행 ${nAll}건 | 종류 표기(stock_knd) 빈도: ${top(lab, 14)} ===`);
+    console.log(`행 구성 패턴(C=보통, P=우선·종류, -=표기 "-", U=그 밖; 왼쪽부터 원행 순서): ${top(pat, 14)}`);
+    console.log(`\n=== [W2] 보통주 행 판별 불가 ${nNo}건의 패턴(첫 행·둘째 행 당기 값 유형 포함) ===\n${top(pat000, 20)}`);
+    console.log(`\n=== [W3] 관례 검증: 보통 표기와 우선 표기가 같이 있는 ${nBothLab}건에서 보통주 행이 첫 행인 경우 ${cFirst}건(${f2((cFirst / Math.max(nBothLab, 1)) * 100)}%) · 둘째 이후 ${cOther}건 ===`);
+    // [W4] 표기 없는 행의 첫 행 vs 둘째 행: 사업연도 간 일관성(FY y의 전기값 = FY y−1의 당기값)으로 어느 쪽이 연속 시계열인지 본다
+    {
+      const byKey = new Map<string, (typeof divRaw)[number]>();
+      for (const r of divRaw) if (r.status === "000" && r.rows !== "") byKey.set(`${r.code}|${r.fy}`, r);
+      let nPair = 0, firstSame = 0, secondSame = 0, firstOnlyNum = 0;
+      for (const r of divRaw) {
+        if (r.status !== "000" || r.rows === "" || r.d0 !== null || r.raw === "-") continue;
+        const prev = byKey.get(`${r.code}|${r.fy - 1}`);
+        if (!prev) continue;
+        const a = parse(r.rows), b = parse(prev.rows);
+        if (a.length < 2 || b.length < 2 || a.some((x) => cls(x.knd) !== "-") || b.some((x) => cls(x.knd) !== "-")) continue;
+        nPair++;
+        const f = a[0].v[1] !== null && b[0].v[0] !== null && a[0].v[1] === b[0].v[0], s2 = a[1].v[1] !== null && b[1].v[0] !== null && a[1].v[1] === b[1].v[0];
+        if (f) firstSame++; if (s2) secondSame++;
+        if (a[0].v[0] !== null && a[1].v[0] === null) firstOnlyNum++;
+      }
+      console.log(`\n=== [W4] 표기가 모두 "-"이고 행이 2개 이상인 연속 두 해 ${nPair}쌍: 첫 행 전기값 = 전해 당기값 ${firstSame}쌍 · 둘째 행 ${secondSame}쌍 | 첫 행만 숫자(둘째 행은 숫자 아님) ${firstOnlyNum}건 ===`);
+    }
+    console.log(`\n배당 원행 점검 종료(성과 미계산) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
+    return;
+  }
   if (MODE === "dvcov") {
     // 배당 데이터 점검(집계만, 수익·신호 성과 계산 없음): ① 사업연도별 수집 커버리지 ② 월말마다 배당수익률 계산 가능 비율 → 시작일 규칙(DV_COVERAGE_MIN) 적용.
     await loadDiv();
@@ -2913,6 +2993,118 @@ async function main(): Promise<void> {
     const cands = after.map((x) => x.cont);
     console.log(`DV1 후보 수(연속성 만족, 시작일 이후 월말): 최소 ${Math.min(...cands)} · 평균 ${f2(avg(cands))} · 최대 ${Math.max(...cands)} | ${DV1_P0.n}개 미만 월 ${cands.filter((x) => x < DV1_P0.n).length}개 | 20개 미만 월 ${cands.filter((x) => x < 20).length}개`);
     console.log(`\n배당 데이터 점검 종료(성과 미계산) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
+    return;
+  }
+  if (MODE === "dvpre") {
+    // 배당 사전 점검(DV1·DV1C 성과 미계산): DS6 재현(위 줄), 배당 값·후보 독립 재계산(400건 + 월말 20개 전 종목 직접 훑기), 접수일 다음 거래일 반영 경계, 보유 수·첫 체결일, 월 리밸런스 경로, 시작일 커버리지, 후보 수, 소멸 관례.
+    await loadDiv();
+    await loadRoe();
+    requireStart();
+    const fails: string[] = [];
+    const rngD = mulberry32(20261128);
+    const dv1 = mkDV("DV1", DV1_P0, DV_NB), cD = startOf(dv1, false), Wd = windowsV(cD), days = monthEndIdx.filter((x) => x >= cStartV);
+    console.log(`[점검 1] 데이터 표준: 가격 보정 ${PRICE_CORRECTION_ON ? "k200p17 적용" : "미적용"} · 의심 종목-일 0% 처리 ${ZERO_SUSPECT_ON ? `적용 ${suspectLog.length}건` : "미적용"} | 소멸 관례: 저PBR·ROE 시험과 같음(vbVanishLoss), 슬리피지 신호일 K200P 구성원 ${B5_BS_SLIP_K200 * 100}%·그 밖 ${B5_BS_SLIP_OTHER * 100}%`);
+    if (!PRICE_CORRECTION_ON || !ZERO_SUSPECT_ON) fails.push("보정 또는 의심 종목-일 0% 처리 미적용(correct=k200p17 zero=1 필요)");
+    console.log(`[점검 2] 시작: V_START ${V_START}(DV_START ${DV_START}) | 첫 신호일 ${CAL[cD]} | 케이스 ${V_CASE} | 수익률 집계 ${Wd.FULL.from}~${h.dataEnd} | 구간 ${Wd.NW.map(([nm, w]) => `${nm} ${w.from}~${w.to === "9999-12-31" ? h.dataEnd : w.to}`).join(" / ")} | DS6 재현 기록 ${DV_DS6_REF.join(" / ")}(위 "DS6 재현" 줄과 같은 값이어야 함)`);
+    if (!DV_START || V_START !== DV_START || V_CASE !== "C2") fails.push(`시작·구간 불일치: V_START ${V_START} (사전등록 ${DV_START || "미확정"}), 케이스 ${V_CASE}`);
+    if (DV1C_W[0] !== B5_CORE_W || DV1C_W[0] + DV1C_W[1] !== 1) fails.push(`DV1C 비중 ${DV1C_W.join("/")} ≠ 코어 ${B5_CORE_W}`);
+    // [점검 3] 배당 독립 재계산: 원행(divRaw)만 쓰는 따로 짠 코드(접수일 문자열 비교·Date.parse 경과일·원문 "-" 처리)
+    const rawBy = new Map<string, typeof divRaw>();
+    for (const r of divRaw) { const a = rawBy.get(r.code) ?? []; a.push(r); rawBy.set(r.code, a); }
+    const bruteDiv = (code: string, d: string, maxAge: number): { why: string; dps?: number; d1?: number | null; d2?: number | null } => {
+      const rs = (rawBy.get(code) ?? []).filter((r) => r.status === "000" && r.rcept !== "" && r.rcept < d).sort((a, b) => a.fy - b.fy || (a.rcept < b.rcept ? -1 : 1));
+      if (!rs.length) return { why: "no_report" };
+      const F = rs[rs.length - 1];
+      if ((Date.parse(d) - Date.parse(F.rcept)) / 86_400_000 > maxAge) return { why: "stale" };
+      if (F.d0 !== null) return { why: "ok", dps: F.d0, d1: F.d1, d2: F.d2 };
+      if (F.raw === "-") return { why: "ok", dps: 0, d1: null, d2: null };
+      return { why: "no_common" };
+    };
+    {
+      const marchDays = days.filter((x) => CAL[x].slice(5, 7) === "03");
+      let nChk = 0, nOk = 0, nCand = 0, nBoundary = 0;
+      const whyCnt = new Map<string, number>();
+      for (let t = 0; t < DV_RECALC_N; t++) {
+        // 400건 중 앞 1/4은 3월 월말(사업보고서 접수 집중 시기, 접수일 = 신호일인 경계 사례 포함)에서 뽑는다
+        const c = (t < DV_RECALC_N / 4 && marchDays.length ? marchDays : days)[Math.floor(rngD() * (t < DV_RECALC_N / 4 && marchDays.length ? marchDays.length : days.length))], el = bsElig(c, B5_BS_P0);
+        if (!el.length) continue;
+        const code = el[Math.floor(rngD() * el.length)], d = CAL[c], a = divAt(code, d, DV1_P0.maxAge), b = bruteDiv(code, d, DV1_P0.maxAge);
+        nChk++;
+        const sameDay = (rawBy.get(code) ?? []).some((r) => r.status === "000" && r.rcept === d); if (sameDay) nBoundary++;
+        const mapped = a.why === "ok" ? "ok" : a.why === "no_value" ? "no_common" : a.why;
+        whyCnt.set(`${a.why}/${b.why}`, (whyCnt.get(`${a.why}/${b.why}`) ?? 0) + 1);
+        if (mapped !== b.why) { fails.push(`배당 사유 불일치 ${code} ${d}: 모듈 ${a.why} 독립 ${b.why}`); continue; }
+        const inRows = dvRowsAt(c, DV1_P0).find((x) => x.code === code);
+        if (b.why === "ok") {
+          nOk++;
+          if (a.dps !== b.dps) fails.push(`주당 배당금 불일치 ${code} ${d}: ${a.dps} vs ${b.dps}`);
+          const roe = roeOf(code, d, DV1_P0.maxAge), s = h.byCode.get(code) as S, px = s.raw[s.idx.get(d) as number];
+          const cand = (b.dps as number) > 0 && ((b.d1 ?? 0) > 0) && ((b.d2 ?? 0) > 0) && roe.why === "ok" && px > 0;
+          if (cand) { nCand++; if (!inRows || Math.abs(inRows.yld - (b.dps as number) / px) > 1e-12 * Math.max(Math.abs(inRows.yld), 1e-12)) fails.push(`배당수익률 불일치 ${code} ${d}: 모듈 ${inRows?.yld} 독립 ${(b.dps as number) / px}`); }
+          else if (inRows) fails.push(`후보 조건 불충족인데 후보에 있음 ${code} ${d}`);
+        } else if (inRows) fails.push(`배당 계산 불가인데 후보에 있음 ${code} ${d}`);
+      }
+      console.log(`[점검 3] 배당 독립 재계산 ${nChk}건(앞 ${DV_RECALC_N / 4}건은 3월 월말; 계산됨 ${nOk}건, 그중 후보 ${nCand}건 값 대조; 접수일 = 신호일인 경계 사례 ${nBoundary}건 포함) | 모듈/독립 사유 분포 ${[...whyCnt.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, v]) => `${k} ${v}`).join(" · ")}`);
+      if (nChk < DV_RECALC_N * 0.9) fails.push(`독립 재계산 건수 부족 ${nChk}/${DV_RECALC_N}`);
+      if (nBoundary === 0) console.log(`  (참고: 접수일 = 신호일 경계 사례가 표본에 0건 — 경계 규칙은 독립 코드에서 접수일 < 신호일 문자열 비교로 같게 적용됨)`);
+    }
+    // [점검 4] 후보 집합·순위 독립 재계산(월말 20개): 전 종목을 직접 훑어 연속성 조건·배당수익률 순서 비교
+    {
+      const picks = Array.from({ length: 20 }, (_, k) => days[Math.floor((k * (days.length - 1)) / 19)]);
+      let nOk = 0;
+      const rowsOut: string[] = [];
+      for (const c of picks) {
+        const d = CAL[c], el = bruteBs(c, B5_BS_P0).map((x) => x.code), br: { code: string; yld: number }[] = [];
+        for (const code of el) {
+          const b = bruteDiv(code, d, DV1_P0.maxAge);
+          if (b.why !== "ok" || !((b.dps as number) > 0 && (b.d1 ?? 0) > 0 && (b.d2 ?? 0) > 0)) continue;
+          if (roeOf(code, d, DV1_P0.maxAge).why !== "ok") continue;
+          const s = h.byCode.get(code) as S, px = s.raw[s.idx.get(d) as number];
+          if (!(px > 0)) continue;
+          br.push({ code, yld: (b.dps as number) / px });
+        }
+        br.sort((x, y) => y.yld - x.yld || (x.code < y.code ? -1 : 1));
+        const mod = dvRowsAt(c, DV1_P0);
+        const ok = mod.length === br.length && mod.every((x, k) => x.code === br[k].code && Math.abs(x.yld - br[k].yld) <= 1e-12 * Math.max(Math.abs(br[k].yld), 1e-12));
+        if (ok) nOk++; else fails.push(`DV1 후보·순서 불일치 ${d}: 모듈 ${mod.length} 독립 ${br.length}`);
+        rowsOut.push(`${d} 적격 ${el.length} → 후보 ${br.length}(모듈 ${mod.length}) | 상위 3 ${mod.slice(0, 3).map((x) => `${label(x.code)}(${f2(x.yld * 100)}%, FY${x.fy})`).join(", ")}`);
+      }
+      console.log(`[점검 4] 후보 집합·순서 독립 재계산(전 종목 직접 훑기) 월말 ${picks.length}개: 일치 ${nOk}개\n${rowsOut.map((x) => `  ${x}`).join("\n")}`);
+    }
+    // [점검 5] 구조: 보유 수·첫 체결일·진입 종목의 후보 여부, 후보 수, 소멸 관례, DV1C 날짜 축·월 리밸런스 경로
+    {
+      const run = runS(dv1, DV1_P0, cD, null, { lag: 1, detail: true });
+      const hmax = Math.max(...run.nPos.map((x, k) => x - (run.nDefer[k] ?? 0))), cnt = days.map((c) => dvRowsAt(c, DV1_P0).length);
+      console.log(`[점검 5] DV1: 보유 종목 수 최대(순연 제외) ${hmax} (목표 ${DV1_P0.n}) | 첫 체결일 ${CAL[run.entryCs[0]]} (신호일 다음 거래일 ${CAL[cD + 1]}) | 진입 ${run.entryCs.length}건 | 후보 수(월말 ${cnt.length}개) 최소 ${Math.min(...cnt)} 평균 ${f2(avg(cnt))} 최대 ${Math.max(...cnt)}, ${DV1_P0.n}개 미만 월 ${cnt.filter((x) => x < DV1_P0.n).length}개`);
+      if (hmax > DV1_P0.n) fails.push(`DV1 보유 종목 수 ${hmax} > ${DV1_P0.n}`);
+      if (run.entryCs[0] !== cD + 1) fails.push(`DV1 첫 체결일 ${CAL[run.entryCs[0]]} ≠ ${CAL[cD + 1]}`);
+      if (cnt.some((x) => x < DV1_P0.n)) fails.push(`DV1 후보 ${DV1_P0.n}개 미만인 월 ${cnt.filter((x) => x < DV1_P0.n).length}개`);
+      const bad = run.trades.concat(run.open).filter((t) => !dvRowsAt(t.entryC - 1, DV1_P0).some((x) => x.code === t.code)).length;
+      if (bad) fails.push(`DV1 진입 종목 중 신호일 후보가 아닌 경우 ${bad}건`);
+      const closed = run.trades;
+      console.log(`[점검 5] DV1 소멸 종목 청산: 마지막 종가 청산 ${closed.filter((x) => x.reason === "폐지").length}건 · 전액 손실 ${closed.filter((x) => x.reason === "폐지(전액 손실)").length}건(닫힌 거래 ${closed.length}건 중)`);
+      for (const [lb, ch] of DV_NB) { const P = { ...DV1_P0, ...ch }, c2 = days.map((c) => dvRowsAt(c, P).length); console.log(`[점검 5] 이웃 ${lb}: 후보 수 최소 ${Math.min(...c2)} 평균 ${f2(avg(c2))} (목표 ${P.n}개 미만 월 ${c2.filter((x) => x < P.n).length}개)`); if (c2.some((x) => x < P.n)) fails.push(`이웃 ${lb} 후보 부족`); }
+      const coreFull = sliceSl(coreOf(2, undefined, 1, {}).sl, Wd.FULL.from), sat = slFromRun(run);
+      if (coreFull.dates.length !== sat.dates.length || coreFull.dates.some((x, k) => x !== sat.dates[k])) fails.push("DV1C 날짜 축");
+      else console.log(`[점검 5] DV1C 날짜 축: 코어 ${coreFull.dates[0]}~${coreFull.dates[coreFull.dates.length - 1]}(${coreFull.dates.length}일) = 위성 일치`);
+      const a = combineN([coreFull, sat], [DV1C_W[0], DV1C_W[1]], CS_MOVE_COST, null).run.ret, b = combine2(coreFull, sat, DV1C_W[0], CS_MOVE_COST).run.ret;
+      let mxd = 0;
+      for (let k = 0; k < a.length; k++) mxd = Math.max(mxd, Math.abs(a[k] - b[k]));
+      const sig = [...new Set(monthEndIdx.filter((c) => c > cD).map((c) => CAL[c]))], sg1 = dv1.signalDays.filter((c) => c > cD).map((c) => CAL[c]);
+      console.log(`[점검 5] 월 리밸런스 경로: combineN(매일) ↔ combine2 일수익률 최대 차이 ${mxd.toExponential(2)}%p | 월 재조정 신호일 ${sig.length}개(${sig[0]}~${sig[sig.length - 1]}), DV1 월말 신호일(첫 신호일 제외)과 ${sig.length === sg1.length && sig.every((d, k) => d === sg1[k]) ? "일치" : "불일치"}`);
+      if (!(mxd < 1e-9)) fails.push(`combineN(매일) ≠ combine2 (최대 차이 ${mxd})`);
+      if (!(sig.length === sg1.length && sig.every((d, k) => d === sg1[k]))) fails.push("월 재조정 신호일 ≠ DV1 월말 신호일");
+      const mm = combineN([coreFull, sat], [DV1C_W[0], DV1C_W[1]], CS_MOVE_COST, new Set(sig)), yrs = (Date.parse(h.dataEnd) - Date.parse(Wd.FULL.from)) / 86_400_000 / 365.25;
+      console.log(`[점검 5] DV1C 월 리밸런스 이동 금액 연 ${f2((mm.moved.reduce((s2, x) => s2 + x, 0) * 100) / yrs)}% (이동 비용 ${CS_MOVE_COST * 100}%)`);
+    }
+    {
+      const el = bsElig(cD, B5_BS_P0), ok = el.filter((code) => divAt(code, CAL[cD], DV1_P0.maxAge).why === "ok").length, r = ok / Math.max(el.length, 1);
+      console.log(`[점검 6] 시작일 ${CAL[cD]} 배당수익률 계산 비율: BS1 적격 ${el.length}, 계산 ${ok} = ${f2(r * 100)}%(기준 ${DV_COVERAGE_MIN * 100}% 이상) | 연속성 직전 ${DV_HIST_YEARS}개 사업연도`);
+      if (r < DV_COVERAGE_MIN) fails.push(`시작일 커버리지 ${f2(r * 100)}% < ${DV_COVERAGE_MIN * 100}%`);
+    }
+    console.log(`\n정보용 항목 구현 목록(시험 출력에서 이 머리표로 대조): [R3] 연도별 069500·DS6·DS13L 대비 승패 · [R4] 승률·손익비·기대값(평가 출력의 "요약" 줄) · [R5] 나란히 비교 표(DS6·DS13L·RM1SC·VB1·QV1) · [R6] 연 회전율·비용 · [R7] 상위 10개 거래 손익 비중 · [V3] 삼성전자·SK하이닉스 평균 비중 · [V4] VB1 MDD 구간 수익 · [V5] 하루 지연 · [V6] VB1·QV1·RM1 등 일간 상관 · [V7] 월 신호일 앞당김 민감도(dvinfo2) · [V8] 의심 종목-일 처리 없음 비교(dvinfo) · [D1] 평균 배당수익률·PBR·금융주·지주사 비중 · [D2] 후보 집합 크기 · [D3] 제외 종목-월 비율 · [V9] 누적 시험·우연 통과 기대(요약)`);
+    if (fails.length) { console.log(`\n사전 점검 실패 ${fails.length}건:\n${fails.slice(0, 40).map((x) => `  - ${x}`).join("\n")}`); throw new Error("사전 점검 실패 — 시험하지 않고 중단해 보고한다"); }
+    console.log(`\n배당 사전 점검 통과(DV1·DV1C 성과는 계산·출력하지 않았다; DS6 재현 줄은 환경 확인용) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
     return;
   }
   if (MODE === "egpre") {
@@ -5083,6 +5275,128 @@ async function main(): Promise<void> {
     {
       const sz = monthEndIdx.filter((x) => x >= cV).map((c) => cmRows(c).length);
       console.log(`최소 ${Math.min(...sz)} · 평균 ${f2(avg(sz))} · 최대 ${Math.max(...sz)} | 30개 미만 ${sz.filter((x) => x < CM1_P0.n).length}개월`);
+    }
+  } else if (MODE === "dvtest") {
+    await loadDiv();
+    await loadRoe();
+    requireStart();
+    if (!PRICE_CORRECTION_ON || !ZERO_SUSPECT_ON) throw new Error("보정 또는 의심 종목-일 0% 처리 미적용(correct=k200p17 zero=1 필요) — 시험하지 않고 중단해 보고한다");
+    if (!DV_START || V_START !== DV_START) throw new Error(`V_START=${V_START} ≠ 사전등록 ${DV_START || "미확정"} — 중단`);
+    if (V_CASE !== "C2") throw new Error(`구간 케이스 ${V_CASE} ≠ C2(두 구간) — 중단`);
+    console.log(`배당 시험 설정: ${V_CASE}(두 구간, B는 두 구간 모두 069500 우위), 시작 월말 ${V_START}, 데이터: K200P 17건 보정 적용 + 의심 종목-일 0% 처리 ${suspectLog.length}건(보정 후보 A), 소멸 관례 저PBR·ROE 시험과 같음, DV1 = 코어 없음(단독) · DV1C = DS6 코어 40% + DV1 60% 월 리밸런스`);
+    const dv1 = mkDV("DV1", DV1_P0, DV_NB), cD = startOf(dv1, false), Wx = windowsV(cD), from = Wx.FULL.from;
+    const sigSet = new Set(monthEndIdx.filter((c) => c > cD).map((c) => CAL[c]));
+    console.log(`연속 평가 공통: 첫 신호일 ${CAL[cD]}, 수익률 집계 ${from}~${h.dataEnd} | 구간 ${Wx.NW.map(([n, w]) => `${n} ${w.from}~${w.to === "9999-12-31" ? h.dataEnd : w.to}`).join(" / ")}`);
+    {
+      const trial = tn++;
+      trialNums.push(trial);
+      console.log(`\n연속 평가(DV1, 시험 ${trial})`);
+      verdicts.push(evaluate(h, Wx, mkS(dv1, "DV1", trial, false, cD, Wx, "DV1: BS1 적격 전 종목 PIT 중 배당 연속성(직전 3개 사업연도 보통주 주당 현금배당금 모두 > 0 ∧ 순이익 TTM > 0 ∧ 자본 > 0)을 만족하는 종목의 배당수익률(가장 최근 접수 사업연도 보통주 주당 현금배당금 ÷ 월말 종가) 상위 30종목 동일 비중, 순위 60 안이면 유지, 접수일 다음 거래일부터 반영·접수 후 400일 초과 제외, 월말 신호·다음 거래일 종가 체결, 코어 없음")));
+    }
+    {
+      const trial = tn++;
+      trialNums.push(trial);
+      console.log(`\n연속 평가(DV1C, 시험 ${trial})`);
+      verdicts.push(evaluate(h, Wx, mkC(dv1, "DV1C", trial, cD, Wx, "DV1C: DS6 코어 40% + 위성 60% = DV1, 월 리밸런스", sigSet)));
+    }
+    // ---- 기준 실행(보고용) ----
+    const win = V3_MDD_WINDOW, vb1 = mkVB("VB1", VB1_P0, VB1_NB), qv1 = mkQ("QV1", QV1_P0, QV1_NB);
+    const vb1Run = runS(vb1, VB1_P0, cD, null, { lag: 1, detail: true }), rm1Run = runS(RM1, RM1.P0, cD, null, { lag: 1, detail: true }), qvRun = runS(qv1, QV1_P0, cD, null, { lag: 1, detail: true }), d13l = d13Of("LV1", cD, Wx).base.res.run, rmsc = rm1scOf(cD, Wx);
+    const gRun = verdicts.find((v) => v.id === "DV1")?.run as SimRun, cRun = verdicts.find((v) => v.id === "DV1C")?.run as SimRun;
+    // ---- [R5] 나란히 비교 ----
+    const cmpRows: { nm: string; run: { dates: string[]; ret: number[] } }[] = [{ nm: "069500", run: { dates: h.bhP.dates, ret: h.bhP.ret } }, { nm: "DS6", run: b6.res.run }, { nm: "DS13L", run: d13l }, { nm: "RM1SC", run: rmsc.res.run }, { nm: "VB1", run: vb1Run }, { nm: "QV1", run: qvRun }, { nm: "DV1", run: gRun }, { nm: "DV1C", run: cRun }];
+    console.log(`\n=== [R5] 같은 데이터(보정 적용 + 의심 종목-일 0% 처리) 기준 나란히 비교 (CAGR % / MDD %; 같은 시작일 ${from}~, 두 구간, RM1SC·DS13L·VB1·QV1은 같은 시작일로 새로 계산; DS6은 일별 40:60 재조정, DS13L·RM1SC·DV1C는 월 1회 재조정; VB1·QV1·DV1은 코어 없는 단독 전략) ===`);
+    console.log(`| 구간 | ${cmpRows.map((r) => r.nm).join(" | ")} |\n|---|${cmpRows.map(() => "---").join("|")}|`);
+    for (const [nm, w] of Wx.ALL) console.log(`| ${nm} | ${cmpRows.map((r) => `${f2(h.st(r.run, w).cagr)} / ${f2(h.st(r.run, w).mdd)}`).join(" | ")} |`);
+    const fl = cmpRows.map((r) => ({ nm: r.nm, s: h.st(r.run, Wx.FULL) }));
+    console.log(`\n=== [R6] 연 회전율 % / 비용 합계 %(연속) ===\n${fl.map((x) => `${x.nm} ${f2(x.s.turnover)} / ${f2(x.s.cost)}`).join(" | ")}`);
+    // ---- [R3] 연도별 069500·DS6·DS13L 대비 ----
+    const bh = BH_FROM(from);
+    for (const [nm, run] of [["DV1", gRun], ["DV1C", cRun]] as [string, SimRun][]) {
+      console.log(`\n=== [R3] ${nm} 연도별 수익률 % ===\n| 연도 | 069500 | DS6 | DS13L | ${nm} | ${nm} − 069500 %p | ${nm} − DS6 %p | ${nm} − DS13L %p |\n|---|---|---|---|---|---|---|---|`);
+      const ex: number[][] = [[], [], []];
+      for (let y = Number(from.slice(0, 4)); y <= Number(h.dataEnd.slice(0, 4)); y++) {
+        const a = h.yearRet(bh, y), c6 = h.yearRet({ dates: b6.res.run.dates.filter((d) => d >= from), ret: b6.res.run.ret.filter((_, k) => b6.res.run.dates[k] >= from) }, y), cl = h.yearRet(d13l, y), cc = h.yearRet(run, y);
+        ex[0].push(cc - a); ex[1].push(cc - c6); ex[2].push(cc - cl);
+        console.log(`| ${y} | ${f2(a)} | ${f2(c6)} | ${f2(cl)} | ${f2(cc)} | ${sg(cc - a)} | ${sg(cc - c6)} | ${sg(cc - cl)} |`);
+      }
+      console.log(`${nm} 승·패 연수: 069500 대비 승 ${ex[0].filter((x) => x > 0).length} / 패 ${ex[0].filter((x) => x < 0).length} (평균 ${sg(avg(ex[0]))}%p, 중앙값 ${sg(median(ex[0]))}%p) | DS6 대비 승 ${ex[1].filter((x) => x > 0).length} / 패 ${ex[1].filter((x) => x < 0).length} (평균 ${sg(avg(ex[1]))}%p) | DS13L 대비 승 ${ex[2].filter((x) => x > 0).length} / 패 ${ex[2].filter((x) => x < 0).length} (평균 ${sg(avg(ex[2]))}%p, 중앙값 ${sg(median(ex[2]))}%p)`);
+    }
+    // ---- [V3] 삼성전자·SK하이닉스 평균 비중 ----
+    console.log(`\n=== [V3] DV1·DV1C의 삼성전자·SK하이닉스 보유 여부와 평균 목표 비중(월말 신호일 목표, 근사: 이전 목표 = 보유; DV1C = 코어 40% × 코어 내 비중 + 위성 60% × DV1 비중) ===`);
+    {
+      const coreRun = coreOf(2, undefined, 1, {}).run, pt = pathTgG(dv1, cD), all = [...gRun.trades, ...((gRun as RebalRun).open ?? [])];
+      for (const code of V3_WATCH) {
+        let nHold = 0, wS = 0, wCore = 0;
+        for (const { c, t } of pt) { const w = t.get(code) ?? 0; if (w > 0) nHold++; wS += w; const ev = [...coreRun.events].filter((e) => e.c <= c + 1).pop(); wCore += ev ? (ev.w[ev.set.indexOf(code)] ?? 0) : 0; }
+        const n = pt.length, ts = all.filter((t) => t.code === code);
+        console.log(`${label(code)} DV1: 월말 목표 보유 ${nHold}/${n}개 신호일(구간 ${ts.length}건${ts.length ? `: ${ts.map((t) => `${CAL[t.entryC]}~${t.reason === "기간 끝 평가" ? "보유 중" : CAL[t.exitC]}`).slice(0, 6).join(", ")}` : ""}) | 평균 목표 비중(계좌 기준 %): DV1 ${f2((wS / n) * 100)} | DV1C = 코어 40% × ${f2((wCore / n) * 100)} + 위성 60% × ${f2((wS / n) * 100)} = ${f2(0.4 * (wCore / n) * 100 + 0.6 * (wS / n) * 100)}%`);
+      }
+    }
+    // ---- [V4] VB1 MDD 구간 ----
+    console.log(`\n=== [V4] VB1 MDD 구간(${win.from}~${win.to}) 구간 수익·낙폭(정보용; VB1 앞선 기록: 구간 복리 -63.31% / MDD 64.17%) ===`);
+    {
+      console.log("| 전략 | 구간 복리 수익 % | 구간 내 낙폭 MDD % | 연속 전체 MDD % |\n|---|---|---|---|");
+      for (const r of cmpRows) { const ws = winStat(r.run, win.from, win.to); console.log(`| ${r.nm} | ${f2(ws.tot)} | ${f2(ws.mdd)} | ${f2(h.st(r.run, Wx.FULL).mdd)} |`); }
+    }
+    // ---- [V5] 하루 지연(C) ----
+    console.log(`\n=== [V5] 하루 지연(C 관문, 진입·청산·재조정 +1거래일) 연속 CAGR·MDD 변화 — 각 시험의 "지연 버전" 줄과 같은 값을 다시 모은 요약 ===`);
+    {
+      const dl = runS(dv1, DV1_P0, cD, null, { lag: 2, detail: true }), b = h.st(gRun, Wx.FULL), d2 = h.st(dl, Wx.FULL);
+      console.log(`DV1: 기준 ${f2(b.cagr)} / ${f2(b.mdd)} → 지연 ${f2(d2.cagr)} / ${f2(d2.mdd)} (CAGR ${sg(d2.cagr - b.cagr)}%p, MDD ${sg(d2.mdd - b.mdd)}%p)`);
+      const dlC = combineN([sliceSl(coreOf(2, undefined, 2, {}).sl, from), slFromRun(dl)], [DV1C_W[0], DV1C_W[1]], CS_MOVE_COST, sigSet).run, bc = h.st(cRun, Wx.FULL), dc = h.st(dlC, Wx.FULL);
+      console.log(`DV1C: 기준 ${f2(bc.cagr)} / ${f2(bc.mdd)} → 지연 ${f2(dc.cagr)} / ${f2(dc.mdd)} (CAGR ${sg(dc.cagr - bc.cagr)}%p, MDD ${sg(dc.mdd - bc.mdd)}%p)`);
+    }
+    // ---- [V6] 일간 상관 ----
+    console.log(`\n=== [V6] 일간 수익률 상관계수(공통 구간 ${from}~${h.dataEnd}, 정보용; VB1·QV1·RM1 포함) ===`);
+    {
+      const mkSer = (name: string, r: { dates: string[]; ret: number[] }): { name: string; m: Map<string, number> } => ({ name, m: new Map(r.dates.map((d, i2) => [d, r.ret[i2]])) });
+      const ser = [...cmpRows, { nm: "RM1", run: rm1Run }].map((r) => mkSer(r.nm, r.run));
+      const dd = gRun.dates.filter((d) => d >= from && ser.every((x) => x.m.has(d)));
+      const corr = (x: Map<string, number>, y: Map<string, number>): number => { const xs = dd.map((d) => x.get(d) as number), ys = dd.map((d) => y.get(d) as number), n = xs.length, mx = avg(xs), my = avg(ys); let sxy = 0, sxx = 0, syy = 0; for (let i2 = 0; i2 < n; i2++) { sxy += (xs[i2] - mx) * (ys[i2] - my); sxx += (xs[i2] - mx) ** 2; syy += (ys[i2] - my) ** 2; } return sxy / Math.sqrt(sxx * syy); };
+      console.log(`공통 ${dd.length}일\n| | ${ser.map((x) => x.name).join(" | ")} |\n|---|${ser.map(() => "---").join("|")}|`);
+      for (const x of ser) console.log(`| ${x.name} | ${ser.map((y) => f2(corr(x.m, y.m))).join(" | ")} |`);
+    }
+    // ---- [D1] 평균 배당수익률·PBR · 금융주·지주사 비중 ----
+    console.log(`\n=== [D1] 보유 종목 평균 배당수익률·PBR · 금융주·지주사 비중(월말 신호일 목표 종목, 근사: 이전 목표 = 보유; 금융 = KSIC ${Q_FIN_KSIC.join("·")}, 지주사 = 종목명에 "홀딩스"·"지주"·"Holdings" 포함(이름 기반 근사)) ===`);
+    {
+      for (const [nm, pt] of [["DV1", pathTgG(dv1, cD)], ["VB1", pathTgG(vb1, cD)], ["QV1", pathTgG(qv1, cD)]] as [string, { c: number; t: Map<string, number> }[]][]) {
+        const yv: number[] = [], pv: number[] = [];
+        let nFin = 0, nHold = 0, nAll = 0;
+        for (const { c, t } of pt) {
+          const yl = new Map(dvRowsAt(c, DV1_P0).map((x) => [x.code, x.yld] as [string, number]));
+          for (const code of t.keys()) {
+            const y0 = yl.get(code), x = pbrAt(c, h.byCode.get(code) as S, VB1_P0.maxAge);
+            if (y0 !== undefined) yv.push(y0);
+            if (x.why === "ok") pv.push(x.pbr);
+            nAll++;
+            if ((Q_FIN_KSIC as readonly string[]).includes((indOf.get(code) ?? "").slice(0, 2))) nFin++;
+            if (/홀딩스|지주|Holdings/i.test(label(code))) nHold++;
+          }
+        }
+        console.log(`${nm}: 평균 배당수익률 ${f2(avg(yv) * 100)}%(중앙값 ${f2(median(yv) * 100)}%, 계산 ${yv.length}/${nAll}건) | 평균 PBR ${f2(avg(pv))}(중앙값 ${f2(median(pv))}, PBR 계산 ${pv.length}/${nAll}건) | 금융주 비중 ${f2((nFin / Math.max(nAll, 1)) * 100)}%(보유 종목-월 ${nAll}건 중 ${nFin}건) | 지주사 비중 ${f2((nHold / Math.max(nAll, 1)) * 100)}%(${nHold}건)`);
+      }
+    }
+    // ---- [D2] 후보 집합 크기 · [D3] 제외 종목-월 비율 ----
+    console.log(`\n=== [D2] 후보 집합 크기(월말 신호일 ${monthEndIdx.filter((x) => x >= cD).length}개) · [D3] 제외 종목-월 비율(BS1 적격 종목-월 기준) ===`);
+    {
+      const days = monthEndIdx.filter((x) => x >= cD), s1 = days.map((c) => dvRowsAt(c, DV1_P0).length);
+      console.log(`DV1 후보 수: 최소 ${Math.min(...s1)} · 평균 ${f2(avg(s1))} · 최대 ${Math.max(...s1)} | ${DV1_P0.n}개 미만 월 ${s1.filter((x) => x < DV1_P0.n).length}개`);
+      let nAll = 0, nOk = 0, nNoDiv = 0, nNoCont = 0, nRoe = 0;
+      const whyD = new Map<string, number>();
+      for (const c of days) {
+        const d = CAL[c];
+        for (const code of bsElig(c, B5_BS_P0)) {
+          nAll++;
+          const o = divAt(code, d, DV1_P0.maxAge);
+          if (o.why !== "ok") { nNoDiv++; whyD.set(o.why, (whyD.get(o.why) ?? 0) + 1); continue; }
+          if (!((o.dps as number) > 0 && (o.d1 ?? 0) > 0 && (o.d2 ?? 0) > 0)) { nNoCont++; continue; }
+          if (roeOf(code, d, DV1_P0.maxAge).why !== "ok") { nRoe++; continue; }
+          nOk++;
+        }
+      }
+      const pc = (x: number): string => `${f2((x / Math.max(nAll, 1)) * 100)}%`;
+      console.log(`적격 종목-월 ${nAll}건 중 후보 ${nOk}건 ${pc(nOk)} | 제외: 배당 계산 불가 ${nNoDiv}건 ${pc(nNoDiv)}(${[...whyD.entries()].sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v}`).join(" · ")}) · 연속성 불충족(무배당·3년 중 하나라도 배당 ≤ 0) ${nNoCont}건 ${pc(nNoCont)} · 순이익 TTM ≤ 0 또는 자본 ≤ 0 등 ROE 불가 ${nRoe}건 ${pc(nRoe)}`);
     }
   } else if (MODE === "egtest") {
     await loadEqTables();

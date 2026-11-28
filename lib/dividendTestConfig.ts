@@ -8,9 +8,10 @@ export const DV_F_DENOMINATOR = 2;
  * n: 보유 종목 수(동일 비중 1/n), keepMult: 기존 보유는 순위 n × keepMult 이내면 유지(기본 30 × 2 = 60).
  * 순위 점수: 배당수익률 = (가장 최근 사업연도 보통주 주당 현금배당금) ÷ 월말 원종가, 내림차순. 후보 = BS1 적격 ∧ 배당 연속성 만족 종목.
  */
-export interface DvP { n: number; keepMult: number; maxAge: number; histYears: number }
-/** maxAge: 배당 보고서 접수일부터 월말까지 허용하는 최대 경과일(초과하면 그 월말에는 제외). histYears: 연속성 조건의 직전 사업연도 수(모두 배당 > 0). */
-export const DV1_P0: DvP = { n: 30, keepMult: 2, maxAge: 400, histYears: 3 };
+export interface DvP { n: number; keepMult: number; maxAge: number }
+/** maxAge: 배당 보고서 접수일부터 월말까지 허용하는 최대 경과일(초과하면 그 월말에는 제외). 연속성 조건의 직전 사업연도 수 3은 정의의 일부(DV_HIST_YEARS)라 옵션이 아니다. */
+export const DV_HIST_YEARS = 3;
+export const DV1_P0: DvP = { n: 30, keepMult: 2, maxAge: 400 };
 /** 게이트 D 이웃값(사용자 지정): 종목 수 20·40(유지 배수 2 유지 → 유지 순위 40·80), 유지 순위 45·90(종목 수 30 → 유지 배수 1.5·3). */
 export const DV_NB: [string, Partial<DvP>][] = [["종목 수 20", { n: 20 }], ["종목 수 40", { n: 40 }], ["유지 순위 45", { keepMult: 1.5 }], ["유지 순위 90", { keepMult: 3 }]];
 /** 시작일 규칙(사용자 지정): BS1 적격 월말 종목 중 배당수익률이 계산되는 비율이 이 값 이상이 처음 되는 월말. 못 넘으면 멈추고 보고. */
@@ -24,3 +25,5 @@ export const DV_WIN2_FROM = "2022-01-01";
 export const DV_DS6_REF: [number, number] = [11.7, 39.15];
 /** 독립 재계산 대조 건수(사용자 지정 400). */
 export const DV_RECALC_N = 400;
+/** 시작일: 시작일 규칙(DV_COVERAGE_MIN)을 데이터 점검(dvcov)으로 적용한 결과. 사전등록(div-prereg.md) 확정 전에는 빈 문자열. */
+export const DV_START = "";

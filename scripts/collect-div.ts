@@ -255,7 +255,7 @@ async function collectAll(all: Cand[], keys: PoolKey[]): Promise<void> {
   const prog: Progress = progBuf ? JSON.parse(Buffer.from(progBuf).toString("utf8")) : { version: 1, done: [], daily: structuredClone(DIV_PRESPENT), runs: [] };
   const rows: Row[] = dataBuf ? await decodeTable(dataBuf) : [];
   const done = new Set(prog.done);
-  const used = prog.daily[today] ?? {};
+  const used = { ...(prog.daily[today] ?? {}) }; // 시작 시점 사본(flush가 prog.daily를 갱신해도 기준값이 변하지 않게)
   const capped: PoolKey[] = keys.map((k) => ({ ...k, cap: Math.max(DIV_KEY_DAILY_CAP - (used[k.name] ?? 0), 0) }));
   pool = new DailyKeyPool(capped.filter((k) => (k.cap ?? 0) > 0), DIV_TOTAL_CALL_CAP);
   console.log(`대상 ${targets.length}개사(corp_code 있음), 이미 완료 ${done.size}개사, 저장 행 ${rows.length} | 오늘(${today}) 키별 남은 한도 ${capped.map((k) => `${k.name} ${k.cap}`).join(", ")}`);

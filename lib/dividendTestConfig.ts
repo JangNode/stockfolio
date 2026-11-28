@@ -25,5 +25,5 @@ export const DV_WIN2_FROM = "2022-01-01";
 export const DV_DS6_REF: [number, number] = [11.7, 39.15];
 /** 독립 재계산 대조 건수(사용자 지정 400). */
 export const DV_RECALC_N = 400;
-/** 시작일: 시작일 규칙(DV_COVERAGE_MIN)을 데이터 점검(dvcov)으로 적용한 결과. 사전등록(div-prereg.md) 확정 전에는 빈 문자열. */
-export const DV_START = "";
+/** 시작일: 시작일 규칙(DV_COVERAGE_MIN)을 데이터 점검(dvcov, run 46162760494)으로 적용한 결과(사전등록 §6, 시험 전 기록). */
+export const DV_START = "2016-03-31";

@@ -2968,7 +2968,7 @@ async function main(): Promise<void> {
     console.log(`보통주 행 판별 불가 표본(원행 종류|당기|전기|전전기, 최대 12개): ${nocommonSamples.map((r) => `${r.code}/${r.fy}: ${r.rows.slice(0, 90)}`).join(" || ")}`);
     const rowByCode = new Map<string, number>(); for (const r of divRaw) rowByCode.set(r.code, (rowByCode.get(r.code) ?? 0) + 1);
 
-    const mes = monthEndIdx.filter((c) => CAL[c] >= "2016-03-01");
+    const mes = monthEndIdx.filter((c) => CAL[c] >= "2015-06-01");
     const rows = mes.map((c) => {
       const d = CAL[c], el = bsElig(c, B5_BS_P0), why = new Map<DivWhy, number>();
       let ok = 0, cont = 0, pos = 0;
@@ -2990,7 +2990,7 @@ async function main(): Promise<void> {
     for (const r of rows) { const y = r.d.slice(0, 4), a = byY.get(y) ?? []; a.push(r); byY.set(y, a); }
     for (const [y, a] of [...byY.entries()].sort()) console.log(`${y}: 월말 ${a.length}개 | 계산 비율(BS1 적격) ${f2(avg(a.map((x) => x.r)) * 100)}% · (참고: 시장 전 종목) ${f2(avg(a.map((x) => x.rAll)) * 100)}% | 60% 이상 ${a.filter((x) => x.r >= DV_COVERAGE_MIN).length}/${a.length}개월 | 배당수익률 > 0 평균 ${f2(avg(a.map((x) => x.pos)))}개 | 연속성 만족 평균 ${f2(avg(a.map((x) => x.cont)))}개`);
     const fmtWhy = (m: Map<DivWhy, number>): string => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(" · ");
-    console.log(`\n월별(2016-03 ~ 2017-12): 월말 | BS1 적격 | 계산 | 비율 | 연속성 만족 | 불가 사유`);
+    console.log(`\n월별(2015-06 ~ 2017-12): 월말 | BS1 적격 | 계산 | 비율 | 연속성 만족 | 불가 사유`);
     const first = rows.find((x) => x.r >= DV_COVERAGE_MIN);
     for (const r of rows.filter((x) => x.d < "2018-01-01")) console.log(`${r.d} | ${r.n} | ${r.ok} | ${f2(r.r * 100)}% | ${r.cont} | ${fmtWhy(r.why)}${first && r.d === first.d ? "  ← 처음 60% 이상" : ""}`);
     if (!first) { console.log(`\n시작일 규칙(계산 비율 ≥ ${DV_COVERAGE_MIN * 100}%인 첫 월말) 충족 월 없음 — 시험하지 않고 멈춰 보고한다`); throw new Error("배당 시작일 규칙 충족 월 없음 — 중단"); }
@@ -3018,13 +3018,25 @@ async function main(): Promise<void> {
     // [점검 3] 배당 독립 재계산: 원행(divRaw)만 쓰는 따로 짠 코드(접수일 문자열 비교·Date.parse 경과일·원문 "-" 처리)
     const rawBy = new Map<string, typeof divRaw>();
     for (const r of divRaw) { const a = rawBy.get(r.code) ?? []; a.push(r); rawBy.set(r.code, a); }
+    // 보통주 행 해석도 따로 짠다(includes·인덱스 순회; 모듈은 정규식 find)
+    const bruteCommon = (rows: string): { t0: string; t1: string; t2: string } | null => {
+      const ps = rows.split(";").filter((x) => x.length > 0).map((x) => x.split("|"));
+      let idx = -1;
+      for (let i = 0; i < ps.length; i++) if ((ps[i][0] ?? "").includes("보통")) { idx = i; break; }
+      if (idx < 0) { if (ps.length === 0) return null; const k = ps[0][0] ?? ""; if (k.includes("우선") || k.includes("종류")) return null; idx = 0; }
+      return { t0: (ps[idx][1] ?? "").trim(), t1: (ps[idx][2] ?? "").trim(), t2: (ps[idx][3] ?? "").trim() };
+    };
+    const bruteNum = (t: string): number | null => { if (t === "" || t === "-") return null; const v = Number(t.split(",").join("")); return Number.isNaN(v) ? null : v; };
     const bruteDiv = (code: string, d: string, maxAge: number): { why: string; dps?: number; d1?: number | null; d2?: number | null } => {
       const rs = (rawBy.get(code) ?? []).filter((r) => r.status === "000" && r.rcept !== "" && r.rcept < d).sort((a, b) => a.fy - b.fy || (a.rcept < b.rcept ? -1 : 1));
       if (!rs.length) return { why: "no_report" };
       const F = rs[rs.length - 1];
       if ((Date.parse(d) - Date.parse(F.rcept)) / 86_400_000 > maxAge) return { why: "stale" };
-      if (F.d0 !== null) return { why: "ok", dps: F.d0, d1: F.d1, d2: F.d2 };
-      if (F.raw === "-") return { why: "ok", dps: 0, d1: null, d2: null };
+      const c = bruteCommon(F.rows);
+      if (c === null) return { why: "no_common" };
+      const v0 = bruteNum(c.t0);
+      if (v0 !== null) return { why: "ok", dps: v0, d1: bruteNum(c.t1), d2: bruteNum(c.t2) };
+      if (c.t0 === "-") return { why: "ok", dps: 0, d1: null, d2: null };
       return { why: "no_common" };
     };
     {

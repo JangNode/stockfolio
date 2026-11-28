@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { encodeTable, decodeTable, downloadBuf, uploadBuf, storageUsage, MiB, kstDate, type ColDef, type Row } from "@/lib/nBookStore";
 import { periodOf, type Filing } from "@/lib/dartXbrlExtract";
 import {
-  DIV_DATA_FILE, DIV_PROGRESS_FILE, DIV_FY_FROM, DIV_FY_TO, DIV_REPRT_CODE, DIV_SIGNAL_FROM, DIV_SIGNAL_TO, DIV_LIST_FROM, DIV_LIST_TO, DIV_LIST_PAGE_COUNT,
+  DIV_DATA_FILE, DIV_PROGRESS_FILE, DIV_FY_FROM, DIV_FY_TO, DIV_REPRT_CODE, DIV_SIGNAL_FROM, DIV_SIGNAL_TO, DIV_PILOT_FROM, DIV_PILOT_TO, DIV_PRESPENT, DIV_LIST_FROM, DIV_LIST_TO, DIV_LIST_PAGE_COUNT,
   DIV_KEY_ENVS, DIV_KEY_DAILY_LIMIT, DIV_KEY_DAILY_CAP, DIV_PILOT_CALL_CAP, DIV_TOTAL_CALL_CAP, DIV_GAP_MS, DIV_CONCURRENCY, DIV_MAX_RETRIES, DIV_RETRY_BASE_MS,
   DIV_FETCH_TIMEOUT_MS, DIV_SOFT_DEADLINE_MINUTES, DIV_FLUSH_EVERY_CORPS, DIV_PILOT, DIV_PASS,
 } from "@/lib/dividendConfig";
@@ -113,8 +113,9 @@ async function main(): Promise<void> {
   const seen = new Map<string, Cand>();
   const corpRows = await selectAll<Record<string, unknown>>("dart_corp_codes", (f, t) => supabaseAdmin.from("dart_corp_codes").select("stock_code, corp_code").range(f, t));
   const corpOf = new Map(corpRows.map((r) => [String(r.stock_code), String(r.corp_code)]));
+  const [uFrom, uTo] = MODE === "pilot" ? [DIV_PILOT_FROM, DIV_PILOT_TO] : [DIV_SIGNAL_FROM, DIV_SIGNAL_TO];
   for (const d of h.monthEnds) {
-    if (d < DIV_SIGNAL_FROM || d > DIV_SIGNAL_TO) continue;
+    if (d < uFrom || d > uTo) continue;
     const m = membAt(d);
     if (!m) continue;
     for (const s of h.stocks) {
@@ -124,7 +125,7 @@ async function main(): Promise<void> {
     }
   }
   const all = [...seen.values()].sort((a, b) => (a.code < b.code ? -1 : 1));
-  console.log(`2011-03~2016-04 월말 구간 후보 종목 ${all.length}개, corp_code 매핑 ${all.filter((c) => c.corp).length}개(없는 종목은 제외·보고)`);
+  console.log(`${uFrom}~${uTo} 월말 구간 후보 종목 ${all.length}개, corp_code 매핑 ${all.filter((c) => c.corp).length}개(없는 종목은 제외·보고)`);
   const sOf = new Map(h.stocks.map((s) => [s.code, s]));
   if (MODE === "pilot") { await pilot(all, sOf, keys, h.CAL); return; }
   await collectAll(all, keys);
@@ -244,14 +245,14 @@ async function pilot(all: Cand[], sOf: Map<string, St>, keys: PoolKey[], CAL: st
 }
 
 // ---- 본 수집 ----
-const DATA_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["status", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["dps_common", "DOUBLE"], ["dps_common_raw", "STRING"], ["dps_pref", "DOUBLE"], ["frmtrm_common", "DOUBLE"], ["lwfr_common", "DOUBLE"], ["orig_rcept_no", "STRING"], ["amended", "STRING"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));
+const DATA_COLS: ColDef[] = [["corp_code", "STRING"], ["stock_code", "STRING"], ["bsns_year", "STRING"], ["status", "STRING"], ["rcept_no", "STRING"], ["rcept_dt", "STRING"], ["dps_common", "DOUBLE"], ["dps_common_raw", "STRING"], ["dps_pref", "DOUBLE"], ["frmtrm_common", "DOUBLE"], ["lwfr_common", "DOUBLE"], ["dps_rows", "STRING"], ["orig_rcept_no", "STRING"], ["amended", "STRING"]].map(([name, type]) => ({ name, type: type as "STRING" | "DOUBLE" }));
 interface Progress { version: 1; done: string[]; daily: Record<string, Record<string, number>>; runs: { at: string; corps: number; calls: number; stop: string }[] }
 
 async function collectAll(all: Cand[], keys: PoolKey[]): Promise<void> {
   const targets = all.filter((c) => c.corp);
   const today = kstDate();
   const progBuf = await downloadBuf(DIV_PROGRESS_FILE), dataBuf = await downloadBuf(DIV_DATA_FILE);
-  const prog: Progress = progBuf ? JSON.parse(Buffer.from(progBuf).toString("utf8")) : { version: 1, done: [], daily: {}, runs: [] };
+  const prog: Progress = progBuf ? JSON.parse(Buffer.from(progBuf).toString("utf8")) : { version: 1, done: [], daily: structuredClone(DIV_PRESPENT), runs: [] };
   const rows: Row[] = dataBuf ? await decodeTable(dataBuf) : [];
   const done = new Set(prog.done);
   const used = prog.daily[today] ?? {};
@@ -296,7 +297,7 @@ async function collectAll(all: Cand[], keys: PoolKey[]): Promise<void> {
         if (common) st.withCommon++;
         const amended = !!rcept && !!orig && rcept !== orig.rcept_no;
         if (amended) st.amended++;
-        out.push({ corp_code: c.corp, stock_code: c.code, bsns_year: String(fy), status: r.status, rcept_no: rcept, rcept_dt: /^\d{8}/.test(rcept) ? isoOf(rcept.slice(0, 8)) : "", dps_common: common ? numOf(common.thstrm) : null, dps_common_raw: common?.thstrm ?? "", dps_pref: pref ? numOf(pref.thstrm) : null, frmtrm_common: common ? numOf(common.frmtrm) : null, lwfr_common: common ? numOf(common.lwfr) : null, orig_rcept_no: orig?.rcept_no ?? "", amended: amended ? "Y" : "" });
+        out.push({ corp_code: c.corp, stock_code: c.code, bsns_year: String(fy), status: r.status, rcept_no: rcept, rcept_dt: /^\d{8}/.test(rcept) ? isoOf(rcept.slice(0, 8)) : "", dps_common: common ? numOf(common.thstrm) : null, dps_common_raw: common?.thstrm ?? "", dps_pref: pref ? numOf(pref.thstrm) : null, frmtrm_common: common ? numOf(common.frmtrm) : null, lwfr_common: common ? numOf(common.lwfr) : null, dps_rows: dps.map((x) => `${x.stock_knd ?? "-"}|${x.thstrm ?? ""}|${x.frmtrm ?? ""}|${x.lwfr ?? ""}`).join(";"), orig_rcept_no: orig?.rcept_no ?? "", amended: amended ? "Y" : "" });
       }
       if (failed) { if (pool.stopReason) { stop = pool.stopReason; return; } continue; }
       rows.push(...out); newDone.push(c.corp); st.corps++; doneNow++;

@@ -4,12 +4,19 @@ export const DIV_STORE_PREFIX = "research/dividend";
 export const DIV_DATA_FILE = `${DIV_STORE_PREFIX}/dividend.parquet`;
 export const DIV_PROGRESS_FILE = `${DIV_STORE_PREFIX}/_progress.json`;
 /** 사업연도 범위(사업보고서 reprt_code 11011만). 접수는 사업연도 다음 해 3월경. */
-export const DIV_FY_FROM = 2011;
+export const DIV_FY_FROM = 2015; // 사용자 지시 2026-11-28: API가 자료를 주는 사업연도(FY2015~)만 쓴다(1단계 점검: FY2011~2014는 전부 status 013)
 export const DIV_FY_TO = 2025;
 export const DIV_REPRT_CODE = "11011";
-/** 종목 대상: 기존 재무 백필(저PBR·ROE)과 같은 종목 = 2011-03~2016-04 월말 구간 후보(소멸 포함, 약 2,127개사, corp_code 매핑된 종목). */
-export const DIV_SIGNAL_FROM = "2011-03-01";
-export const DIV_SIGNAL_TO = "2016-04-30";
+/**
+ * 종목 대상(본 수집): 시험 구간(FY2015 보고서가 나오는 2016-03 이후)의 월말에 한 번이라도 월말 목록·가격 행이 있던 종목(우선주·ETF·SPAC·리츠 제외, corp_code 매핑됨; 소멸·신규 상장 포함).
+ * 1단계 점검(`DIV_PILOT`의 표본 모집단)은 기존 재무 백필과 같은 2011-03~2016-04 월말 구간 후보(2,126개사)를 쓴다(`DIV_PILOT_FROM/TO`).
+ */
+export const DIV_SIGNAL_FROM = "2016-03-01";
+export const DIV_SIGNAL_TO = "2026-10-31";
+export const DIV_PILOT_FROM = "2011-03-01";
+export const DIV_PILOT_TO = "2016-04-30";
+/** 1단계 점검(저장 없음)이 이미 쓴 호출(키별, 2026-11-28 KST): 본 수집의 오늘 하루 한도 계산에 포함한다(첫 점검 97건 + 재실행 481건). */
+export const DIV_PRESPENT = { "2026-11-28": { DART_API_KEY_3: 578 } } as Record<string, Record<string, number>>;
 /** list.json(정기공시, 정정 표기·원본 접수일 확인용) 조회 범위: FY2011 사업보고서(2012-03)부터 FY2025(2026-03~)까지. */
 export const DIV_LIST_FROM = "20120101";
 export const DIV_LIST_TO = "20261128";
@@ -26,7 +33,7 @@ export const DIV_MAX_RETRIES = 2;
 export const DIV_RETRY_BASE_MS = 1000;
 export const DIV_FETCH_TIMEOUT_MS = 90_000;
 export const DIV_SOFT_DEADLINE_MINUTES = 170;
-export const DIV_FLUSH_EVERY_CORPS = 100;
+export const DIV_FLUSH_EVERY_CORPS = 200;
 /**
  * 점검 표본 30개사: 지정 6개(보통주·우선주 둘 다 있는 삼성전자 005930·현대차 005380, 금융지주 KB금융 105560·신한지주 055550, 지주사 SK 034730·LG 003550)
  * + 소멸 4개(마지막 가격 행이 2012-04-01~2016-04-30) + 시총(2011-12 말) 구간 층화 20개(0~500억 7 · 500~2,000억 6 · 2,000~5,000억 4 · 5,000억 이상 3), 시드 20261128.

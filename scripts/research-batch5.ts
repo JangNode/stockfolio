@@ -3128,6 +3128,7 @@ async function main(): Promise<void> {
   }
   if (MODE === "dvinfo") {
     // 정보용(시험 아님): DV1·DV1C·QV1·VB1·RM1·RM1SC·DS13L·DS6·069500 기준 실행의 구간별 CAGR/MDD — 의심 종목-일 0% 처리 유무(zero=0) 또는 삼성전자·SK하이닉스 수익 0(neutralize) 비교용.
+    await loadEqTables();
     await loadDiv();
     await loadRoe();
     requireStart();
@@ -3147,6 +3148,7 @@ async function main(): Promise<void> {
   }
   if (MODE === "dvinfo2") {
     // 정보용(시험 아님, 판정 변경 없음): 월 신호일을 마지막 거래일에서 5·10거래일 앞당긴 민감도(DV1·DV1C). 배당·ROE 조건은 앞당긴 신호일 기준으로 다시 계산한다.
+    await loadEqTables();
     await loadDiv();
     await loadRoe();
     requireStart();
@@ -5337,6 +5339,7 @@ async function main(): Promise<void> {
       console.log(`최소 ${Math.min(...sz)} · 평균 ${f2(avg(sz))} · 최대 ${Math.max(...sz)} | 30개 미만 ${sz.filter((x) => x < CM1_P0.n).length}개월`);
     }
   } else if (MODE === "dvtest") {
+    await loadEqTables();
     await loadDiv();
     await loadRoe();
     requireStart();

@@ -126,17 +126,19 @@ async function main(): Promise<void> {
   const all = [...seen.values()].sort((a, b) => (a.code < b.code ? -1 : 1));
   console.log(`2011-03~2016-04 월말 구간 후보 종목 ${all.length}개, corp_code 매핑 ${all.filter((c) => c.corp).length}개(없는 종목은 제외·보고)`);
   const sOf = new Map(h.stocks.map((s) => [s.code, s]));
-  if (MODE === "pilot") { await pilot(all, sOf, keys); return; }
+  if (MODE === "pilot") { await pilot(all, sOf, keys, h.CAL); return; }
   await collectAll(all, keys);
 }
 
-async function pilot(all: Cand[], sOf: Map<string, St>, keys: PoolKey[]): Promise<void> {
+async function pilot(all: Cand[], sOf: Map<string, St>, keys: PoolKey[], CAL: string[]): Promise<void> {
   const P = DIV_PILOT;
+  // 기준일 = P.refDate 이전(포함) 마지막 거래일(2011-12-31은 휴장일이라 가격 행이 없다)
+  const refDay = [...CAL].reverse().find((d) => d <= P.refDate) as string;
   pool = new DailyKeyPool(keys.map((k) => ({ ...k, cap: DIV_KEY_DAILY_CAP })), DIV_PILOT_CALL_CAP);
   const rng = mulberry32(P.seed);
   const shuffle = <T,>(a: T[]): T[] => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
-  const withRef = all.filter((c) => c.corp && sOf.get(c.code)!.idx.has(P.refDate));
-  const mcapAt = (c: Cand): number => { const s = sOf.get(c.code) as St; return s.mcapRow[s.idx.get(P.refDate) as number]; };
+  const withRef = all.filter((c) => c.corp && sOf.get(c.code)!.idx.has(refDay));
+  const mcapAt = (c: Cand): number => { const s = sOf.get(c.code) as St; return s.mcapRow[s.idx.get(refDay) as number]; };
   const sel: { c: Cand; band: string }[] = [];
   const missing: string[] = [];
   for (const code of P.named) { const c = all.find((x) => x.code === code && x.corp); if (c) sel.push({ c, band: "지정" }); else missing.push(code); }
@@ -152,8 +154,8 @@ async function pilot(all: Cand[], sOf: Map<string, St>, keys: PoolKey[]): Promis
     for (const c of take) { sel.push({ c, band: `${lo}~${hi === Number.POSITIVE_INFINITY ? "∞" : hi}억` }); taken.add(c.code); }
   });
   console.log(`\n=== 점검 대상 ${sel.length}개사(지정 ${sel.filter((x) => x.band === "지정").length} · 소멸 ${vSel.length} · 층화 ${sel.filter((x) => !["지정", "소멸"].includes(x.band)).length}, 시드 ${P.seed}) ${missing.length ? `| 지정 종목 중 후보에 없음: ${missing.join(",")}` : ""} ===`);
-  console.log(`| # | 종목 | 구분 | ${P.refDate} 시총(억) | 첫 가격 행 | 마지막 가격 행 |\n|---|---|---|---|---|---|`);
-  sel.forEach((x, i) => console.log(`| ${i + 1} | ${x.c.code} | ${x.band} | ${(sOf.get(x.c.code)!.idx.has(P.refDate) ? mcapAt(x.c).toFixed(0) : "-")} | ${x.c.first} | ${x.c.last} |`));
+  console.log(`| # | 종목 | 구분 | ${refDay} 시총(억) | 첫 가격 행 | 마지막 가격 행 |\n|---|---|---|---|---|---|`);
+  sel.forEach((x, i) => console.log(`| ${i + 1} | ${x.c.code} | ${x.band} | ${(sOf.get(x.c.code)!.idx.has(refDay) ? mcapAt(x.c).toFixed(0) : "-")} | ${x.c.first} | ${x.c.last} |`));
 
   interface Rec { code: string; band: string; fy: number; expected: boolean; status: string; nItems: number; rcept: string; common: AlotItem | undefined; prefN: number; rows: AlotItem[] }
   const recs: Rec[] = [];

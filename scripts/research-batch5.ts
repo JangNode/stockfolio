@@ -3126,6 +3126,47 @@ async function main(): Promise<void> {
     console.log(`\n배당 사전 점검 통과(DV1·DV1C 성과는 계산·출력하지 않았다; DS6 재현 줄은 환경 확인용) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
     return;
   }
+  if (MODE === "dvinfo") {
+    // 정보용(시험 아님): DV1·DV1C·QV1·VB1·RM1·RM1SC·DS13L·DS6·069500 기준 실행의 구간별 CAGR/MDD — 의심 종목-일 0% 처리 유무(zero=0) 또는 삼성전자·SK하이닉스 수익 0(neutralize) 비교용.
+    await loadDiv();
+    await loadRoe();
+    requireStart();
+    const dv1 = mkDV("DV1", DV1_P0, DV_NB), vb1 = mkVB("VB1", VB1_P0, VB1_NB), qv1 = mkQ("QV1", QV1_P0, QV1_NB), cV = startOf(dv1, false), Wx = windowsV(cV);
+    const dvRun = runS(dv1, DV1_P0, cV, null, { lag: 1, detail: true });
+    const sigSet = new Set(monthEndIdx.filter((c) => c > cV).map((c) => CAL[c]));
+    const dvc = combineN([sliceSl(coreOf(2, undefined, 1, {}).sl, Wx.FULL.from), slFromRun(dvRun)], [DV1C_W[0], DV1C_W[1]], CS_MOVE_COST, sigSet).run;
+    const rows: { nm: string; run: { dates: string[]; ret: number[] } }[] = [
+      { nm: "DV1", run: dvRun }, { nm: "DV1C", run: dvc }, { nm: "QV1", run: runS(qv1, QV1_P0, cV, null, { lag: 1, detail: true }) },
+      { nm: "VB1", run: runS(vb1, VB1_P0, cV, null, { lag: 1, detail: true }) }, { nm: "RM1", run: runS(RM1, RM1.P0, cV, null, { lag: 1, detail: true }) }, { nm: "RM1SC", run: rm1scOf(cV, Wx).res.run },
+      { nm: "DS13L", run: d13Of("LV1", cV, Wx).base.res.run }, { nm: "069500", run: { dates: h.bhP.dates, ret: h.bhP.ret } }, { nm: "DS6", run: b6.res.run },
+    ];
+    console.log(`\n=== [V8] 정보용: ${ZERO_SUSPECT_ON ? `의심 종목-일 0% 처리 적용(${suspectLog.length}건)` : "의심 종목-일 처리 없음"}${NEUTRALIZE_ON ? ` · 수익 0 처리 종목 ${process.env.NEUTRALIZE_CODES ?? ""}(가격 수익만 0으로 둔 중립화)` : ""} — CAGR % / MDD % (같은 구간 ${Wx.FULL.from}~) ===\n| 구간 | ${rows.map((r) => r.nm).join(" | ")} |\n|---|${rows.map(() => "---").join("|")}|`);
+    for (const [nm, w] of Wx.ALL) console.log(`| ${nm} | ${rows.map((r) => `${f2(h.st(r.run, w).cagr)} / ${f2(h.st(r.run, w).mdd)}`).join(" | ")} |`);
+    console.log(`\n정보용 실행 종료(시험 아님) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
+    return;
+  }
+  if (MODE === "dvinfo2") {
+    // 정보용(시험 아님, 판정 변경 없음): 월 신호일을 마지막 거래일에서 5·10거래일 앞당긴 민감도(DV1·DV1C). 배당·ROE 조건은 앞당긴 신호일 기준으로 다시 계산한다.
+    await loadDiv();
+    await loadRoe();
+    requireStart();
+    const dv0 = mkDV("DV1", DV1_P0, DV_NB), cV = startOf(dv0, false), Wx = windowsV(cV), from = Wx.FULL.from, bRun = { dates: h.bhP.dates, ret: h.bhP.ret };
+    const coreFull = sliceSl(coreOf(2, undefined, 1, {}).sl, from);
+    const shifts = [0, 5, 10].map((sh) => {
+      const def = mkDV("DV1", DV1_P0, DV_NB, { shift: sh }), run = runS(def, DV1_P0, cV, null, { lag: 1, detail: true });
+      const sig = new Set(def.signalDays.filter((c) => c > cV).map((c) => CAL[c]));
+      return { sh, dv1: run, dvc: combineN([coreFull, slFromRun(run)], [DV1C_W[0], DV1C_W[1]], CS_MOVE_COST, sig).run };
+    });
+    console.log(`\n=== [V7] 정보용 견고성 점검: 월 신호일을 마지막 거래일에서 5·10거래일 앞당김 — CAGR % / MDD % (같은 구간 ${from}~, 보정 + 0% 처리 데이터) ===`);
+    for (const [lb, pick] of [["DV1", (x: (typeof shifts)[number]) => x.dv1], ["DV1C", (x: (typeof shifts)[number]) => x.dvc]] as [string, (x: (typeof shifts)[number]) => { dates: string[]; ret: number[] }][]) {
+      console.log(`${lb}\n| 구간 | 069500 | 기준(0일) | −5일 | −10일 |\n|---|---|---|---|---|`);
+      for (const [nm, w] of Wx.ALL) console.log(`| ${nm} | ${f2(h.st(bRun, w).cagr)} / ${f2(h.st(bRun, w).mdd)} | ${shifts.map((x) => `${f2(h.st(pick(x), w).cagr)} / ${f2(h.st(pick(x), w).mdd)}`).join(" | ")} |`);
+      const f0 = h.st(pick(shifts[0]), Wx.FULL);
+      console.log(`${lb} 연속 CAGR 차이(기준 대비 %p): ${shifts.slice(1).map((x) => `−${x.sh}일 ${sg(h.st(pick(x), Wx.FULL).cagr - f0.cagr)}(MDD ${sg(h.st(pick(x), Wx.FULL).mdd - f0.mdd)}%p)`).join(" · ")} | CAGR 차이 1.5%p 초과 ${shifts.slice(1).some((x) => Math.abs(h.st(pick(x), Wx.FULL).cagr - f0.cagr) > 1.5) ? "있음" : "없음"}`);
+    }
+    console.log(`\n정보용 실행 종료(시험 아님, 판정 변경 없음) | ${storageLine()} | 외부 요청 0 | DART 호출 0 | 연구 DB 쓰기 0`);
+    return;
+  }
   if (MODE === "egpre") {
     // ROE 변화 사전 점검(EG1·EGM1 성과 미계산): DS6 재현(위 줄), Q1·QV1 재현, ROE 변화 독립 재계산 400건, 후보 집합·순위 독립 재계산, 보유 수·첫 체결일, 시작일 커버리지, 후보 수, 소멸 관례.
     await loadEqTables();
